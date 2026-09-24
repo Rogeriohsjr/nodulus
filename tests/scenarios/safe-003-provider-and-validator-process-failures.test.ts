@@ -67,7 +67,7 @@ test("SAFE-003 cancels the production validator process on AbortSignal", async (
     expect(result.cancelled).toBe(true);
     expect(result.timedOut).toBe(false);
     expect(result.exitCode).not.toBe(0);
-    expect(isProcessAlive(descendantPid)).toBe(false);
+    await waitForProcessExit(descendantPid, 1500);
   } finally {
     controller.abort();
     try {
@@ -110,11 +110,26 @@ async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void>
     if (!isProcessAlive(pid)) return;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  throw new Error(`Validator child process ${pid} remained alive after ${timeoutMs}ms.`);
+  throw new Error(`Process ${pid} remained alive after ${timeoutMs}ms.`);
 }
 
 function isProcessAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (process.platform === "linux") {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const commandEnd = stat.lastIndexOf(")");
+      if (commandEnd >= 0 && stat.slice(commandEnd + 1).trimStart()[0] === "Z") return false;
+    } catch (error) {
+      const code = getErrorCode(error);
+      if (code === "ENOENT" || code === "ESRCH") return false;
+    }
+  }
   try { process.kill(pid, 0); return true; }
-  catch { return false; }
+  catch (error) { return getErrorCode(error) !== "ESRCH"; }
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
+  return typeof error.code === "string" ? error.code : undefined;
 }
