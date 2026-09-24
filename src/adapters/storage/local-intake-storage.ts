@@ -1,9 +1,42 @@
-import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { IntakeStorage, RunFiles } from "../../core/ports/intake-storage.js";
+import { NodulusError } from "../../core/shared/nodulus-error.js";
 
 export class LocalIntakeStorage implements IntakeStorage {
+  async acquireRunLock(projectRoot: string, runId: string) {
+    const runDirectory = await resolveRunDirectory(projectRoot, runId);
+    const lockPath = path.join(runDirectory, ".resume.lock");
+    const token = randomUUID();
+    try {
+      const handle = await open(lockPath, "wx");
+      try { await handle.writeFile(JSON.stringify({ pid: process.pid, token }), "utf8"); }
+      finally { await handle.close(); }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const lockContents = await readFile(lockPath, "utf8").catch(() => "");
+      let ownerPid: number | undefined;
+      try {
+        const value = JSON.parse(lockContents) as { pid?: unknown };
+        if (typeof value.pid === "number" && Number.isInteger(value.pid) && value.pid > 0) ownerPid = value.pid;
+      } catch { /* partial or malformed lock is conservatively treated as owned */ }
+      if (ownerPid !== undefined && !isProcessAlive(ownerPid)) {
+        throw new NodulusError("RUN_RECOVERY_REQUIRED", `Run '${runId}' has a stale resume lock; inspect its checkpoint and attempts, then remove '${lockPath}' manually only after deciding recovery is safe.`);
+      }
+      throw new NodulusError("RUN_LOCKED", `Run '${runId}' is locked by another or unreadable resume owner${ownerPid ? ` (process ${ownerPid})` : ""}.`);
+    }
+    return {
+      async release() {
+        const current = await readFile(lockPath, "utf8").catch(() => "");
+        try {
+          const value = JSON.parse(current) as { token?: unknown };
+          if (value.token === token) await rm(lockPath, { force: true });
+        } catch { /* do not remove a lock whose ownership cannot be verified */ }
+      },
+    };
+  }
+
   async readUtf8(absolutePath: string): Promise<string> {
     return readFile(absolutePath, "utf8");
   }
@@ -49,6 +82,12 @@ export class LocalIntakeStorage implements IntakeStorage {
       await rename(temporary, target);
     }
   }
+}
+
+function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
 }
 
 async function resolveRunDirectory(projectRoot: string, runId: string): Promise<string> {

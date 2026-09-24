@@ -11,8 +11,24 @@ export type ProviderInvocation = {
   answers?: Record<string, unknown>;
 };
 
+export type ProviderUsage = {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  costUsd: number | null;
+};
+export type ProviderCallMetric = { nodeId: string; attempt: number; usage: ProviderUsage | null; elapsedMs: number };
+
 /** External provider boundary; implementations return untrusted raw response text. */
 export interface ProviderPort {
   invoke(invocation: ProviderInvocation): Promise<string>;
+  /** Safe correction call that cannot replay the provider's tool/action phase. */
+  repairResponse?(
+    invocation: ProviderInvocation,
+    previousRawResponse: string,
+    validationErrors: string[],
+  ): Promise<string>;
+  /** Trusted adapter telemetry for the immediately preceding invocation. */
+  usageForLastCall?(): ProviderUsage | null;
   isAvailable?(profile: Record<string, unknown>): Promise<boolean> | boolean;
 }

@@ -20,6 +20,12 @@ export type RunStatusResult = {
   status: string;
   checkpoint: unknown;
   pendingRequest?: unknown;
+  events?: unknown[];
+  metrics?: {
+    calls: import("../core/ports/provider.js").ProviderCallMetric[];
+    totals: import("../core/ports/provider.js").ProviderUsage;
+  };
+  diagnostics?: { incompleteTrailingEvent: boolean };
 };
 
 export type ResumeWorkflowDependencies = { storage?: IntakeStorage };
@@ -56,6 +62,11 @@ export async function getRunStatus(
   storage: IntakeStorage = new LocalIntakeStorage(),
 ): Promise<RunStatusResult> {
   const checkpoint = await readCheckpoint(projectRoot, runId, storage);
+  const [events, incompleteTrailingEvent, metrics] = await Promise.all([
+    readCompleteEvents(projectRoot, runId, storage),
+    hasIncompleteTrailingEvent(projectRoot, runId, storage),
+    readMetrics(projectRoot, runId, storage),
+  ]);
   let pendingRequest: unknown;
   if (checkpoint.status === "needs_input") {
     try {
@@ -68,7 +79,67 @@ export async function getRunStatus(
     runId,
     status: checkpoint.status,
     checkpoint,
+    events,
+    metrics,
+    diagnostics: { incompleteTrailingEvent },
     ...(pendingRequest === undefined ? {} : { pendingRequest }),
+  };
+}
+
+async function readCompleteEvents(projectRoot: string, runId: string, storage: IntakeStorage): Promise<unknown[]> {
+  const raw = await storage.readRunFile(projectRoot, runId, "events.jsonl");
+  const lines = raw.split("\n");
+  const hasNewline = raw.endsWith("\n");
+  if (hasNewline) lines.pop();
+  let trailing: unknown;
+  if (!hasNewline) {
+    const line = lines.pop() ?? "";
+    try { trailing = JSON.parse(line) as unknown; }
+    catch { /* partial tail is deliberately excluded */ }
+  }
+  const events: unknown[] = [];
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    try { events.push(JSON.parse(line) as unknown); }
+    catch { /* malformed complete lines are omitted from the status view */ }
+  }
+  if (trailing !== undefined) events.push(trailing);
+  return events;
+}
+
+async function hasIncompleteTrailingEvent(projectRoot: string, runId: string, storage: IntakeStorage): Promise<boolean> {
+  const raw = await storage.readRunFile(projectRoot, runId, "events.jsonl");
+  if (raw.endsWith("\n")) return false;
+  const last = raw.slice(raw.lastIndexOf("\n") + 1);
+  if (!last) return false;
+  try { JSON.parse(last); return false; }
+  catch { return true; }
+}
+
+async function readMetrics(
+  projectRoot: string,
+  runId: string,
+  storage: IntakeStorage,
+): Promise<NonNullable<RunStatusResult["metrics"]>> {
+  let calls: import("../core/ports/provider.js").ProviderCallMetric[] = [];
+  try {
+    calls = JSON.parse(await storage.readRunFile(projectRoot, runId, "metrics.json")) as typeof calls;
+    if (!Array.isArray(calls)) calls = [];
+  } catch { calls = []; }
+  const sum = (key: keyof import("../core/ports/provider.js").ProviderUsage): number | null => {
+    const values = calls.map((call) => call.usage?.[key] ?? null);
+    return values.length > 0 && values.every((value): value is number => typeof value === "number")
+      ? values.reduce((total, value) => total + value, 0)
+      : null;
+  };
+  return {
+    calls,
+    totals: {
+      inputTokens: sum("inputTokens"),
+      outputTokens: sum("outputTokens"),
+      cacheReadTokens: sum("cacheReadTokens"),
+      costUsd: sum("costUsd"),
+    },
   };
 }
 
@@ -78,8 +149,24 @@ export async function resumeWorkflow(
   dependencies: ResumeWorkflowDependencies = {},
 ): Promise<ApplicationRunResult> {
   const storage = dependencies.storage ?? new LocalIntakeStorage();
+  const lock = await storage.acquireRunLock?.(request.projectRoot, request.runId);
+  try {
+    return await resumeWorkflowLocked(request, provider, storage);
+  } finally {
+    await lock?.release();
+  }
+}
+
+async function resumeWorkflowLocked(
+  request: ResumeWorkflowRequest,
+  provider: ProviderPort,
+  storage: IntakeStorage,
+): Promise<ApplicationRunResult> {
   const { projectRoot, runId } = request;
   const checkpoint = await readCheckpoint(projectRoot, runId, storage);
+  if (checkpoint.status === "running") {
+    throw new NodulusError("RUN_RECOVERY_REQUIRED", `Run '${runId}' has an interrupted invocation with uncertain completion; inspect its saved attempts and recover it manually instead of replaying it.`);
+  }
   if (checkpoint.status !== "needs_input") {
     throw new NodulusError("RUN_NOT_PAUSED", `Run '${runId}' is '${checkpoint.status}', not paused for input.`);
   }

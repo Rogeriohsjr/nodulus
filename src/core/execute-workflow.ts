@@ -5,7 +5,7 @@ import type { AnySchema } from "ajv";
 import type { IntakeRequest, IntakeResult } from "./intake-request.js";
 import type { ArtifactValidator } from "./ports/artifact-validator.js";
 import type { IntakeStorage, RunFiles } from "./ports/intake-storage.js";
-import type { ProviderPort } from "./ports/provider.js";
+import type { ProviderCallMetric, ProviderPort, ProviderUsage } from "./ports/provider.js";
 import { resolveOutputReference } from "./workflow-mapping.js";
 
 type Node = {
@@ -181,8 +181,8 @@ export async function executeWorkflow(
       providerProfile: profile,
       ...(Object.keys(nodeAnswers).length ? { answers: nodeAnswers } : {}),
     };
-    const attempt = state.startNodeId === node.id ? state.attempt ?? 2 : 1;
-    const attemptRoot = `nodes/${node.id}/attempt-${String(attempt).padStart(3, "0")}`;
+    let attempt = state.startNodeId === node.id ? state.attempt ?? 2 : 1;
+    let attemptRoot = `nodes/${node.id}/attempt-${String(attempt).padStart(3, "0")}`;
     const startedAt = new Date().toISOString();
     const invocationRecord = {
       runId,
@@ -207,10 +207,12 @@ export async function executeWorkflow(
     await appendEvent(request.projectRoot, runId, storage, { event: "node.started", runId, nodeId: node.id, attempt });
 
     let raw: string;
+    const callStartedAt = Date.now();
     try {
       raw = await provider.invoke(invocation);
       if (typeof raw !== "string") throw new Error("Provider returned a non-string response.");
     } catch (error) {
+      await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, attempt, Date.now() - callStartedAt);
       const diagnostic = { code: "PROVIDER_FAILURE", message: messageOf(error) };
       const validation = { valid: false, code: diagnostic.code, errors: [diagnostic.message] };
       await storage.writeRunFiles(request.projectRoot, runId, {
@@ -222,14 +224,86 @@ export async function executeWorkflow(
       return finishError(request.projectRoot, runId, storage, diagnostic.code, diagnostic.message, attemptRoot, validation, completedNodes, node.id);
     }
 
+    await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, attempt, Date.now() - callStartedAt);
     await storage.writeRunFiles(request.projectRoot, runId, { [`${attemptRoot}/response.raw.txt`]: raw });
-    const parsed = parseProviderOutcome(raw);
-    if (!parsed.valid) {
-      const validation = { valid: false, code: parsed.code, errors: parsed.errors };
-      await storage.writeRunFiles(request.projectRoot, runId, { [`${attemptRoot}/validation.json`]: json(validation) });
-      await appendEvent(request.projectRoot, runId, storage, { event: "node.rejected", runId, nodeId: node.id, code: parsed.code });
-      return finishError(request.projectRoot, runId, storage, parsed.code, parsed.errors.join("; "), attemptRoot, validation, completedNodes, node.id);
+    let parsed = parseProviderOutcome(raw);
+    let repairCount = 0;
+    let currentAttempt = attempt;
+    let currentAttemptRoot = attemptRoot;
+    let outputCheck: ReturnType<typeof validateOutputSet> | undefined;
+    const responseIssue = (): { code: string; errors: string[] } | undefined => {
+      if (!parsed.valid) return { code: parsed.code, errors: parsed.errors };
+      if (parsed.outcome.status !== "success") return undefined;
+      outputCheck = validateOutputSet(parsed.outcome.artifacts, node.expectedOutputs, contracts);
+      return outputCheck.valid ? undefined : { code: outputCheck.code, errors: outputCheck.errors };
+    };
+    const requestCorrection = async (code: string, errors: string[]): Promise<RunResponse | undefined> => {
+      const validation = { valid: false, code, errors };
+      await storage.writeRunFiles(request.projectRoot, runId, { [`${currentAttemptRoot}/validation.json`]: json(validation) });
+      const capabilities = Array.isArray(profile.capabilities) ? profile.capabilities : [];
+      const repair = provider.repairResponse;
+      if (!capabilities.includes("responseRepair") || !repair) {
+        const message = "Safe response-only repair is unavailable; the full provider action will not be replayed.";
+        return finishError(request.projectRoot, runId, storage, "RESPONSE_REPAIR_UNAVAILABLE", message, currentAttemptRoot, validation, completedNodes, node.id);
+      }
+      if (repairCount >= 2) {
+        const message = "The provider response remained invalid after two response-only repairs.";
+        return finishError(request.projectRoot, runId, storage, "REPAIR_EXHAUSTED", message, currentAttemptRoot, validation, completedNodes, node.id);
+      }
+      repairCount += 1;
+      currentAttempt += 1;
+      currentAttemptRoot = `nodes/${node.id}/attempt-${String(currentAttempt).padStart(3, "0")}`;
+      const repairRecord = {
+        ...invocationRecord,
+        attempt: currentAttempt,
+        operation: "response_repair",
+        previousAttempt: currentAttempt - 1,
+        previousResponse: raw,
+        validationErrors: errors,
+        startedAt: new Date().toISOString(),
+      };
+      await storage.writeRunFiles(request.projectRoot, runId, {
+        "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "running", activeNode: node.id, completedNodes, attempt: currentAttempt, answers: nodeAnswers, pendingKind: null }),
+        [`${currentAttemptRoot}/invocation.json`]: json(repairRecord),
+        [`${currentAttemptRoot}/prompt.md`]: prompt,
+        [`${currentAttemptRoot}/response.raw.txt`]: "",
+        [`${currentAttemptRoot}/stderr.log`]: "",
+      });
+      await appendEvent(request.projectRoot, runId, storage, { event: "node.repair.started", runId, nodeId: node.id, attempt: currentAttempt });
+      const repairStartedAt = Date.now();
+      try {
+        raw = await repair.call(provider, invocation, raw, errors);
+        if (typeof raw !== "string") throw new Error("Provider repair returned a non-string response.");
+      } catch (error) {
+        await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, currentAttempt, Date.now() - repairStartedAt);
+        const message = messageOf(error);
+        const repairValidation = { valid: false, code: "RESPONSE_REPAIR_FAILED", errors: [message] };
+        await storage.writeRunFiles(request.projectRoot, runId, {
+          [`${currentAttemptRoot}/response.raw.txt`]: "",
+          [`${currentAttemptRoot}/stderr.log`]: message,
+          [`${currentAttemptRoot}/validation.json`]: json(repairValidation),
+        });
+        return finishError(request.projectRoot, runId, storage, "RESPONSE_REPAIR_FAILED", message, currentAttemptRoot, repairValidation, completedNodes, node.id);
+      }
+      await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, currentAttempt, Date.now() - repairStartedAt);
+      await storage.writeRunFiles(request.projectRoot, runId, { [`${currentAttemptRoot}/response.raw.txt`]: raw });
+      parsed = parseProviderOutcome(raw);
+      outputCheck = undefined;
+      await appendEvent(request.projectRoot, runId, storage, { event: "node.repaired", runId, nodeId: node.id, attempt: currentAttempt });
+      return undefined;
+    };
+
+    let issue = responseIssue();
+    while (issue) {
+      const correctionFailure = await requestCorrection(issue.code, issue.errors);
+      if (correctionFailure) return correctionFailure;
+      issue = responseIssue();
     }
+    if (!parsed.valid) {
+      return finishError(request.projectRoot, runId, storage, parsed.code, parsed.errors.join("; "), currentAttemptRoot, undefined, completedNodes, node.id);
+    }
+    attempt = currentAttempt;
+    attemptRoot = currentAttemptRoot;
 
     if (parsed.outcome.status === "error") {
       const validation = { valid: true, outcome: "error", errors: [] };
@@ -265,16 +339,19 @@ export async function executeWorkflow(
       return { runId, status: "needs_input", result: { request: pending } };
     }
 
-    const outputCheck = validateOutputSet(parsed.outcome.artifacts, node.expectedOutputs, contracts);
-    if (!outputCheck.valid) {
-      const validation = { valid: false, code: outputCheck.code, errors: outputCheck.errors };
+    const finalOutputCheck = outputCheck ?? validateOutputSet(parsed.outcome.artifacts, node.expectedOutputs, contracts);
+    if (!finalOutputCheck.valid) {
+      const validation = { valid: false, code: finalOutputCheck.code, errors: finalOutputCheck.errors };
       await storage.writeRunFiles(request.projectRoot, runId, { [`${attemptRoot}/validation.json`]: json(validation) });
-      await appendEvent(request.projectRoot, runId, storage, { event: "node.rejected", runId, nodeId: node.id, code: outputCheck.code });
-      return finishError(request.projectRoot, runId, storage, outputCheck.code, outputCheck.errors.join("; "), attemptRoot, validation, completedNodes, node.id);
+      await appendEvent(request.projectRoot, runId, storage, { event: "node.rejected", runId, nodeId: node.id, code: finalOutputCheck.code });
+      return finishError(request.projectRoot, runId, storage, finalOutputCheck.code, finalOutputCheck.errors.join("; "), attemptRoot, validation, completedNodes, node.id);
     }
 
     const validatorResults: unknown[] = [];
-    for (const artifact of parsed.outcome.artifacts) {
+    while (true) {
+      validatorResults.length = 0;
+      let semanticRejection: { errors: string[]; stderr: string } | undefined;
+      for (const artifact of parsed.outcome.artifacts) {
       const expected = node.expectedOutputs.find((output) => output.name === artifact.name)!;
       if (!expected.validator) continue;
       const scriptPath = path.resolve(request.projectRoot, expected.validator);
@@ -317,10 +394,28 @@ export async function executeWorkflow(
       }
       validatorResults.push({ name: artifact.name, valid: checkedVerdict.validity, errors: checkedVerdict.errors });
       if (!checkedVerdict.validity) {
-        const validation = { valid: false, code: "ARTIFACT_REJECTED", errors: checkedVerdict.errors };
-        await storeValidation(request.projectRoot, runId, storage, attemptRoot, validation, processResult.stderr);
-        return finishError(request.projectRoot, runId, storage, validation.code, validation.errors.join("; "), attemptRoot, validation, completedNodes, node.id);
+        semanticRejection = { errors: checkedVerdict.errors, stderr: processResult.stderr };
+        break;
       }
+      }
+      if (!semanticRejection) break;
+      const validation = { valid: false, code: "ARTIFACT_REJECTED", errors: semanticRejection.errors };
+      await storeValidation(request.projectRoot, runId, storage, attemptRoot, validation, semanticRejection.stderr);
+      const correctionFailure = await requestCorrection(validation.code, validation.errors);
+      if (correctionFailure) return correctionFailure;
+      let repairedIssue = responseIssue();
+      while (repairedIssue) {
+        const repairFailure = await requestCorrection(repairedIssue.code, repairedIssue.errors);
+        if (repairFailure) return repairFailure;
+        repairedIssue = responseIssue();
+      }
+      const repairedParse: ReturnType<typeof parseProviderOutcome> = parsed;
+      if (!repairedParse.valid || repairedParse.outcome.status !== "success") {
+        const errors = (repairedParse as { errors?: string[] }).errors ?? ["A response repair must return a success artifact outcome."];
+        return finishError(request.projectRoot, runId, storage, "INVALID_REPAIRED_OUTCOME", errors.join("; "), currentAttemptRoot, { valid: false, code: "INVALID_REPAIRED_OUTCOME", errors }, completedNodes, node.id);
+      }
+      attempt = currentAttempt;
+      attemptRoot = currentAttemptRoot;
     }
 
     const validation = { valid: true, outcome: "success", validators: validatorResults, errors: [] };
@@ -542,6 +637,42 @@ async function storeValidation(
 async function appendEvent(projectRoot: string, runId: string, storage: IntakeStorage, event: unknown): Promise<void> {
   const current = await storage.readRunFile(projectRoot, runId, "events.jsonl");
   await storage.writeRunFiles(projectRoot, runId, { "events.jsonl": `${current}${JSON.stringify(event)}\n` });
+}
+
+async function recordProviderMetric(
+  projectRoot: string,
+  runId: string,
+  storage: IntakeStorage,
+  provider: ProviderPort,
+  nodeId: string,
+  attempt: number,
+  elapsedMs: number,
+): Promise<void> {
+  let calls: ProviderCallMetric[] = [];
+  try {
+    calls = JSON.parse(await storage.readRunFile(projectRoot, runId, "metrics.json")) as ProviderCallMetric[];
+    if (!Array.isArray(calls)) calls = [];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  let usage: ProviderUsage | null = null;
+  try {
+    const reported = provider.usageForLastCall?.();
+    if (reported && typeof reported === "object") {
+      usage = {
+        inputTokens: finiteOrNull(reported.inputTokens),
+        outputTokens: finiteOrNull(reported.outputTokens),
+        cacheReadTokens: finiteOrNull(reported.cacheReadTokens),
+        costUsd: finiteOrNull(reported.costUsd),
+      };
+    }
+  } catch { usage = null; }
+  calls.push({ nodeId, attempt, usage, elapsedMs: Math.max(0, elapsedMs) });
+  await storage.writeRunFiles(projectRoot, runId, { "metrics.json": json(calls) });
+}
+
+function finiteOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function isRecord(value: unknown): value is Record<string, any> {

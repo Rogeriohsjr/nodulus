@@ -29,3 +29,7 @@ Cursor authentication documentation describes `agent status`; the parameter refe
 Codex local `login --help` confirms the `status` subcommand. Official developer-command documentation specifies successful authenticated status exits zero. Only help was run here, with no login changes or inference.
 
 Sources: [Cursor installation](https://cursor.com/docs/cli/installation), [Cursor authentication](https://cursor.com/docs/cli/reference/authentication), [Cursor parameters](https://cursor.com/docs/cli/reference/parameters), [Codex commands](https://learn.chatgpt.com/docs/developer-commands).
+
+## Cursor long-context transport clarification
+
+The current [headless documentation](https://cursor.com/docs/cli/headless#including-file-paths-in-prompts) explicitly supports relative/absolute file paths in prompts and reading those files through tools. A short argument pointing to a captured UTF-8 prompt file is therefore a documented transport option for large context; fixtures should read that exact file and verify its complete content. The actual tool/model reading it remains a live-compatibility check. The [output-format page](https://cursor.com/docs/cli/reference/output-format) also mentions piped stdin, but does not define how stdin combines with prompt arguments, so file transport is the clearer v1 contract. No need to add ACP solely for this scenario.
