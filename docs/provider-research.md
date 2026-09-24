@@ -19,3 +19,13 @@ Sources: [headless mode](https://cursor.com/docs/cli/headless), [parameters](htt
 ## Verification scope
 
 Folder 07 must read current sources, record protocol samples, test real adapters with executable fixtures, and distinguish these tests from live authenticated runs. The user requested local work first and deferred registry setup. No provider inference, package publication, or external release is authorized by this research note.
+
+## Additional discovery notes (2026-09-24)
+
+Current Cursor installation documentation includes native Windows PowerShell as well as macOS, Linux, and WSL. It names the executable `agent` and documents `agent --version`; native Windows support should not be labeled WSL-only based on older articles. This is documented vendor support, not a local installation or live smoke result.
+
+Cursor authentication documentation describes `agent status`; the parameter reference documents `status --format json`, `--workspace`, `--model`, and print/JSON output. The retrieved pages do not establish a stable authentication JSON field schema or stdin prompt protocol. Do not fabricate either in fixtures; inspect executable output/help when available or report the probe limitation. Credentials should remain in the vendor's existing login/environment rather than Nodulus settings or process arguments.
+
+Codex local `login --help` confirms the `status` subcommand. Official developer-command documentation specifies successful authenticated status exits zero. Only help was run here, with no login changes or inference.
+
+Sources: [Cursor installation](https://cursor.com/docs/cli/installation), [Cursor authentication](https://cursor.com/docs/cli/reference/authentication), [Cursor parameters](https://cursor.com/docs/cli/reference/parameters), [Codex commands](https://learn.chatgpt.com/docs/developer-commands).
