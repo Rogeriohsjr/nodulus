@@ -28,7 +28,7 @@ type NodeDefinition = {
   providerProfile: string;
   instructions: string[];
   inputs: Record<string, unknown>;
-  expectedOutputs: Array<{ name: string; contract: string }>;
+  expectedOutputs: Array<{ name: string; contract: string; validator?: string; validatorTimeoutMs?: number }>;
 };
 type ResolvedReference = { path: string; mode: "snapshot" | "workspace"; sha256: string; content?: string };
 type ResolvedProviderProfile = {
@@ -71,6 +71,8 @@ const nodeSchema = {
         properties: {
           name: { type: "string", minLength: 1 },
           contract: { type: "string", minLength: 1 },
+          validator: { type: "string", minLength: 1 },
+          validatorTimeoutMs: { type: "integer", minimum: 1 },
         },
         additionalProperties: false,
       },
@@ -108,6 +110,10 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
       outputNames.add(output.name);
       const contract = await readContract(projectRoot, output.contract, storage);
       contracts[output.contract] = contract;
+      if (output.validator) {
+        const validatorPath = resolveProjectFile(projectRoot, output.validator, `Validator for '${nodeId}.${output.name}'`);
+        await readUtf8(storage, validatorPath, "CONFIGURATION_INVALID", `Could not read validator '${output.validator}'.`);
+      }
     }
     declaredOutputs.set(nodeId, outputNames);
     nodes.push(node);
