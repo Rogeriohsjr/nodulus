@@ -172,8 +172,10 @@ export async function executeWorkflow(
     );
     const nodeAnswers = state.startNodeId === node.id ? state.answers ?? {} : {};
     const prompt = buildPrompt(context, node, nodeInstructions, mapped.values, nodeAnswers);
+    let attempt = state.startNodeId === node.id ? state.attempt ?? 2 : 1;
     const invocation = {
       runId,
+      attempt,
       workflow: context.workflow.id,
       nodeId: node.id,
       prompt,
@@ -181,7 +183,6 @@ export async function executeWorkflow(
       providerProfile: profile,
       ...(Object.keys(nodeAnswers).length ? { answers: nodeAnswers } : {}),
     };
-    let attempt = state.startNodeId === node.id ? state.attempt ?? 2 : 1;
     let attemptRoot = `nodes/${node.id}/attempt-${String(attempt).padStart(3, "0")}`;
     const startedAt = new Date().toISOString();
     const invocationRecord = {

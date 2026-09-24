@@ -1,5 +1,7 @@
 export type ProviderInvocation = {
   runId: string;
+  /** One-based full provider invocation number for this node in the run. */
+  attempt: number;
   workflow: string;
   nodeId: string;
   prompt: string;

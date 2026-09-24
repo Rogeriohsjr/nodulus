@@ -34,6 +34,7 @@ type NodeDefinition = {
 };
 type ResolvedReference = { path: string; mode: "snapshot" | "workspace"; sha256: string; content?: string };
 type ResolvedProviderProfile = {
+  kind?: "codex" | "cursor";
   enabled: boolean;
   executable: string;
   model?: string;
@@ -252,6 +253,7 @@ function safeProfileSnapshot(profile: ProjectSettings["providerProfiles"][string
     enabled: profile.enabled,
     executable: profile.executable,
   };
+  if (profile.kind === "codex" || profile.kind === "cursor") snapshot.kind = profile.kind;
   if (typeof profile.model === "string") snapshot.model = profile.model;
   if (typeof profile.timeout === "number") snapshot.timeout = profile.timeout;
   if (typeof profile.timeoutMs === "number") snapshot.timeoutMs = profile.timeoutMs;

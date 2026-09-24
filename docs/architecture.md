@@ -1,6 +1,6 @@
 # Architecture and protocol
 
-Status: v1 contract; folders 00 through 06 are implemented and reviewed locally. The implementation index records the remaining provider, package, and hosted-delivery work. Update affected scenarios before changing this contract.
+Status: v1 contract; folders 00 through 07 are implemented and reviewed locally. The implementation index records the remaining package, and hosted-delivery work. Update affected scenarios before changing this contract.
 
 ## Scope and stack
 

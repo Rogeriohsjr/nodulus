@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { LocalExecutableDiscovery } from "./adapters/storage/local-executable-discovery.js";
 import { LocalProjectFiles } from "./adapters/storage/local-project-files.js";
 import { LocalProjectSettings } from "./adapters/storage/local-project-settings.js";
+import { createDefaultProviderPort } from "./adapters/providers/default-provider-port.js";
 import { runWorkflow, type ProviderPort } from "./application/run-workflow.js";
 import { getRunStatus, resumeWorkflow } from "./application/resume-workflow.js";
 import { inspectProject } from "./core/doctor-project.js";
@@ -143,11 +144,7 @@ export async function runCli(
         const text = dependencies.readStdin ? await dependencies.readStdin() : await readStdin();
         sources.push({ kind: "stdin" as const, text });
       }
-      const provider = dependencies.provider ?? {
-        invoke: async () => {
-          throw new NodulusError("PROVIDER_UNAVAILABLE", "No provider adapter is configured for this application run.");
-        },
-      };
+      const provider = dependencies.provider ?? createDefaultProviderPort(projectRoot);
       const result = await runWorkflow({
         projectRoot,
         cwd: callerCwd,
@@ -203,11 +200,7 @@ export async function runCli(
         : await settingsStore.findNearestProject(callerCwd);
       if (!projectRoot) throw new NodulusError("PROJECT_NOT_FOUND", "No Nodulus project found. Pass --project <path>.");
       const answers = await readJsonObject(resolve(callerCwd, options.answersFile), "answers");
-      const provider = dependencies.provider ?? {
-        invoke: async () => {
-          throw new NodulusError("PROVIDER_UNAVAILABLE", "No provider adapter is configured for this application run.");
-        },
-      };
+      const provider = dependencies.provider ?? createDefaultProviderPort(projectRoot);
       const result = await resumeWorkflow({ projectRoot, runId, requestId: options.requestId, answers }, provider);
       if (options.json) writeEnvelope(output.writeOut, { schemaVersion: 1, status: result.status, runId: result.runId, result: result.result });
       else if (result.status === "error") output.writeErr(`Run ${result.runId} failed.\n`);
