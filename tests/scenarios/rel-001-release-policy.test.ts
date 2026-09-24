@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { pathToFileURL } from "node:url";
 import { expect, test } from "vitest";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -74,7 +75,7 @@ test("REL-003 dry-run releases a docs-only commit once and sees no release after
 
     const localReleaseConfig = {
       ...releaseConfig,
-      repositoryUrl: remote,
+      repositoryUrl: pathToFileURL(remote).href,
       plugins: releaseConfig.plugins.filter((plugin) =>
         plugin === "@semantic-release/release-notes-generator" ||
         (Array.isArray(plugin) && ["@semantic-release/commit-analyzer", "@semantic-release/release-notes-generator"].includes(plugin[0] as string))),
