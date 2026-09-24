@@ -1,6 +1,6 @@
 # Implementation sequence
 
-Status: folders 00 through 04 accepted locally on Windows. Hosted cross-platform verification belongs to slice 09.
+Status: folders 00 through 05 accepted locally on Windows. Hosted cross-platform verification belongs to slice 09.
 
 Read [architecture](../architecture.md) and [testing policy](../testing.md). Work in numeric order; each folder depends on the preceding one. This keeps tests and implementation following the same user flow. A developer can implement one folder and hand off its evidence before the next begins.
 
@@ -11,7 +11,7 @@ Read [architecture](../architecture.md) and [testing policy](../testing.md). Wor
 | [x] | [02-request-intake](02-request-intake/README.md) | Accept requests and reference files | TDD |
 | [x] | [03-node-outcomes](03-node-outcomes/README.md) | Execute one node and validate its outcome | TDD |
 | [x] | [04-workflow-sequence](04-workflow-sequence/README.md) | Connect validated nodes in sequence | TDD |
-| [ ] | [05-clarification-resume](05-clarification-resume/README.md) | Pause, answer, and resume | TDD |
+| [x] | [05-clarification-resume](05-clarification-resume/README.md) | Pause, answer, and resume | TDD |
 | [ ] | [06-repair-recovery](06-repair-recovery/README.md) | Repair responses and recover safely | TDD |
 | [ ] | [07-provider-adapters](07-provider-adapters/README.md) | Integrate Codex and Cursor | TDD for adapters; live compatibility verification is separate |
 | [ ] | [08-package-install](08-package-install/README.md) | Install and upgrade the package | TDD for package behavior; docs/metadata review is non-TDD |
@@ -29,5 +29,5 @@ Example assignment:
 
 > Implement docs/implementation/03-node-outcomes using $nodulus-scenario-tdd. Verify prerequisites, implement scenario by scenario with observed RED then GREEN, and update its evidence/checklists. Do not start 04.
 
-Foundation was implemented using $nodulus-delivery-validation and accepted locally on Windows. The subsequent Luna-builder/Sol-reviewer pass completed INIT-002 through INIT-004. Folders 02 through 04 are also accepted; folder 05 is next.
+Foundation was implemented using $nodulus-delivery-validation and accepted locally on Windows. The subsequent Luna-builder/Sol-reviewer pass completed INIT-002 through INIT-004. Folders 02 through 05 are also accepted; folder 06 is next.
 

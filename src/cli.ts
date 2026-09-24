@@ -1,9 +1,11 @@
 import { Command, CommanderError } from "commander";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { LocalExecutableDiscovery } from "./adapters/storage/local-executable-discovery.js";
 import { LocalProjectFiles } from "./adapters/storage/local-project-files.js";
 import { LocalProjectSettings } from "./adapters/storage/local-project-settings.js";
 import { runWorkflow, type ProviderPort } from "./application/run-workflow.js";
+import { getRunStatus, resumeWorkflow } from "./application/resume-workflow.js";
 import { inspectProject } from "./core/doctor-project.js";
 import { initializeProject } from "./core/initialize-project.js";
 import { NodulusError } from "./core/shared/nodulus-error.js";
@@ -24,6 +26,7 @@ type CliEnvelope = {
 export type CliDependencies = {
   provider?: ProviderPort;
   readStdin?: () => Promise<string>;
+  cwd?: string;
 };
 
 const defaultOutput: CliOutput = {
@@ -105,6 +108,7 @@ export async function runCli(
     .option("--request-file <path>", "UTF-8 request file path, relative to current directory")
     .option("--request-stdin", "read request text from stdin")
     .option("--references-file <path>", "references manifest path, relative to current directory")
+    .option("--inputs-file <path>", "JSON named caller inputs path, relative to current directory")
     .option("--json", "write a machine-readable result")
     .action(async (options: {
       project?: string;
@@ -113,9 +117,10 @@ export async function runCli(
       requestFile?: string;
       requestStdin?: boolean;
       referencesFile?: string;
+      inputsFile?: string;
       json?: boolean;
     }) => {
-      const callerCwd = process.cwd();
+      const callerCwd = dependencies.cwd ?? process.cwd();
       const projectRoot = options.project
         ? resolve(options.project)
         : await settingsStore.findNearestProject(callerCwd);
@@ -128,6 +133,9 @@ export async function runCli(
       const settingsContents = await settingsStore.readSettings(projectRoot);
       const settings = parseProjectSettings(settingsContents);
       const workflow = options.workflow ?? settings.defaultWorkflow;
+      const callerInputs = options.inputsFile
+        ? await readJsonObject(resolve(callerCwd, options.inputsFile), "caller inputs")
+        : undefined;
       const sources = [];
       if (options.request !== undefined) sources.push({ kind: "inline" as const, text: options.request });
       if (options.requestFile !== undefined) sources.push({ kind: "file" as const, path: options.requestFile });
@@ -145,6 +153,7 @@ export async function runCli(
         cwd: callerCwd,
         workflow,
         sources,
+        ...(callerInputs ? { callerInputs } : {}),
         ...(options.referencesFile ? { referencesFile: options.referencesFile } : {}),
       }, provider);
 
@@ -160,6 +169,49 @@ export async function runCli(
       } else {
         output.writeOut(`Run ${result.runId}: ${result.status}\n`);
       }
+      commandExitCode = result.status === "success" ? 0 : result.status === "needs_input" ? 2 : 1;
+    });
+
+  program
+    .command("status")
+    .description("Show a persisted run checkpoint")
+    .argument("<run-id>")
+    .option("--project <path>", "project directory; defaults to nearest project")
+    .option("--json", "write a machine-readable result")
+    .action(async (runId: string, options: { project?: string; json?: boolean }) => {
+      const projectRoot = options.project
+        ? resolve(options.project)
+        : await settingsStore.findNearestProject(process.cwd());
+      if (!projectRoot) throw new NodulusError("PROJECT_NOT_FOUND", "No Nodulus project found. Pass --project <path>.");
+      const status = await getRunStatus(projectRoot, runId);
+      if (options.json) writeEnvelope(output.writeOut, { schemaVersion: 1, status: "success", runId, result: status });
+      else output.writeOut(`Run ${runId}: ${status.status}\n`);
+    });
+
+  program
+    .command("resume")
+    .description("Resume a run after answering a pending clarification")
+    .argument("<run-id>")
+    .requiredOption("--request-id <id>", "pending request ID")
+    .requiredOption("--answers-file <path>", "JSON answers path, relative to current directory")
+    .option("--project <path>", "project directory; defaults to nearest project")
+    .option("--json", "write a machine-readable result")
+    .action(async (runId: string, options: { requestId: string; answersFile: string; project?: string; json?: boolean }) => {
+      const callerCwd = dependencies.cwd ?? process.cwd();
+      const projectRoot = options.project
+        ? resolve(options.project)
+        : await settingsStore.findNearestProject(callerCwd);
+      if (!projectRoot) throw new NodulusError("PROJECT_NOT_FOUND", "No Nodulus project found. Pass --project <path>.");
+      const answers = await readJsonObject(resolve(callerCwd, options.answersFile), "answers");
+      const provider = dependencies.provider ?? {
+        invoke: async () => {
+          throw new NodulusError("PROVIDER_UNAVAILABLE", "No provider adapter is configured for this application run.");
+        },
+      };
+      const result = await resumeWorkflow({ projectRoot, runId, requestId: options.requestId, answers }, provider);
+      if (options.json) writeEnvelope(output.writeOut, { schemaVersion: 1, status: result.status, runId: result.runId, result: result.result });
+      else if (result.status === "error") output.writeErr(`Run ${result.runId} failed.\n`);
+      else output.writeOut(`Run ${result.runId}: ${result.status}\n`);
       commandExitCode = result.status === "success" ? 0 : result.status === "needs_input" ? 2 : 1;
     });
 
@@ -191,6 +243,19 @@ async function readStdin(): Promise<string> {
     process.stdin.once("error", reject);
     process.stdin.once("end", () => resolveInput(contents));
   });
+}
+
+async function readJsonObject(filePath: string, description: string): Promise<Record<string, unknown>> {
+  let value: unknown;
+  try {
+    value = JSON.parse(await readFile(filePath, "utf8")) as unknown;
+  } catch (error) {
+    throw new NodulusError("INPUTS_FILE_INVALID", `Could not read ${description} file '${filePath}': ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new NodulusError("INPUTS_FILE_INVALID", `${description} file must contain a JSON object.`);
+  }
+  return value as Record<string, unknown>;
 }
 
 function normalizeCliError(error: unknown): { code: string; message: string } {

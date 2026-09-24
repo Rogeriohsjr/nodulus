@@ -16,13 +16,14 @@ type Node = {
   expectedOutputs: Array<{ name: string; contract: string; validator?: string; validatorTimeoutMs?: number }>;
 };
 type DefinitionContext = {
-  workflow: { id: string; nodes: string[] };
+  workflow: { id: string; nodes: string[]; inputs?: Record<string, { contract: string }> };
   nodes: Node[];
   contracts: Record<string, unknown>;
   providerProfiles: Record<string, Record<string, unknown>>;
 };
 type CapturedInputs = {
   request: string;
+  callerInputs?: Record<string, unknown>;
   instructions: Array<{ path: string; content: string }>;
 };
 type OutputArtifact = { name: string; contract: string; data: unknown };
@@ -32,6 +33,13 @@ type ProviderOutcome =
   | { status: "error"; error: { code: string; message: string } };
 type RunResponse = { runId: string; status: "success" | "needs_input" | "error"; result: unknown };
 type MappedInputsResult = { valid: true; values: Record<string, unknown> } | { valid: false; code: string; message: string };
+export type WorkflowExecutionState = {
+  startNodeId?: string;
+  completedNodes?: string[];
+  answers?: Record<string, unknown>;
+  callerInputs?: Record<string, unknown>;
+  attempt?: number;
+};
 
 const successSchema = {
   type: "object",
@@ -109,25 +117,61 @@ export async function executeWorkflow(
   provider: ProviderPort,
   storage: IntakeStorage,
   artifactValidator: ArtifactValidator,
+  state: WorkflowExecutionState = {},
 ): Promise<RunResponse> {
   const runId = intake.runId;
   const context = JSON.parse(await storage.readRunFile(request.projectRoot, runId, "context/definitions.json")) as DefinitionContext;
   const inputs = JSON.parse(await storage.readRunFile(request.projectRoot, runId, "inputs.json")) as CapturedInputs;
   const contracts = context.contracts;
   const acceptedOutputs = new Map<string, Map<string, OutputArtifact>>();
-  const completedNodes: string[] = [];
+  const completedNodes: string[] = [...(state.completedNodes ?? [])];
+  const callerInputs = state.callerInputs ?? inputs.callerInputs ?? {};
+  const resumeIndex = state.startNodeId ? context.nodes.findIndex((node) => node.id === state.startNodeId) : 0;
+  if (state.startNodeId && resumeIndex < 0) {
+    return finishError(request.projectRoot, runId, storage, "RUN_STATE_INVALID", `Paused node '${state.startNodeId}' is absent from the saved workflow.`, undefined, undefined, completedNodes);
+  }
+  if (!state.startNodeId) {
+    const missing = missingCallerInputs(context.workflow.inputs ?? {}, callerInputs, contracts);
+    if (missing.length > 0) {
+      const requestId = randomUUID();
+      const pending = {
+        id: requestId,
+        questions: missing.map(({ name }) => ({ id: name, message: `Provide the required '${name}' input.` })),
+        answerContract: callerAnswerContract(missing, contracts),
+      };
+      await storage.writeRunFiles(request.projectRoot, runId, {
+        "pending/request.json": json(pending),
+        "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "needs_input", activeNode: null, completedNodes, attempt: 0, requestId, pendingKind: "caller_inputs" }),
+      });
+      await appendEvent(request.projectRoot, runId, storage, { event: "run.needs_input", runId, requestId, kind: "caller_inputs" });
+      return { runId, status: "needs_input", result: { request: pending } };
+    }
+  }
 
   for (let index = 0; index < context.nodes.length; index += 1) {
     const node = context.nodes[index];
+    if (state.startNodeId && index < resumeIndex) {
+      if (completedNodes.includes(node.id)) {
+        const priorArtifacts = await readAcceptedArtifacts(request.projectRoot, runId, node, storage);
+        acceptedOutputs.set(node.id, new Map(priorArtifacts.map((artifact) => [artifact.name, artifact])));
+      }
+      continue;
+    }
+    if (completedNodes.includes(node.id)) {
+      const priorArtifacts = await readAcceptedArtifacts(request.projectRoot, runId, node, storage);
+      acceptedOutputs.set(node.id, new Map(priorArtifacts.map((artifact) => [artifact.name, artifact])));
+      continue;
+    }
     const profile = context.providerProfiles[node.providerProfile];
-    const mapped = resolveMappedInputs(node, inputs.request, context.nodes.slice(0, index), acceptedOutputs, contracts);
+    const mapped = resolveMappedInputs(node, inputs.request, callerInputs, context.nodes.slice(0, index), acceptedOutputs, contracts);
     if (!mapped.valid) {
       return finishError(request.projectRoot, runId, storage, mapped.code, mapped.message, undefined, undefined, completedNodes, node.id);
     }
     const nodeInstructions = inputs.instructions.filter((item) =>
       node.instructions.some((instruction) => path.resolve(request.projectRoot, instruction) === path.resolve(item.path)),
     );
-    const prompt = buildPrompt(context, node, nodeInstructions, mapped.values);
+    const nodeAnswers = state.startNodeId === node.id ? state.answers ?? {} : {};
+    const prompt = buildPrompt(context, node, nodeInstructions, mapped.values, nodeAnswers);
     const invocation = {
       runId,
       workflow: context.workflow.id,
@@ -135,14 +179,16 @@ export async function executeWorkflow(
       prompt,
       inputs: mapped.values,
       providerProfile: profile,
+      ...(Object.keys(nodeAnswers).length ? { answers: nodeAnswers } : {}),
     };
-    const attemptRoot = `nodes/${node.id}/attempt-001`;
+    const attempt = state.startNodeId === node.id ? state.attempt ?? 2 : 1;
+    const attemptRoot = `nodes/${node.id}/attempt-${String(attempt).padStart(3, "0")}`;
     const startedAt = new Date().toISOString();
     const invocationRecord = {
       runId,
       workflow: context.workflow.id,
       nodeId: node.id,
-      attempt: 1,
+      attempt,
       startedAt,
       providerProfile: node.providerProfile,
       resolvedProviderProfile: profile,
@@ -153,12 +199,12 @@ export async function executeWorkflow(
     };
 
     await storage.writeRunFiles(request.projectRoot, runId, {
-      "run.json": json({ schemaVersion: 1, runId, phase: "execution", status: "running", activeNode: node.id, completedNodes, attempt: 1 }),
+      "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "running", activeNode: node.id, completedNodes, attempt, answers: nodeAnswers, pendingKind: null }),
       [`${attemptRoot}/invocation.json`]: json(invocationRecord),
       [`${attemptRoot}/prompt.md`]: prompt,
       [`${attemptRoot}/stderr.log`]: "",
     });
-    await appendEvent(request.projectRoot, runId, storage, { event: "node.started", runId, nodeId: node.id, attempt: 1 });
+    await appendEvent(request.projectRoot, runId, storage, { event: "node.started", runId, nodeId: node.id, attempt });
 
     let raw: string;
     try {
@@ -191,7 +237,7 @@ export async function executeWorkflow(
       await storage.writeRunFiles(request.projectRoot, runId, {
         [`${attemptRoot}/validation.json`]: json(validation),
         [`${attemptRoot}/result.json`]: json({ status: "error", error: parsed.outcome.error }),
-        "run.json": json({ schemaVersion: 1, runId, phase: "execution", status: "error", activeNode: node.id, completedNodes, attempt: 1 }),
+        "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "error", activeNode: node.id, completedNodes, attempt }),
         "result.json": json(result),
       });
       await appendEvent(request.projectRoot, runId, storage, { event: "node.error", runId, nodeId: node.id, error: parsed.outcome.error });
@@ -213,7 +259,7 @@ export async function executeWorkflow(
         [`${attemptRoot}/validation.json`]: json(validation),
         [`${attemptRoot}/result.json`]: json({ status: "needs_input", request: pending }),
         "pending/request.json": json(pending),
-        "run.json": json({ schemaVersion: 1, runId, phase: "execution", status: "needs_input", activeNode: node.id, completedNodes, attempt: 1, requestId }),
+        "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "needs_input", activeNode: node.id, completedNodes, attempt, requestId, pendingKind: "node", pendingNodeId: node.id, answers: nodeAnswers }),
       });
       await appendEvent(request.projectRoot, runId, storage, { event: "node.needs_input", runId, nodeId: node.id, requestId });
       return { runId, status: "needs_input", result: { request: pending } };
@@ -292,7 +338,7 @@ export async function executeWorkflow(
     if (index < context.nodes.length - 1) {
       const nextNode = context.nodes[index + 1];
       await storage.writeRunFiles(request.projectRoot, runId, {
-        "run.json": json({ schemaVersion: 1, runId, phase: "execution", status: "running", activeNode: nextNode.id, completedNodes, attempt: 1 }),
+        "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "running", activeNode: nextNode.id, completedNodes, attempt: 1 }),
       });
       await appendEvent(request.projectRoot, runId, storage, { event: "node.succeeded", runId, nodeId: node.id, artifactNames: parsed.outcome.artifacts.map((artifact) => artifact.name) });
       continue;
@@ -300,7 +346,7 @@ export async function executeWorkflow(
 
     const result = { runId, status: "success", artifacts: parsed.outcome.artifacts };
     await storage.writeRunFiles(request.projectRoot, runId, {
-      "run.json": json({ schemaVersion: 1, runId, phase: "execution", status: "success", activeNode: null, completedNodes, attempt: 1 }),
+      "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "success", activeNode: null, completedNodes, attempt: 1 }),
     });
     await storage.writeRunFiles(request.projectRoot, runId, { "result.json": json(result) });
     await appendEvent(request.projectRoot, runId, storage, { event: "node.succeeded", runId, nodeId: node.id, artifactNames: parsed.outcome.artifacts.map((artifact) => artifact.name) });
@@ -371,6 +417,7 @@ function validateValidatorVerdict(value: unknown): { valid: boolean; validity?: 
 function resolveMappedInputs(
   node: Node,
   requestText: string,
+  callerInputs: Record<string, unknown>,
   earlierNodes: Node[],
   acceptedOutputs: Map<string, Map<string, OutputArtifact>>,
   schemas: Record<string, unknown>,
@@ -389,6 +436,12 @@ function resolveMappedInputs(
     let value: unknown;
     if (candidate.from === "request") {
       value = requestText;
+    } else if (candidate.from.startsWith("caller.")) {
+      const callerName = candidate.from.slice("caller.".length);
+      if (!Object.hasOwn(callerInputs, callerName)) {
+        return { valid: false, code: "CALLER_INPUT_MISSING", message: `Required caller input '${callerName}' is missing.` };
+      }
+      value = callerInputs[callerName];
     } else {
       const source = resolveOutputReference(candidate.from, earlierNodes.map((priorNode) => ({
         nodeId: priorNode.id,
@@ -431,6 +484,7 @@ function buildPrompt(
   node: Node,
   instructions: Array<{ path: string; content: string }>,
   mappedInputs: Record<string, unknown>,
+  answers: Record<string, unknown>,
 ): string {
   const nodeSchemas = Object.fromEntries(node.expectedOutputs.map((output) => [output.contract, context.contracts[output.contract]]));
   const instructionText = instructions.map((item) => `## ${item.path}\n${item.content}`).join("\n\n");
@@ -441,6 +495,7 @@ function buildPrompt(
     instructionText,
     "## Mapped Inputs",
     JSON.stringify(mappedInputs, null, 2),
+    ...(Object.keys(answers).length ? ["## Answers to clarification questions", JSON.stringify(answers, null, 2)] : []),
     "## Required output contracts",
     JSON.stringify(nodeSchemas, null, 2),
     "Return one JSON object matching the package outcome protocol. Do not include runtime metadata.",
@@ -499,4 +554,52 @@ function messageOf(error: unknown): string {
 
 function json(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function missingCallerInputs(
+  declared: Record<string, { contract: string }>,
+  values: Record<string, unknown>,
+  contracts: Record<string, unknown>,
+): Array<{ name: string; contract: string }> {
+  const missing: Array<{ name: string; contract: string }> = [];
+  for (const [name, declaration] of Object.entries(declared)) {
+    const schema = contracts[declaration.contract];
+    let valid = Object.hasOwn(values, name) && schema !== undefined;
+    if (valid) {
+      try {
+        valid = Boolean(new Ajv2020({ strict: false }).compile(schema as AnySchema)(values[name]));
+      } catch {
+        valid = false;
+      }
+    }
+    if (!valid) missing.push({ name, contract: declaration.contract });
+  }
+  return missing;
+}
+
+function callerAnswerContract(
+  missing: Array<{ name: string; contract: string }>,
+  contracts: Record<string, unknown>,
+): unknown {
+  return {
+    type: "object",
+    required: missing.map(({ name }) => name),
+    properties: Object.fromEntries(missing.map(({ name, contract }) => [name, { $ref: `#/$defs/${contract}` }])),
+    additionalProperties: false,
+    $defs: contracts,
+  };
+}
+
+async function readAcceptedArtifacts(
+  projectRoot: string,
+  runId: string,
+  node: Node,
+  storage: IntakeStorage,
+): Promise<OutputArtifact[]> {
+  const artifacts: OutputArtifact[] = [];
+  for (const output of node.expectedOutputs) {
+    const contents = await storage.readRunFile(projectRoot, runId, `nodes/${node.id}/artifacts/${output.name}.json`);
+    artifacts.push(JSON.parse(contents) as OutputArtifact);
+  }
+  return artifacts;
 }

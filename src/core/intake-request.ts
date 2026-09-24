@@ -18,11 +18,12 @@ export type IntakeRequest = {
   workflow: string;
   sources: RequestSource[];
   referencesFile?: string;
+  callerInputs?: Record<string, unknown>;
 };
 
 export type IntakeResult = { runId: string; runDirectory: string };
 
-type WorkflowDefinition = { schemaVersion: 1; id: string; nodes: string[] };
+type WorkflowDefinition = { schemaVersion: 1; id: string; nodes: string[]; inputs?: Record<string, { contract: string }> };
 type NodeDefinition = {
   schemaVersion: 1;
   id: string;
@@ -51,6 +52,15 @@ const workflowSchema = {
     schemaVersion: { const: 1 },
     id: { type: "string", minLength: 1 },
     nodes: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+    inputs: {
+      type: "object",
+      additionalProperties: {
+        type: "object",
+        required: ["contract"],
+        properties: { contract: { type: "string", minLength: 1 } },
+        additionalProperties: false,
+      },
+    },
   },
   additionalProperties: false,
 };
@@ -96,6 +106,10 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
   const instructions: Array<{ path: string; content: string }> = [];
   const declaredOutputs = new Map<string, Map<string, string>>();
   contracts["request.v1"] = requestContract;
+  for (const [name, declaration] of Object.entries(workflow.inputs ?? {})) {
+    if (!isSafeId(name) || !isSafeId(declaration.contract)) configError(`Workflow '${workflow.id}' has an invalid caller input declaration '${name}'.`);
+    if (declaration.contract !== "request.v1") contracts[declaration.contract] = await readContract(projectRoot, declaration.contract, storage);
+  }
 
   for (let index = 0; index < workflow.nodes.length; index += 1) {
     const nodeId = workflow.nodes[index];
@@ -104,7 +118,7 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
     if (node.id !== nodeId) configError(`Node file for '${nodeId}' declares a different ID.`);
     const profile = validateProvider(settings, node.providerProfile, nodeId);
     providerProfiles[node.providerProfile] = safeProfileSnapshot(profile);
-    validateMappings(node, workflow.nodes.slice(0, index), declaredOutputs);
+    validateMappings(node, workflow.nodes.slice(0, index), declaredOutputs, workflow.inputs ?? {});
     for (const candidate of Object.values(node.inputs)) {
       if (!isRecord(candidate)) continue;
       const contractId = typeof candidate.contract === "string"
@@ -144,9 +158,9 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
   const runId = randomUUID();
   const runFiles: RunFiles = {
     "request.md": text,
-    "inputs.json": json({ schemaVersion: 1, workflow: workflow.id, request: text, instructions }),
+    "inputs.json": json({ schemaVersion: 1, workflow: workflow.id, request: text, callerInputs: request.callerInputs ?? {}, instructions }),
     "references.json": json(references),
-    "context/definitions.json": json({ schemaVersion: 1, workflow, nodes, contracts, providerProfiles }),
+    "context/definitions.json": json({ schemaVersion: 1, engineVersion: "1.0.0", workflow, nodes, contracts, providerProfiles }),
     "run.json": json({ schemaVersion: 1, runId, phase: "intake", workflow: workflow.id }),
     "events.jsonl": `${JSON.stringify({ event: "run.intake.completed", runId, workflow: workflow.id })}\n`,
   };
@@ -251,6 +265,7 @@ function validateMappings(
   node: NodeDefinition,
   earlierNodeIds: string[],
   earlierOutputs: Map<string, Map<string, string>>,
+  callerInputs: Record<string, { contract: string }>,
 ): void {
   for (const [inputName, candidate] of Object.entries(node.inputs)) {
     if (!isRecord(candidate) || typeof candidate.from !== "string") {
@@ -260,6 +275,15 @@ function validateMappings(
       const contract = candidate.contract ?? "request.v1";
       if (contract !== "request.v1") {
         configError(`Node '${node.id}' input '${inputName}' must declare request contract 'request.v1'.`);
+      }
+      continue;
+    }
+    if (candidate.from.startsWith("caller.")) {
+      const callerName = candidate.from.slice("caller.".length);
+      const declaration = callerInputs[callerName];
+      if (!declaration) configError(`Node '${node.id}' input '${inputName}' references undeclared caller input '${callerName}'.`);
+      if (candidate.contract !== declaration.contract) {
+        configError(`Node '${node.id}' input '${inputName}' contract must match caller input '${callerName}' contract '${declaration.contract}'.`);
       }
       continue;
     }
