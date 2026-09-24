@@ -1,6 +1,6 @@
 # Evidence: 06-repair-recovery
 
-Status: GREEN implementation checkpoint awaiting independent review. SAFE-001 through SAFE-006 pass locally. Package, hosted, and live-provider checks remain unrun.
+Status: accepted locally on Windows after independent Sol review. The recorded commands below describe the evidence at this stage; hosted and live-provider proof are separate.
 
 ## Environment
 

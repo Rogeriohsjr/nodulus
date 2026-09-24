@@ -34,7 +34,7 @@ Use fresh application instances for resume and at least one separate-process res
 
 ## Planned commands
 
-Slice 00 establishes `npm run typecheck`, `npm run build`, `npm run test:scenarios -- <test-file>`, and `npm run test:scenarios`. These foundation commands now exist. Slice 08 will add `npm run test:package`; package checks are not implemented yet.
+Slice 00 establishes `npm run typecheck`, `npm run build`, `npm run test:scenarios`. These foundation commands now exist. Slice 08 separates `npm run test:package` from `npm run test:scenarios` because archive tests perform a clean build; `npm test` runs both sequentially. For one focused file, run `npm run build` followed by `npx vitest run tests/scenarios/<test-file>`; appending a file to the full scenario script does not narrow its existing directory argument.
 
 Vitest does not replace type checking. After each slice, run focused tests and accumulated scenarios. Record platform/revision. A local Windows pass is not proof of macOS/Linux compatibility.
 

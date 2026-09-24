@@ -1,6 +1,7 @@
 import { Command, CommanderError } from "commander";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { LocalExecutableDiscovery } from "./adapters/storage/local-executable-discovery.js";
 import { LocalProjectFiles } from "./adapters/storage/local-project-files.js";
 import { LocalProjectSettings } from "./adapters/storage/local-project-settings.js";
@@ -47,6 +48,7 @@ export async function runCli(
   program
     .name("nodulus")
     .description("Build and run validated workflows")
+    .version(await installedPackageVersion(), "-V, --version", "Output the installed Nodulus package version")
     .exitOverride()
     .configureOutput({
       writeOut: output.writeOut,
@@ -212,7 +214,7 @@ export async function runCli(
     await program.parseAsync(argv);
     return commandExitCode;
   } catch (error) {
-    if (error instanceof CommanderError && error.code === "commander.helpDisplayed") return 0;
+    if (error instanceof CommanderError && error.exitCode === 0) return 0;
     const diagnostic = normalizeCliError(error);
     if (jsonRequested) {
       writeEnvelope(output.writeOut, {
@@ -226,6 +228,15 @@ export async function runCli(
     }
     return 1;
   }
+}
+
+async function installedPackageVersion(): Promise<string> {
+  const manifestPath = resolve(dirname(fileURLToPath(import.meta.url)), "../package.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as { version?: unknown };
+  if (typeof manifest.version !== "string" || manifest.version.trim() === "") {
+    throw new NodulusError("PACKAGE_VERSION_UNAVAILABLE", `Package manifest '${manifestPath}' has no version string.`);
+  }
+  return manifest.version;
 }
 
 async function readStdin(): Promise<string> {

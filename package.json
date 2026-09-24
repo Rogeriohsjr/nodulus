@@ -3,17 +3,32 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "files": [
+    "dist/**",
+    "docs/user-guide.md",
+    "README.md"
+  ],
   "bin": {
     "nodulus": "./dist/bin.js"
   },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
   "engines": {
     "node": ">=24.0.0 <25"
   },
   "scripts": {
     "typecheck": "tsc --project tsconfig.json --noEmit",
+    "prebuild": "node scripts/clean-dist.mjs",
     "build": "tsc --project tsconfig.json",
     "pretest:scenarios": "npm run build",
-    "test:scenarios": "vitest run tests/scenarios"
+    "test:scenarios": "vitest run tests/scenarios --exclude tests/scenarios/pkg-*.test.ts",
+    "test:package": "npm run build && vitest run tests/scenarios/pkg-001-installed-archive.test.ts",
+    "test": "npm run test:scenarios && npm run test:package"
   },
   "devDependencies": {
     "@types/cross-spawn": "^6.0.6",

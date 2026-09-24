@@ -1,6 +1,6 @@
 # 05-clarification-resume: Pause, answer, and resume
 
-**Status:** implementation complete; awaiting independent review. **Prerequisite:** 04-workflow-sequence. **Method:** TDD.
+**Status:** accepted locally on Windows after independent Sol review. **Prerequisite:** 04-workflow-sequence. **Method:** TDD.
 
 An agent can ask its user for missing information and continue the same run later.
 

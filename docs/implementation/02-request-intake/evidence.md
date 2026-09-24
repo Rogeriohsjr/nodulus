@@ -1,6 +1,6 @@
 # Evidence: 02-request-intake
 
-Status: local GREEN checkpoint; awaiting independent review. Intake is an internal milestone and does not execute workflows or expose public `run` success.
+Status: accepted locally on Windows after independent Sol review. The recorded commands below describe the evidence at this stage; hosted and live-provider proof are separate.
 
 ## Environment and contract
 

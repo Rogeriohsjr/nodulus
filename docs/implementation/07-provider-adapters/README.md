@@ -1,6 +1,6 @@
 # 07-provider-adapters: Integrate Codex and Cursor
 
-**Status:** implementation and local fixture scenarios are complete; independent review and live provider compatibility remain pending. **Prerequisite:** 06-repair-recovery. **Method:** TDD for adapters; live compatibility verification is separate.
+**Status:** accepted locally on Windows after independent Sol review. Provider tests use executable fixtures; live compatibility remains unverified. **Prerequisite:** 06-repair-recovery. **Method:** TDD for adapters; live compatibility verification is separate.
 
 A caller selects either installed provider without changing the workflow engine.
 

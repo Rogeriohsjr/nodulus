@@ -1,6 +1,6 @@
 # Evidence: 04-workflow-sequence
 
-Status: implementation GREEN checkpoint; awaiting independent review.
+Status: accepted locally on Windows after independent Sol review. The recorded commands below describe the evidence at this stage; hosted and live-provider proof are separate.
 
 ## Environment and contract
 

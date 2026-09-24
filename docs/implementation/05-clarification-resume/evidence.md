@@ -1,6 +1,6 @@
 # Evidence: 05-clarification-resume
 
-Status: implementation complete; awaiting independent GREEN review. Local scenarios cover persisted pause, status, and resume. No hosted or live-provider proof is claimed.
+Status: accepted locally on Windows after independent Sol review. The recorded commands below describe the evidence at this stage; hosted and live-provider proof are separate.
 
 ## Environment
 
