@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { cleanupProviderProject, createProviderScenario, readProviderCalls, runDefaultProviderCli, type FixtureProviderKind } from "../support/provider-adapter-scenarios.js";
@@ -16,13 +16,13 @@ test.each(providers)("PROV-001 translates Nodulus execution through the default 
     const [call] = readProviderCalls(logPath);
     expect(call).toBeDefined();
     expect(call.kind).toBe(kind);
-    expect(call.cwd).toBe(project);
+    expect(realpathSync(call.cwd)).toBe(realpathSync(project));
     if (kind === "codex") {
       expect(call.argv).toContain("exec");
       expect(call.argv).toContain("--json");
       expect(call.argv).toContain("--ephemeral");
       expect(call.argv.at(-1)).toBe("-");
-      expect(call.argv[call.argv.indexOf("--cd") + 1]).toBe(project);
+      expect(realpathSync(call.argv[call.argv.indexOf("--cd") + 1])).toBe(realpathSync(project));
       expect(call.argv[call.argv.indexOf("--model") + 1]).toBe("fixture-model");
       expect(call.stdin).toContain(`Translate this ${kind} fixture response.`);
       const outputPath = call.argv[call.argv.indexOf("--output-last-message") + 1];
@@ -33,7 +33,7 @@ test.each(providers)("PROV-001 translates Nodulus execution through the default 
       expect(call.argv).toContain("-p");
       expect(call.argv).toContain("--output-format");
       expect(call.argv[call.argv.indexOf("--output-format") + 1]).toBe("json");
-      expect(call.argv[call.argv.indexOf("--workspace") + 1]).toBe(project);
+      expect(realpathSync(call.argv[call.argv.indexOf("--workspace") + 1])).toBe(realpathSync(project));
       expect(call.argv[call.argv.indexOf("--model") + 1]).toBe("fixture-model");
       expect(call.argv[call.argv.indexOf("-p") + 1].length).toBeLessThan(512);
       expect(call.promptFile).toBeDefined();

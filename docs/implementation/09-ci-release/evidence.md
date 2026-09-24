@@ -1,6 +1,6 @@
 # Evidence: 09-ci-release
 
-Status: local policy tests and workflow configuration are green; independent review and all hosted/registry evidence remain pending. No repository release/tag, registry operation, or external publication was performed; the scenario creates and tags only a disposable local bare Git fixture.
+Status: local policy tests and workflow configuration are green; cross-platform fixes for hosted run `36013867131` are ready for independent review and rerun. No repository release/tag, registry operation, or external publication was performed; the scenario creates and tags only a disposable local bare Git fixture.
 
 ## Environment
 
@@ -18,6 +18,7 @@ Status: local policy tests and workflow configuration are green; independent rev
 | REL-002 | release workflow | Configuration is a non-TDD hosted-integration exception. | Static YAML parse/guard assertions passed; release requires all matrix legs, checks out the same `github.sha`, and remains disabled by default. A separate manifest check stops while `package.json` is private. | Hosted matrix URLs, protected environment setup, npm trusted publisher and actual authorized release are unverified. |
 | REL-003 | no-release and publication guards | Analyzer empty-input behavior passed in REL-001; no unreleased commits yields `null`. Initial workflow configuration is a non-TDD hosted-integration exception. | Local dry-run proves a second semantic-release run after a tag does not calculate another version. Static YAML assertions confirm push-main/canonical-repository/opt-in gates, package-private guard, separate release permissions, and non-canceling release serialization. | Hosted fork-PR, failed-check, rerun, and concurrency behavior remain unverified. |
 | REL-004 | public registry install/upgrade | Not run; no publication or registry package identity is authorized. | Not run | Requires package ownership, trusted-publisher setup, an authorized release, and clean registry-install proof. |
+| PROV-001 / PROV-003 hosted regression | `tests/scenarios/prov-001-protocol-translation.test.ts`, `tests/scenarios/prov-003-portable-invocation.test.ts`, and REL-001 disposable Git dry-run | Hosted PR run `36013867131`: macOS provider tests compared symlinked `/var` and canonical `/private/var` paths as strings; macOS and Ubuntu release-policy tests inherited `GITHUB_REF=refs/pull/1/merge`, so semantic-release skipped the fixture's local `main` branch. | Compared provider paths through `realpathSync` while retaining the same filesystem target assertion. Reproducing with `GITHUB_REF=refs/pull/1/merge` and `GITHUB_ACTIONS=true` first failed the expected dry-run version assertion; after removing only `GITHUB_*` variables from the disposable semantic-release child environment, the focused 3-file suite passed (20/20). | Hosted rerun pending; Windows/macOS/Linux hosted matrix remains required. |
 
 The initial analyzer test import error (`default is not a function`) was test harness setup, not RED evidence; switching to the package's documented named `analyzeCommits` export produced the behavioral failures recorded above.
 
@@ -30,10 +31,12 @@ The initial analyzer test import error (`default is not a function`) was test ha
 - `npm test`: runtime 36 files / 115 tests passed; package 1 file / 5 tests passed, sequentially.
 - `git diff --check`: passed.
 - Hosted workflows and registry/live release checks: not run.
+- Hosted regression reproduction: `GITHUB_REF=refs/pull/1/merge` and `GITHUB_ACTIONS=true` plus the focused three-file command failed only the release dry-run branch assertion (provider scenarios passed). After the fixture-only environment isolation and canonical path comparisons, the same command passed 3 files / 20 tests. These test fixes do not establish hosted rerun evidence.
 
 ## Handoff
 
-- Files changed: `.releaserc.json`, `.github/workflows/ci-release.yml`, release-policy tests, package developer dependencies/lockfile, folder documentation, and this evidence.
+- Files changed for the hosted regression: provider scenario path comparisons use resolved filesystem paths, and the disposable semantic-release process excludes `GITHUB_*` branch metadata while preserving other environment variables. The production runtime and workflow configuration are unchanged.
+- Earlier folder 09 files: `.releaserc.json`, `.github/workflows/ci-release.yml`, release-policy tests, package developer dependencies/lockfile, folder documentation, and this evidence.
 - Action references are pinned to upstream release commits `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1` (v7.0.1) and `actions/setup-node@820762786026740c76f36085b0efc47a31fe5020` (v7.0.0); Node is pinned to major 24 in CI and release jobs.
 - Package remains `private: true`; the repo opt-in variable and protected npm environment have not been configured. No folder 09 acceptance checkbox is checked.
 - npm's trusted-publisher instructions require the package `repository.url` to match its GitHub repo; this metadata is present. Private source repositories do not receive npm provenance, but the official docs describe that as a provenance limitation rather than a trusted-publishing restriction. No trust relationship has been created or tested.

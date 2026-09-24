@@ -112,5 +112,6 @@ function git(cwd: string, args: string[]): void {
 
 function semanticReleaseDryRun(cwd: string): ReturnType<typeof crossSpawn.sync> {
   const executable = path.join(root, "node_modules", ".bin", process.platform === "win32" ? "semantic-release.cmd" : "semantic-release");
-  return crossSpawn.sync(executable, ["--dry-run", "--no-ci"], { cwd, encoding: "utf8", timeout: 60_000, windowsHide: true });
+  const fixtureEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GITHUB_")));
+  return crossSpawn.sync(executable, ["--dry-run", "--no-ci"], { cwd, env: fixtureEnv, encoding: "utf8", timeout: 60_000, windowsHide: true });
 }
