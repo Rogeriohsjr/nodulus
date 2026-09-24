@@ -2,6 +2,10 @@
   "name": "nodulus",
   "version": "0.0.0",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rogeriohsjr/nodulus.git"
+  },
   "type": "module",
   "files": [
     "dist/**",
@@ -31,8 +35,11 @@
     "test": "npm run test:scenarios && npm run test:package"
   },
   "devDependencies": {
+    "@semantic-release/commit-analyzer": "^13.0.1",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "^26.6.2",
+    "conventional-changelog-conventionalcommits": "^9.3.1",
+    "semantic-release": "^25.0.9",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1"
   },
