@@ -1,6 +1,6 @@
 # Architecture and protocol
 
-Status: proposed v1 baseline. Update affected scenarios before changing this contract.
+Status: v1 contract; folders 00 through 05 are implemented and reviewed locally. The implementation index records the remaining recovery, provider, package, and hosted-delivery work. Update affected scenarios before changing this contract.
 
 ## Scope and stack
 
@@ -37,6 +37,10 @@ nodulus status <run-id> --json
 nodulus resume <run-id> --request-id <id> --answers-file answers.json --json
 ```
 
+Workflows may also declare named caller inputs as `inputs: {goal: {contract: "goal.v1"}}`. Supply these separately through the application `callerInputs` object or CLI `--inputs-file values.json`. Missing/invalid declared caller data produces a persisted clarification before any node invocation; request text remains a separate required source.
+
+Node input mappings use `{from: "request"}`, `{from: "caller.goal", contract: "goal.v1"}`, or `{from: "analyze.findings", contract: "finding.v1"}`. Prior-artifact mappings require an exact matching declared contract ID. References match declared node/output pairs, including dotted names; ambiguous pairs fail preflight. An empty mapping supplies no inputs. Each node gets its own instructions and only its mapped input values.
+
 Exactly one request source. CLI file arguments resolve against caller cwd; manifest entries and definition paths resolve against project root. Read UTF-8 text. Never silently truncate required instructions/context.
 
 Machine mode returns immediately on clarification. One JSON object on stdout; diagnostics on stderr. Exit 0 = success, 2 = needs_input, 1 = error, including usage/configuration failures. Normalize parser errors when `--json` is present.
@@ -61,7 +65,7 @@ Default budget: one initial execution plus two response-only corrections. Save a
 
 Schema validity does not establish semantic correctness. A review artifact with pass=false may be valid; an explicit business check determines whether that prevents progression.
 
-Missing caller data creates a pending request with an answer contract. Missing predecessor outputs are configuration/execution defects, not user questions. Validate request ID and answers before mutating a paused run. Never replay completed nodes. A crashed attempt with uncertain side effects requires explicit recovery, not automatic re-execution.
+Missing caller data creates a pending request with an answer contract. Missing predecessor outputs are configuration/execution defects, not user questions. Validate request ID and answers before mutating a paused run. Pending request IDs are runtime-generated; use the returned saved ID rather than a model-provided label. Accepted answers are saved by request ID, with subsequent clarifications receiving fresh IDs. Never replay completed nodes. A crashed attempt with uncertain side effects requires explicit recovery, not automatic re-execution.
 
 ## Persistence
 
