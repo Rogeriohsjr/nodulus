@@ -4,7 +4,7 @@ A TypeScript CLI under development for LLM workflows with validated artifacts an
 
 For local package installation and usage, see the [Nodulus user guide](docs/user-guide.md).
 
-Status: folders 00 through 08 are implemented and independently reviewed on Windows: initialization, request capture, validated node outcomes, sequential workflows, persisted pause/resume, bounded repair/crash detection, Codex/Cursor adapters, and local package installation/upgrades. The generated project has no configured provider; adapter tests use local fixture executables, with live vendor compatibility unverified. Hosted cross-platform verification and release preparation are tracked in the implementation sequence below.
+Status: folders 00 through 08 are implemented and independently reviewed: initialization, request capture, validated node outcomes, sequential workflows, persisted pause/resume, bounded repair/crash detection, Codex/Cursor adapters, and local package installation/upgrades. Hosted Windows, macOS and Linux checks exercise 115 scenario tests and five package tests. Folder 09 includes CI and disabled release configuration; npm publication and registry upgrades are deferred. The generated project has no configured provider; adapter tests use real local fixture executables, with live vendor compatibility unverified.
 
 Start with the [implementation sequence](https://github.com/Rogeriohsjr/nodulus/blob/main/docs/implementation/README.md). Each numbered folder contains scenarios, implementation guidance, checkboxes, and an evidence record.
 

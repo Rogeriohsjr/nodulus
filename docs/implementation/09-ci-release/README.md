@@ -1,6 +1,6 @@
 # 09-ci-release: Validate platforms and publish releases
 
-**Status:** local policy tests and workflow configuration are prepared; hosted CI/release validation is pending. **Prerequisite:** 08-package-install. **Method:** Non-TDD hosted configuration; test-first for any custom decision code.
+**Status:** REL-001 is verified on hosted Windows/macOS/Linux; both final code-checkpoint CI runs passed. Publication and registry upgrade are deferred at the user's request. **Prerequisite:** 08-package-install. **Method:** Non-TDD hosted configuration; test-first for any custom decision code.
 
 After a main-branch merge passes checks and the repository owner explicitly enables publishing, users can obtain a versioned release. Publishing remains disabled while the package is private and the repository opt-in is absent.
 
@@ -12,7 +12,7 @@ Read [architecture](../../architecture.md) and [testing policy](../../testing.md
 
 Given a proposed change, when CI runs, then Windows/macOS/Linux execute typecheck, build, scenarios and package install checks without live LLM credentials; failures prevent release.
 
-- [ ] REL-001 acceptance verified and evidence recorded.
+- [x] REL-001 acceptance verified and evidence recorded.
 
 ### REL-002: Publish after a validated merge
 
@@ -36,7 +36,7 @@ Given an authorized published version, when a clean consumer installs that exact
 
 The workflow in `.github/workflows/ci-release.yml` runs Node 24 typecheck, build, scenario and package checks on Windows, macOS and Linux for PRs to `main` and pushes to `main`/`codex/**`. The release job depends on every matrix leg, checks out `github.sha` again, and only runs on a non-deletion push to canonical `Rogeriohsjr/nodulus` when the repository variable `NODULUS_PUBLISH_ENABLED` is exactly `true`. It also stops unless `package.json` has `private: false`. The release environment is named `npm-publish`; configure required reviewers and restrict deployment branches to `main` before enabling the repository variable.
 
-Use semantic-release with explicit rules: every unreleased commit message gets at least a patch, `feat` gets minor, and breaking changes get major. The configured catch-all includes docs, chores, tests, CI, refactors and untyped messages. The Angular conventional-commit parser treats a `!` after the type/scope (for example `fix!: reject invalid mappings`) or a `BREAKING CHANGE:` footer as breaking metadata. semantic-release analyzes commits after the last release tag, so a rerun with no new commits creates no second version. The dry-run scenario exercises this against a disposable local Git remote. If release concurrency batches several main commits, one release may contain multiple merges; do not promise one package per merge. The workflow does not create release commits, so it cannot trigger itself through a version-bump commit.
+Use semantic-release with explicit rules: every unreleased commit message gets at least a patch, `feat` gets minor, and breaking changes get major. The configured catch-all includes docs, chores, tests, CI, refactors and untyped messages. The Conventional Commits preset treats a `!` after the type/scope (for example `fix!: reject invalid mappings`) or a `BREAKING CHANGE:` footer as breaking metadata. semantic-release analyzes commits after the last release tag, so a rerun with no new commits creates no second version. The dry-run scenario exercises this against a disposable local Git remote. If release concurrency batches several main commits, one release may contain multiple merges; do not promise one package per merge. The workflow does not create release commits, so it cannot trigger itself through a version-bump commit.
 
 The release job grants only `contents: write` and `id-token: write`; npm authentication uses GitHub Actions trusted publishing/OIDC and deliberately does not configure a long-lived npm token or `registry-url`. The package `repository.url` names this GitHub repository so it can match the npm trusted-publisher configuration. The `GITHUB_TOKEN` publishes the GitHub release and tag. The job is absent for fork PR events and gated to the canonical repository. npm documents private-repository provenance as unsupported; provenance is only expected when both source repository and package are public. This does not require changing repository visibility for this workflow, but an actual npm trust relationship still must be configured and verified. Keep publishing disabled until an owner configures the protected environment, opt-in variable, trusted publisher and package identity, and authorizes publication.
 
@@ -46,10 +46,12 @@ References checked on 2026-09-24: [semantic-release commit analyzer](https://git
 
 ## Developer sequence
 
-- [ ] Identify applicable non-TDD exception and its verification plan.
-- [ ] Validate configuration and dry-run version/release policy, including docs-only changes. (Local policy/dry-run proof exists; hosted validation remains pending.)
-- [ ] Record successful Windows/macOS/Linux hosted job URLs and exact SHA.
+- [x] Identify applicable non-TDD exception and its verification plan.
+- [x] Validate configuration and dry-run version/release policy, including docs-only changes.
+- [x] Record successful Windows/macOS/Linux hosted job URLs and exact SHA.
 - [ ] Record actual authorized npm version/tag/release and clean registry-install proof.
 - [ ] Verify rerun/fork/failed-check release guards and document unresolved admin prerequisites.
-- [ ] Run available accumulated checks and record limitations.
+- [x] Run available accumulated checks and record limitations.
 - [ ] Review public contracts/docs; update evidence and only then mark this folder complete in the index.
+
+REL-003 is partially verified: local tagged rerun and static guards pass, and hosted PR/failed-check runs skipped publishing. Actual fork, authorized publication rerun, and concurrency verification remain deferred. The full folder stays open until publication acceptance is verified.
