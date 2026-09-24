@@ -242,7 +242,7 @@ export async function executeWorkflow(
       const validation = { valid: false, code, errors };
       await storage.writeRunFiles(request.projectRoot, runId, { [`${currentAttemptRoot}/validation.json`]: json(validation) });
       const capabilities = Array.isArray(profile.capabilities) ? profile.capabilities : [];
-      const repair = provider.repairResponse;
+      const repair = provider.repairResponse?.bind(provider);
       if (!capabilities.includes("responseRepair") || !repair) {
         const message = "Safe response-only repair is unavailable; the full provider action will not be replayed.";
         return finishError(request.projectRoot, runId, storage, "RESPONSE_REPAIR_UNAVAILABLE", message, currentAttemptRoot, validation, completedNodes, node.id);
@@ -273,7 +273,7 @@ export async function executeWorkflow(
       await appendEvent(request.projectRoot, runId, storage, { event: "node.repair.started", runId, nodeId: node.id, attempt: currentAttempt });
       const repairStartedAt = Date.now();
       try {
-        raw = await repair.call(provider, invocation, raw, errors);
+        raw = await repair(invocation, raw, errors);
         if (typeof raw !== "string") throw new Error("Provider repair returned a non-string response.");
       } catch (error) {
         await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, currentAttempt, Date.now() - repairStartedAt);

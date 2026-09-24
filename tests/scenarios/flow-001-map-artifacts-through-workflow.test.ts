@@ -1,5 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { runWorkflow } from "../../src/application/run-workflow.js";

@@ -1,5 +1,7 @@
 # Evidence: 05-clarification-resume
 
+Checkpoint history: counts and remaining work below describe this slice at acceptance time. See the [current implementation status](../README.md) and [hosted validation](../09-ci-release/evidence.md#final-code-checkpoint-verification) for later completion.
+
 Status: accepted locally on Windows after independent Sol review. The recorded commands below describe the evidence at this stage; hosted and live-provider proof are separate.
 
 ## Environment

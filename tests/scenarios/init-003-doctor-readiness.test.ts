@@ -2,13 +2,11 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   rmSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { createTempProject, runProductionCli } from "../support/production-cli.js";

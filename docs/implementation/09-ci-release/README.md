@@ -10,7 +10,7 @@ Read [architecture](../../architecture.md) and [testing policy](../../testing.md
 
 ### REL-001: Gate changes across platforms
 
-Given a proposed change, when CI runs, then Windows/macOS/Linux execute typecheck, build, scenarios and package install checks without live LLM credentials; failures prevent release.
+Given a proposed change, when CI runs, then Windows/macOS/Linux execute lint, typecheck, build, scenarios and package install checks without live LLM credentials; failures prevent release.
 
 - [x] REL-001 acceptance verified and evidence recorded.
 
@@ -34,7 +34,7 @@ Given an authorized published version, when a clean consumer installs that exact
 
 ## Implementation guidance
 
-The workflow in `.github/workflows/ci-release.yml` runs Node 24 typecheck, build, scenario and package checks on Windows, macOS and Linux for PRs to `main` and pushes to `main`/`codex/**`. The release job depends on every matrix leg, checks out `github.sha` again, and only runs on a non-deletion push to canonical `Rogeriohsjr/nodulus` when the repository variable `NODULUS_PUBLISH_ENABLED` is exactly `true`. It also stops unless `package.json` has `private: false`. The release environment is named `npm-publish`; configure required reviewers and restrict deployment branches to `main` before enabling the repository variable.
+The workflow in `.github/workflows/ci-release.yml` runs Node 24 lint, typecheck, build, scenario and package checks on Windows, macOS and Linux for PRs to `main` and pushes to `main`/`codex/**`. The release job depends on every matrix leg, checks out `github.sha` again, and only runs on a non-deletion push to canonical `Rogeriohsjr/nodulus` when the repository variable `NODULUS_PUBLISH_ENABLED` is exactly `true`. It also stops unless `package.json` has `private: false`. The release environment is named `npm-publish`; configure required reviewers and restrict deployment branches to `main` before enabling the repository variable.
 
 Use semantic-release with explicit rules: every unreleased commit message gets at least a patch, `feat` gets minor, and breaking changes get major. The configured catch-all includes docs, chores, tests, CI, refactors and untyped messages. The Conventional Commits preset treats a `!` after the type/scope (for example `fix!: reject invalid mappings`) or a `BREAKING CHANGE:` footer as breaking metadata. semantic-release analyzes commits after the last release tag, so a rerun with no new commits creates no second version. The dry-run scenario exercises this against a disposable local Git remote. If release concurrency batches several main commits, one release may contain multiple merges; do not promise one package per merge. The workflow does not create release commits, so it cannot trigger itself through a version-bump commit.
 

@@ -93,13 +93,13 @@ test("REL-003 dry-run releases a docs-only commit once and sees no release after
     git(repository, ["push", "origin", "main"]);
 
     const firstDryRun = semanticReleaseDryRun(repository);
-    expect(firstDryRun.status, `${firstDryRun.stdout}\n${firstDryRun.stderr}`).toBe(0);
+    expect(firstDryRun.status, `${String(firstDryRun.stdout)}\n${String(firstDryRun.stderr)}`).toBe(0);
     expect(firstDryRun.stdout).toMatch(/next release version is 1\.0\.1/i);
 
     git(repository, ["tag", "v1.0.1"]);
     git(repository, ["push", "origin", "v1.0.1"]);
     const repeatedDryRun = semanticReleaseDryRun(repository);
-    expect(repeatedDryRun.status, `${repeatedDryRun.stdout}\n${repeatedDryRun.stderr}`).toBe(0);
+    expect(repeatedDryRun.status, `${String(repeatedDryRun.stdout)}\n${String(repeatedDryRun.stderr)}`).toBe(0);
     expect(repeatedDryRun.stdout).toMatch(/no relevant changes|no new version is released/i);
   } finally {
     rmSync(scratch, { recursive: true, force: true });

@@ -1,5 +1,4 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { spawn } from "node:child_process";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { runWorkflow } from "../../src/application/run-workflow.js";

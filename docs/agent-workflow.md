@@ -20,14 +20,14 @@ Existing tasks retain their selected model. Project defaults apply when the clie
 3. While the reviewer checks the frozen test, the coordinator may inspect prerequisites/docs, but nobody changes the reviewed files.
 4. Reviewer returns ACCEPT or CHANGES_REQUIRED. ACCEPT at RED means the test is suitable, not that behavior works.
 5. Builder implements to GREEN, records evidence, and returns a stable checkpoint.
-6. Reviewer inspects the actual code/tests and runs scoped verification. Coordinator marks accepted items only after review.
+6. Reviewer inspects the actual code/tests, checks [code quality](code-quality.md), and runs scoped verification. Builder supplies lint/typecheck evidence and the final `npm run check` result; reviewer checks any suppression and affected documentation. Coordinator marks accepted items only after review.
 7. After two failed correction rounds, the Sol reviewer returns a focused diagnosis to the coordinator. Do not spawn another reviewer or repeat broad review loops.
 
 One writer at a time. No continuous monitoring/polling loop, recursive delegation, or multiple implementers on dependent folders. Reuse a builder for the current slice; start fresh when its context becomes irrelevant. Keep reports to files, commands/results, and findings.
 
 ## Current assignment
 
-The foundation/INIT-001 pilot is complete. On 2026-09-24 the user authorized all remaining stories, with Luna building, Sol reviewing and the coordinator committing accepted milestones. Continue folders 02 through 09 in dependency order. Keep real provider and hosted release evidence distinct; prepare release configuration without representing unperformed publication as complete.
+The foundation/INIT-001 pilot is complete. On 2026-09-24 the user authorized all remaining stories, with Luna building, Sol reviewing and the coordinator committing accepted milestones. Folders 00 through 08 and folder 09 CI are now implemented; publication remains deferred. For follow-up maintenance, use the same stable checkpoints and the code-quality checklist. Keep real provider and hosted release evidence distinct; prepare release configuration without representing unperformed publication as complete.
 
 ## Usage rationale and limitations
 
@@ -39,7 +39,7 @@ Sources: [pricing](https://learn.chatgpt.com/docs/pricing), [subagent configurat
 
 ## Pilot result
 
-Foundation and INIT-001 completed locally on Windows with a Luna builder and independent Luna reviewer. Review found one instruction-reference bug; a stronger regression test exposed it before correction. Final typecheck/build and two scenario tests passed. No Sol escalation, live provider invocation, or publishing occurred. No per-agent billing measurement was available, so these results do not establish measured cost savings. The active coordinator retained its existing model; Luna defaults target future project sessions. Next eligible work is INIT-002.
+Foundation and INIT-001 completed locally on Windows with a Luna builder and independent Luna reviewer. Review found one instruction-reference bug; a stronger regression test exposed it before correction. Final typecheck/build and two scenario tests passed. No Sol escalation, live provider invocation, or publishing occurred. No per-agent billing measurement was available, so these results do not establish measured cost savings. The active coordinator retained its existing model; Luna defaults target future project sessions. This was the historical pilot checkpoint; the current status is in the implementation index.
 
 ## Folder 01 continuation result (2026-09-24)
 

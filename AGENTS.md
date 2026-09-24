@@ -7,6 +7,8 @@ Read [the sequence](docs/implementation/README.md), [architecture](docs/architec
 - Use [.agents/skills/nodulus-delivery-validation/SKILL.md](.agents/skills/nodulus-delivery-validation/SKILL.md) for bootstrap, packaging, CI, and release work.
 - Write a scenario test, observe its relevant failure, then implement and refactor. Missing runners, syntax errors, and unrelated import failures are not behavioral RED evidence.
 - Exercise production entry points and real internal modules. Use real temporary files, schemas, Markdown, and child-process fixture scripts. Replace only external LLM/service boundaries.
+- Read [code quality](docs/code-quality.md) before edits. Run `npm run lint` and `npm run typecheck` during development; run `npm run check` before the final implementation handoff. Fix findings instead of weakening rules.
+- Update affected user/developer docs alongside behavior or command changes. Record exact validation results and limitations; never invent RED or hosted proof.
 - Core code must not depend on CLI formatting or concrete provider/storage implementations. Scenario tests still exercise those real internal adapters.
 - Mark checkboxes only with recorded evidence. Keep local, hosted, and live-provider proof distinct.
 - Non-TDD exceptions are item-specific in docs/testing.md and still require verification.

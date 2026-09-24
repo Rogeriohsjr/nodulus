@@ -1,5 +1,4 @@
 import { rmSync } from "node:fs";
-import path from "node:path";
 import { expect, test } from "vitest";
 import { runCli } from "../../src/cli.js";
 import { createInitializedProject } from "../support/intake-project.js";

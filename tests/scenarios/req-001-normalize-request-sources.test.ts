@@ -8,7 +8,7 @@ import { createInitializedProject } from "../support/intake-project.js";
 const request = "Review the café workflow.\nKeep every line; do not expand $HOME or `echo`.\n";
 
 const sourceCases: Array<[string, (caller: string) => RequestSource[]]> = [
-  ["inline", (caller: string) => [{ kind: "inline" as const, text: request }]],
+  ["inline", (_caller: string) => [{ kind: "inline" as const, text: request }]],
   ["UTF-8 file", (caller: string) => {
     writeFileSync(path.join(caller, "brief with spaces.md"), request, "utf8");
     return [{ kind: "file" as const, path: "brief with spaces.md" }];

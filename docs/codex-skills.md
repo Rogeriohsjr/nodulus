@@ -7,6 +7,8 @@ The repository includes two portable skills under `.agents/skills`, the reposito
 - [nodulus-scenario-tdd](../.agents/skills/nodulus-scenario-tdd/SKILL.md): runtime slices and regressions, observed RED/GREEN, real local components, only external boundary doubles.
 - [nodulus-delivery-validation](../.agents/skills/nodulus-delivery-validation/SKILL.md): bootstrap, installed-package checks, CI/release verification, and explicit non-TDD exceptions.
 
+Every AI implementation assignment also follows [code quality](code-quality.md): plan the affected behavior and dependencies, keep scenario TDD, fix lint findings, update affected documentation, and report the final `npm run check` result. The builder/reviewer agent definitions point to this checklist.
+
 Assign a folder and skill together, for example:
 
 ```text

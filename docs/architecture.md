@@ -4,14 +4,14 @@ Status: v1 contract; folders 00 through 08 are implemented and reviewed, with ho
 
 ## Scope and stack
 
-TypeScript strict mode, supported Node.js LTS (select and record in slice 00), npm, Commander, Ajv/JSON Schema, Vitest, GitHub Actions, semantic-release. Distribute compiled JavaScript and declarations. One package initially, exporting an application API and a CLI binary.
+TypeScript strict mode, Node.js 24 (supported range `>=24.0.0 <25`), npm, Commander, Ajv/JSON Schema, Vitest, GitHub Actions, semantic-release. Distribute compiled JavaScript and declarations. One package initially, exporting an application API and a CLI binary.
 
 ```text
 CLI / future UI -> application core -> domain contracts and ports
 composition root -> concrete adapters implementing the ports
 ```
 
-Suggested source layout: `src/cli`, `src/core/{workflow,nodes,artifacts,execution,ports}`, `src/adapters/{llm,instructions,storage,validation}`, `src/system-contracts`. Core code never imports concrete adapters. Ports: Provider, InstructionReader, RunStore, ArtifactValidator. Add methods only as scenarios need them.
+Source layout: `src/cli`, `src/application`, `src/core` (including `ports` and `shared`), `src/adapters/{providers,storage,validation}`, and `src/system-contracts`. The application layer composes the concrete adapters with core operations. Core code never imports adapters, CLI or application composition; lint enforces these import boundaries. Ports include provider execution, project files/settings, intake storage and artifact validation. Add methods only as scenarios need them.
 
 Sequential execution is ordinary code. Dynamic graphs, LLM supervisors, parallel nodes, remote databases, UI, and MCP servers are outside v1.
 

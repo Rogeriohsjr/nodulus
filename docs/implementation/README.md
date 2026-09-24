@@ -17,6 +17,8 @@ Read [architecture](../architecture.md) and [testing policy](../testing.md). Wor
 | [x] | [08-package-install](08-package-install/README.md) | Install and upgrade the package | TDD for package behavior; docs/metadata review is non-TDD |
 | [ ] | [09-ci-release](09-ci-release/README.md) | Validate platforms (verified); publish releases (deferred) | Non-TDD hosted configuration; test-first for any custom decision code |
 
+Follow-up maintenance uses the [code-quality plan and AI checklist](../code-quality.md), including `npm run check` before final implementation handoff. Lint/tooling verification is recorded separately from historical scenario RED/GREEN.
+
 ## Handoff procedure
 
 1. Verify prerequisite checkboxes against their evidence; a checked box without proof is not a completed dependency.

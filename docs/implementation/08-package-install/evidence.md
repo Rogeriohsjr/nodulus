@@ -1,5 +1,7 @@
 # Evidence: 08-package-install
 
+Checkpoint history: counts and remaining work below describe this slice at acceptance time. See the [current implementation status](../README.md) and [hosted validation](../09-ci-release/evidence.md#final-code-checkpoint-verification) for later completion.
+
 Status: local archive/install/upgrade scenarios accepted after independent Sol review. Registry publication remains deferred.
 
 ## Environment

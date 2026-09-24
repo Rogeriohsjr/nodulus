@@ -97,7 +97,7 @@ const nodeSchema = {
 export async function createIntake(request: IntakeRequest, storage: IntakeStorage): Promise<IntakeResult> {
   const projectRoot = path.resolve(request.projectRoot);
   const cwd = path.resolve(request.cwd);
-  if (!isSafeId(request.workflow)) configError(`Workflow ID '${request.workflow}' is invalid.`);
+  if (!isSafeId(request.workflow)) configError(`Workflow ID '${String(request.workflow)}' is invalid.`);
   const text = await normalizeRequest(request.sources, cwd, storage);
   const settings = await readSettings(projectRoot, storage);
   const workflow = await readWorkflow(projectRoot, request.workflow, storage);
@@ -114,7 +114,7 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
 
   for (let index = 0; index < workflow.nodes.length; index += 1) {
     const nodeId = workflow.nodes[index];
-    if (!isSafeId(nodeId)) configError(`Workflow '${workflow.id}' contains invalid node ID '${nodeId}'.`);
+    if (!isSafeId(nodeId)) configError(`Workflow '${workflow.id}' contains invalid node ID '${String(nodeId)}'.`);
     const node = await readNode(projectRoot, nodeId, storage);
     if (node.id !== nodeId) configError(`Node file for '${nodeId}' declares a different ID.`);
     const profile = validateProvider(settings, node.providerProfile, nodeId);
@@ -230,7 +230,7 @@ async function readNode(projectRoot: string, nodeId: string, storage: IntakeStor
 }
 
 async function readContract(projectRoot: string, contractId: string, storage: IntakeStorage): Promise<unknown> {
-  if (!isSafeId(contractId)) configError(`Invalid contract ID '${contractId}'.`);
+  if (!isSafeId(contractId)) configError(`Invalid contract ID '${String(contractId)}'.`);
   const contractPath = path.join(projectRoot, ".nodulus", "contracts", `${contractId}.schema.json`);
   const schema = await readJson(storage, contractPath, `Contract '${contractId}'`);
   try {

@@ -4,9 +4,10 @@ Nodulus runs ordered workflows whose outputs are checked against JSON Schema con
 
 ## Install locally
 
-This repository package is still private and uses the local placeholder name `nodulus`. For a local install, build and pack it from the checkout, then install that archive:
+Use Node.js 24 and its bundled npm. This repository package is still private and uses the local placeholder name `nodulus`. For a local install, build and pack it from the checkout, then install that archive:
 
 ```sh
+npm ci
 npm run build
 npm pack
 npm install --global ./nodulus-0.0.0.tgz

@@ -32,9 +32,11 @@ Provider doubles must reject unexpected invocations. Capture requests to prove i
 
 Use fresh application instances for resume and at least one separate-process resume scenario. Simulate crash windows with controlled fixture processes and synchronization, not long sleeps. Include spaces/Unicode paths. Delete only temporary workspaces owned by the test.
 
-## Planned commands
+## Validation commands
 
 Slice 00 establishes `npm run typecheck`, `npm run build`, `npm run test:scenarios`. These foundation commands now exist. Slice 08 separates `npm run test:package` from `npm run test:scenarios` because archive tests perform a clean build; `npm test` runs both sequentially. For one focused file, run `npm run build` followed by `npx vitest run tests/scenarios/<test-file>`; appending a file to the full scenario script does not narrow its existing directory argument.
+
+`npm run check` is the final local quality gate: lint, typecheck, then the sequential runtime and package suites. See [code quality](code-quality.md) for rule scope and the AI handoff checklist. Use `npm run lint:fix` only for changes you will inspect.
 
 Vitest does not replace type checking. After each slice, run focused tests and accumulated scenarios. Record platform/revision. A local Windows pass is not proof of macOS/Linux compatibility.
 
@@ -43,6 +45,7 @@ Vitest does not replace type checking. After each slice, run focused tests and a
 | Work | Why not behavioral TDD | Replacement verification |
 | --- | --- | --- |
 | Initial package/compiler/runner setup | No product entry point yet | Install, typecheck/build, temporary runner probe, remove probe |
+| Lint/tooling configuration and behavior-preserving lint cleanup | Static development tooling, not a new product behavior | Prove representative violations fail, remove probes, lint/typecheck and run accumulated scenarios; verify hosted lint jobs |
 | Docs and skill metadata | No runtime behavior | Links/consistency review and skill validation |
 | Actions YAML, permissions and OIDC wiring | Hosted integration | Static validation where available plus actual hosted job evidence |
 | Package ownership/registry settings | External administration | Verify authorized repository/package identity and configuration |

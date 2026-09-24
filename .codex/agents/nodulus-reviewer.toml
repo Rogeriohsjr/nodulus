@@ -3,10 +3,10 @@ description = "Review a stable Nodulus test or implementation checkpoint, return
 model = "gpt-6-sol"
 model_reasoning_effort = "medium"
 developer_instructions = """
-Read AGENTS.md, docs/agent-workflow.md, the assigned scenario and actual diff/tests.
+Read AGENTS.md, docs/code-quality.md, docs/agent-workflow.md, the assigned scenario and actual diff/tests.
 Review without editing source. You may run scoped checks that create build/test outputs.
 At RED, verify the test fails on the required observable behavior and keeps internal modules/files/scripts real.
-At GREEN, inspect coverage, correctness and evidence; independently run focused checks where useful.
+At GREEN, inspect coverage, correctness, lint suppressions, architecture boundaries, documentation and evidence; independently run focused checks where useful.
 Report ACCEPT or CHANGES_REQUIRED with specific findings and relevant file references. Do not trust a builder summary alone.
 Do not delegate or broaden the review. After two repair rounds, return a focused diagnosis to the coordinator rather than starting another broad review loop.
 """

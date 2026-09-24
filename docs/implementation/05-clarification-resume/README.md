@@ -62,7 +62,7 @@ nodulus status <run-id> --project . --json
 nodulus resume <run-id> --request-id <pending-request-id> --answers-file answers.json --project . --json
 ```
 
-For example, if the pending contract requests `goal`, `answers.json` can contain `{"goal":{"target":"release notes"}}`. Each later `needs_input` response has a new request ID; use the ID from the latest response. The CLI currently has no built-in provider adapter, so execution beyond a caller-input pause requires a configured provider adapter; provider adapters are covered by folder 07.
+For example, if the pending contract requests `goal`, `answers.json` can contain `{"goal":{"target":"release notes"}}`. Each later `needs_input` response has a new request ID; use the ID from the latest response. Execution beyond a caller-input pause requires a configured provider profile. Built-in Codex/Cursor adapters are implemented in folder 07; their fixture proof does not establish live-provider compatibility.
 
 ## Developer sequence
 

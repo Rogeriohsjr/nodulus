@@ -33,11 +33,11 @@ afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
 test("PKG-001 installs and runs the actual archive CLI, initializer, and fixture workflow", () => {
   const help = runInstalled(installedPrefix, ["--help"], scratch);
-  expect(help.status, `${help.stdout}\n${help.stderr}`).toBe(0);
+  expect(help.status, `${String(help.stdout)}\n${String(help.stderr)}`).toBe(0);
   expect(help.stdout).toContain("Usage: nodulus");
 
   const version = runInstalled(installedPrefix, ["--version"], scratch);
-  expect(version.status, `${version.stdout}\n${version.stderr}`).toBe(0);
+  expect(version.status, `${String(version.stdout)}\n${String(version.stderr)}`).toBe(0);
   expect(version.stdout.trim()).toBe(packageVersion);
 
   const project = path.join(scratch, "installed project & ü %");

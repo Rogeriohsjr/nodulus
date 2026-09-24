@@ -1,5 +1,7 @@
 # Evidence: 01-initialize
 
+Checkpoint history: counts and remaining work below describe this slice at acceptance time. See the [current implementation status](../README.md) and [hosted validation](../09-ci-release/evidence.md#final-code-checkpoint-verification) for later completion.
+
 Status: folder 01 accepted locally on Windows. INIT-001 was reviewed in the pilot; INIT-002 through INIT-004 were independently accepted by GPT-6 Sol on 2026-09-24.
 
 ## Environment

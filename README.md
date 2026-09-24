@@ -10,8 +10,11 @@ Start with the [implementation sequence](https://github.com/Rogeriohsjr/nodulus/
 
 - [User scenarios](https://github.com/Rogeriohsjr/nodulus/blob/main/docs/user-scenarios.md)
 - [Architecture](https://github.com/Rogeriohsjr/nodulus/blob/main/docs/architecture.md)
+- [Code quality and AI checklist](https://github.com/Rogeriohsjr/nodulus/blob/main/docs/code-quality.md)
 - [Testing policy](https://github.com/Rogeriohsjr/nodulus/blob/main/docs/testing.md)
 - [Codex guidance](https://github.com/Rogeriohsjr/nodulus/blob/main/AGENTS.md)
 - [Skill usage and developer assignment examples](https://github.com/Rogeriohsjr/nodulus/blob/main/docs/codex-skills.md)
 
 Repository skills: `$nodulus-scenario-tdd` and `$nodulus-delivery-validation`.
+
+For development, use Node.js 24, run `npm ci`, then `npm run check` to run lint, typecheck, scenarios and package checks.

@@ -1,5 +1,7 @@
 # Evidence: 00-foundation
 
+Checkpoint history: counts and remaining work below describe this slice at acceptance time. See the [current implementation status](../README.md) and [hosted validation](../09-ci-release/evidence.md#final-code-checkpoint-verification) for later completion.
+
 Status: local setup verified and independently accepted. This slice establishes the toolchain only. No CLI or runtime behavior has been implemented.
 
 ## Environment
