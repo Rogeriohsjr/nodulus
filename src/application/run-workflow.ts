@@ -1,7 +1,7 @@
 import { LocalIntakeStorage } from "../adapters/storage/local-intake-storage.js";
 import { ProcessArtifactValidator } from "../adapters/validation/process-artifact-validator.js";
 import { createIntake, type IntakeRequest } from "../core/intake-request.js";
-import { executeSingleNode } from "../core/execute-single-node.js";
+import { executeWorkflow } from "../core/execute-workflow.js";
 import type { IntakeStorage } from "../core/ports/intake-storage.js";
 import type { ProviderInvocation, ProviderPort } from "../core/ports/provider.js";
 
@@ -25,5 +25,5 @@ export async function runWorkflow(
 ): Promise<ApplicationRunResult> {
   const storage = dependencies.storage ?? new LocalIntakeStorage();
   const intake = await createIntake(request, storage);
-  return executeSingleNode(request, intake, provider, storage, new ProcessArtifactValidator());
+  return executeWorkflow(request, intake, provider, storage, new ProcessArtifactValidator());
 }

@@ -3,6 +3,7 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import type { AnySchema } from "ajv";
 import path from "node:path";
 import { parseProjectSettings, type ProjectSettings } from "./project-settings.js";
+import { resolveOutputReference } from "./workflow-mapping.js";
 import type { IntakeStorage, RunFiles } from "./ports/intake-storage.js";
 import { NodulusError } from "./shared/nodulus-error.js";
 
@@ -41,6 +42,7 @@ type ResolvedProviderProfile = {
 };
 
 const idPattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const requestContract = { type: "string", minLength: 1 };
 
 const workflowSchema = {
   type: "object",
@@ -92,7 +94,8 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
   const contracts: Record<string, unknown> = {};
   const providerProfiles: Record<string, ResolvedProviderProfile> = {};
   const instructions: Array<{ path: string; content: string }> = [];
-  const declaredOutputs = new Map<string, Set<string>>();
+  const declaredOutputs = new Map<string, Map<string, string>>();
+  contracts["request.v1"] = requestContract;
 
   for (let index = 0; index < workflow.nodes.length; index += 1) {
     const nodeId = workflow.nodes[index];
@@ -102,12 +105,22 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
     const profile = validateProvider(settings, node.providerProfile, nodeId);
     providerProfiles[node.providerProfile] = safeProfileSnapshot(profile);
     validateMappings(node, workflow.nodes.slice(0, index), declaredOutputs);
-    const outputNames = new Set<string>();
+    for (const candidate of Object.values(node.inputs)) {
+      if (!isRecord(candidate)) continue;
+      const contractId = typeof candidate.contract === "string"
+        ? candidate.contract
+        : candidate.from === "request" ? "request.v1" : undefined;
+      if (!contractId) continue;
+      if (contractId !== "request.v1" && !Object.hasOwn(contracts, contractId)) {
+        contracts[contractId] = await readContract(projectRoot, contractId, storage);
+      }
+    }
+    const outputContracts = new Map<string, string>();
     for (const output of node.expectedOutputs) {
-      if (!isSafeId(output.name) || outputNames.has(output.name)) {
+      if (!isSafeId(output.name) || outputContracts.has(output.name)) {
         configError(`Node '${nodeId}' has an invalid or duplicate output name '${output.name}'.`);
       }
-      outputNames.add(output.name);
+      outputContracts.set(output.name, output.contract);
       const contract = await readContract(projectRoot, output.contract, storage);
       contracts[output.contract] = contract;
       if (output.validator) {
@@ -115,7 +128,7 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
         await readUtf8(storage, validatorPath, "CONFIGURATION_INVALID", `Could not read validator '${output.validator}'.`);
       }
     }
-    declaredOutputs.set(nodeId, outputNames);
+    declaredOutputs.set(nodeId, outputContracts);
     nodes.push(node);
 
     for (const relativeInstructionPath of node.instructions) {
@@ -237,17 +250,32 @@ function safeProfileSnapshot(profile: ProjectSettings["providerProfiles"][string
 function validateMappings(
   node: NodeDefinition,
   earlierNodeIds: string[],
-  earlierOutputs: Map<string, Set<string>>,
+  earlierOutputs: Map<string, Map<string, string>>,
 ): void {
   for (const [inputName, candidate] of Object.entries(node.inputs)) {
     if (!isRecord(candidate) || typeof candidate.from !== "string") {
       configError(`Node '${node.id}' input '${inputName}' must map from request or a prior node output.`);
     }
-    if (candidate.from === "request") continue;
-    const match = /^([A-Za-z0-9][A-Za-z0-9._-]*)\.([A-Za-z0-9][A-Za-z0-9._-]*)$/.exec(candidate.from);
-    const nodeOutputs = match ? earlierOutputs.get(match[1]) : undefined;
-    if (!match || !earlierNodeIds.includes(match[1]) || !nodeOutputs?.has(match[2])) {
+    if (candidate.from === "request") {
+      const contract = candidate.contract ?? "request.v1";
+      if (contract !== "request.v1") {
+        configError(`Node '${node.id}' input '${inputName}' must declare request contract 'request.v1'.`);
+      }
+      continue;
+    }
+    const resolution = resolveOutputReference(candidate.from, earlierNodeIds.map((nodeId) => ({
+      nodeId,
+      outputs: [...(earlierOutputs.get(nodeId) ?? new Map())].map(([name, contract]) => ({ name, contract })),
+    })));
+    if (resolution.status === "ambiguous") {
+      configError(`Node '${node.id}' input '${inputName}' source '${candidate.from}' is ambiguous between declared prior outputs.`);
+    }
+    if (resolution.status === "missing") {
       configError(`Node '${node.id}' input '${inputName}' has an invalid source '${candidate.from}'.`);
+    }
+    const declaredContract = candidate.contract;
+    if (typeof declaredContract !== "string" || declaredContract !== resolution.contract) {
+      configError(`Node '${node.id}' input '${inputName}' contract must match source '${candidate.from}' contract '${resolution.contract}'.`);
     }
   }
 }

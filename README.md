@@ -1,8 +1,8 @@
 # Nodulus
 
-A planned TypeScript CLI for LLM workflows with validated artifacts and resumable execution.
+A TypeScript CLI under development for LLM workflows with validated artifacts and resumable execution.
 
-Status: the Node/TypeScript foundation and INIT-001 through INIT-004 initialization behavior are implemented locally and independently reviewed on Windows. The generated project intentionally has no configured provider; workflow execution, status/resume, later workflow stages, and hosted cross-platform verification remain unimplemented.
+Status: folders 00 through 04 are implemented and independently reviewed on Windows: initialization, request capture, validated node outcomes, and sequential workflows. The generated project has no configured provider; current execution tests supply an external-provider fake. Resume/recovery, vendor adapters, packaging, and hosted cross-platform verification are tracked in the implementation sequence below.
 
 Start with [the implementation sequence](docs/implementation/README.md). Each numbered folder contains scenarios, implementation guidance, checkboxes, and an evidence record.
 

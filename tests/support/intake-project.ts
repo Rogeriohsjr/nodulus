@@ -26,6 +26,7 @@ export function createInitializedProject(label: string): string {
   const nodePath = path.join(project, ".nodulus", "nodes", "example.json");
   const node = JSON.parse(readFileSync(nodePath, "utf8"));
   node.providerProfile = "fixture";
+  node.inputs = { request: { from: "request", contract: "request.v1" } };
   writeFileSync(nodePath, `${JSON.stringify(node, null, 2)}\n`, "utf8");
   return project;
 }
