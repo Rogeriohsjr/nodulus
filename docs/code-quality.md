@@ -28,7 +28,7 @@ No arbitrary coverage percentage or line-count target substitutes for scenario c
 
 Follow [CONTRIBUTING.md](../CONTRIBUTING.md) when creating or renaming a PR. `Validate PR title` enforces the Conventional Commit header used by the squash-merge release process. The workflow reads PR metadata only, uses a pinned action and read-only permissions, and never checks out or executes PR code. It uses the workflow from `main`, so contributors cannot weaken the title rule by editing it in their own PR.
 
-The initial workflow must be merged before it can run; then its hosted pass/fail behavior and the required branch-protection check must be verified. See folder 09 evidence for rollout status. Human review must still validate the release classification and squash message.
+Hosted invalid-title failure and corrected-title success are verified, and `Validate PR title` is required in main-branch protection. See folder 09 evidence for run links. Human review must still validate the release classification and squash message.
 
 ## Validation record
 
