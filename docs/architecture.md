@@ -1,6 +1,6 @@
 # Architecture and protocol
 
-Status: v1 contract; folders 00 through 08 are implemented and reviewed, with hosted Windows/macOS/Linux validation. The implementation index records deferred publication and live-provider proof. Update affected scenarios before changing this contract.
+Status: v1 contract; folders 00 through 08 are implemented and reviewed, with hosted Windows/macOS/Linux validation. Version 1.0.0 is published; the implementation index records remaining automated-release and live-provider proof. Update affected scenarios before changing this contract.
 
 ## Scope and stack
 

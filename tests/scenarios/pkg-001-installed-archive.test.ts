@@ -248,8 +248,15 @@ test("PKG-005 packs the scoped public package with Apache-2.0 notices in the arc
 });
 
 test("PKG-006 npm public-publish dry-run reports no corrected bin metadata", () => {
-  const publishDryRun = crossSpawn.sync("npm", ["publish", "--dry-run", "--access", "public", "--json", "--ignore-scripts"], {
-    cwd: repository,
+  const publishDirectory = path.join(scratch, "public publish dry run");
+  stageBuiltPackage(repository, publishDirectory);
+  const manifestPath = path.join(publishDirectory, "package.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  manifest.version = `${packageVersion}-dry-run.${Date.now()}.${process.pid}`;
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+  const publishDryRun = crossSpawn.sync("npm", ["publish", "--dry-run", "--tag", "dry-run", "--access", "public", "--json", "--ignore-scripts"], {
+    cwd: publishDirectory,
     encoding: "utf8",
     timeout: 120_000,
     windowsHide: true,

@@ -2,7 +2,15 @@
 
 An open-source TypeScript CLI for LLM workflows with validated artifacts and resumable execution.
 
-For local package installation and usage, see the [Nodulus user guide](docs/user-guide.md).
+Install the [public npm package](https://www.npmjs.com/package/@rogeriohsjr/nodulus) with Node.js 24:
+
+```sh
+npm install --global @rogeriohsjr/nodulus@latest
+nodulus --version
+nodulus --help
+```
+
+For project setup and usage, see the [Nodulus user guide](docs/user-guide.md).
 
 Status: folders 00 through 08 are implemented and independently reviewed: initialization, request capture, validated node outcomes, sequential workflows, persisted pause/resume, bounded repair/crash detection, Codex/Cursor adapters, and local package installation/upgrades. Hosted Windows, macOS and Linux checks exercise 115 scenario tests and package install/upgrade tests. The public package identity is `@rogeriohsjr/nodulus`; release and registry validation status is recorded in folder 09. The generated project has no configured provider; adapter tests use real local fixture executables, with live vendor compatibility unverified.
 

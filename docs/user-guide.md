@@ -6,7 +6,7 @@ Nodulus runs ordered workflows whose outputs are checked against JSON Schema con
 
 Use Node.js 24 and its bundled npm. The public package name is `@rogeriohsjr/nodulus`; the executable remains `nodulus`.
 
-After the initial registry release is available, install or upgrade with:
+Version 1.0.0 is available on the [public npm registry](https://www.npmjs.com/package/@rogeriohsjr/nodulus). Install or upgrade with:
 
 ```sh
 npm install --global @rogeriohsjr/nodulus@latest
@@ -16,7 +16,7 @@ nodulus --version
 
 For reproducible installs, replace `latest` with an exact published version. Nodulus does not update itself. Installing a new version leaves project definitions and saved runs in their project directories; resume still checks compatibility.
 
-To install directly from a checkout before publication, build and pack locally:
+To install directly from a source checkout, build and pack locally:
 
 ```sh
 npm ci
