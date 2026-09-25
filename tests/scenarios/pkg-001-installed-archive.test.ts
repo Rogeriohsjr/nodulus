@@ -195,8 +195,9 @@ function installFixtureProvider(project: string, mode: "success" | "pause-then-s
     "let raw;",
     "if (mode === 'pause-then-success' && count === 0) raw = JSON.stringify({ status: 'needs_input', request: { id: 'fixture-question', questions: [{ id: 'confirmed', message: 'Confirm?' }], answerContract: { type: 'object', properties: { confirmed: { type: 'boolean' } }, required: ['confirmed'], additionalProperties: false } } });",
     "else raw = JSON.stringify({ status: 'success', artifacts: [{ name: 'example', contract: 'example.v1', data: { message: 'archive fixture' } }] });",
+    "const envelope = JSON.stringify({ response: raw });",
     "appendFileSync(logPath, JSON.stringify({ argv: args }) + '\\n');",
-    "const output = flag('--output-last-message'); if (output) writeFileSync(output, raw, 'utf8');",
+    "const output = flag('--output-last-message'); if (output) writeFileSync(output, envelope, 'utf8');",
     "process.stdout.write('{\\\"type\\\":\\\"turn.completed\\\"}\\n');",
   ].join("\n"), "utf8");
   const executable = process.platform === "win32"

@@ -44,3 +44,7 @@ Foundation and INIT-001 completed locally on Windows with a Luna builder and ind
 ## Folder 01 continuation result (2026-09-24)
 
 The Luna builder and GPT-6 Sol reviewer completed INIT-002 through INIT-004. INIT-002 already passed and was recorded without fabricated RED. Sol requested stronger no-execution assertions at test review and found a Windows executable-extension bug at implementation review; the regression was demonstrated and fixed. Final local Windows typecheck/build and 8 scenario tests pass. No later folders, publishing, or live model calls were performed.
+
+## Run this process through Nodulus
+
+The [development workflow example](../examples/development-workflow/README.md) implements four sequential checkpoints: Luna test author, Sol test reviewer, Luna implementer and Sol final reviewer. An optional separate escalation workflow diagnoses blockers. These are explicit provider calls, not automatic loading of the Codex app agent-role files. The app-bundled CLI 0.144.4 rejects newer settings; the live pilot uses standalone CLI 0.156.1 with an explicit executable path. Workflow profiles choose each node's model and policy directly. See [folder 10 evidence](implementation/10-development-workflow/evidence.md) for fixture and live proof.

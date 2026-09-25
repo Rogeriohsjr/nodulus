@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "dev-escalate",
+  "providerProfile": "dev-reviewer",
+  "instructions": [
+    ".nodulus/instructions/dev-common.md",
+    ".nodulus/instructions/dev-escalate.md"
+  ],
+  "inputs": {
+    "request": {
+      "from": "request",
+      "contract": "request.v1"
+    }
+  },
+  "expectedOutputs": [
+    {
+      "name": "result",
+      "contract": "dev-work.v1"
+    }
+  ]
+}

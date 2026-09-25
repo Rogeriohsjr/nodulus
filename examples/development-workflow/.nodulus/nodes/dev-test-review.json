@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "dev-test-review",
+  "providerProfile": "dev-reviewer",
+  "instructions": [
+    ".nodulus/instructions/dev-common.md",
+    ".nodulus/instructions/dev-test-review.md"
+  ],
+  "inputs": {
+    "request": {
+      "from": "request",
+      "contract": "request.v1"
+    },
+    "tests": {
+      "from": "dev-tests.result",
+      "contract": "dev-work.v1"
+    }
+  },
+  "expectedOutputs": [
+    {
+      "name": "result",
+      "contract": "dev-review.v1"
+    }
+  ]
+}

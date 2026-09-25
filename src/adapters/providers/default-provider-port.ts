@@ -8,13 +8,8 @@ type Kind = "codex" | "cursor";
 const invocationTimeout = 10 * 60 * 1000;
 const outcomeSchema = {
   type: "object",
-  properties: {
-    status: { type: "string", enum: ["success", "needs_input", "error"] },
-    artifacts: { type: "array" },
-    request: { type: "object" },
-    error: { type: "object" },
-  },
-  required: ["status"],
+  properties: { response: { type: "string" } },
+  required: ["response"],
   additionalProperties: false,
 };
 
@@ -83,16 +78,48 @@ async function invokeCodex(executable: string, cwd: string, invocation: Provider
   const outputPath = path.join(directory, "last-message.txt");
   const schemaPath = path.join(directory, "outcome.schema.json");
   await writeFile(schemaPath, `${JSON.stringify(outcomeSchema, null, 2)}\n`, "utf8");
-  const args = ["exec", "--json", "--ephemeral", "--cd", cwd, "--output-last-message", outputPath, "--output-schema", schemaPath];
+  const sandbox = invocation.providerProfile.sandbox ?? "read-only";
+  if (sandbox !== "read-only" && sandbox !== "workspace-write") {
+    throw new NodulusError("CONFIGURATION_INVALID", "Captured Codex sandbox must be 'read-only' or 'workspace-write'.");
+  }
+  const args = ["exec", "--json", "--ephemeral", "--cd", cwd, "--sandbox", sandbox, "-c", "approval_policy=never", "--output-last-message", outputPath, "--output-schema", schemaPath];
   if (typeof invocation.providerProfile.model === "string") args.push("--model", invocation.providerProfile.model);
+  const reasoningEffort = invocation.providerProfile.reasoningEffort;
+  if (reasoningEffort !== undefined) {
+    if (!isCodexReasoningEffort(reasoningEffort)) {
+      throw new NodulusError("CONFIGURATION_INVALID", "Captured Codex reasoningEffort must be one of: minimal, low, medium, high, xhigh.");
+    }
+    args.push("-c", `model_reasoning_effort=${reasoningEffort}`);
+  }
   args.push("-");
-  const result = await runProcess(executable, args, { cwd, stdin: invocation.prompt, timeoutMs });
-  await saveTransport(directory, "codex", result);
-  if (result.timedOut) throw new NodulusError("PROVIDER_TIMEOUT", "Codex CLI exceeded its configured invocation timeout.");
-  if (result.outputLimitExceeded) throw new NodulusError("PROVIDER_OUTPUT_LIMIT", "Codex CLI exceeded the 2 MiB transport output limit.");
-  if (result.exitCode !== 0) throw new NodulusError("PROVIDER_PROCESS_FAILED", `Codex CLI exited with code ${result.exitCode}${detail(result.stderr)}.`);
-  try { return await readFile(outputPath, "utf8"); }
-  catch (error) { throw new NodulusError("PROVIDER_RESPONSE_MISSING", `Codex CLI did not write its final message: ${messageOf(error)}${detail(result.stderr)}.`); }
+  const transportPrompt = `${invocation.prompt}\n\nCodex transport envelope: return exactly one JSON object with a string property named response. Its string value must be the exact Nodulus outcome JSON text.`;
+  const result = await runProcess(executable, args, { cwd, stdin: transportPrompt, timeoutMs });
+  if (result.timedOut) {
+    await saveTransport(directory, "codex", result);
+    throw new NodulusError("PROVIDER_TIMEOUT", "Codex CLI exceeded its configured invocation timeout.");
+  }
+  if (result.outputLimitExceeded) {
+    await saveTransport(directory, "codex", result);
+    throw new NodulusError("PROVIDER_OUTPUT_LIMIT", "Codex CLI exceeded the 2 MiB transport output limit.");
+  }
+  if (result.exitCode !== 0) {
+    await saveTransport(directory, "codex", result);
+    throw new NodulusError("PROVIDER_PROCESS_FAILED", `Codex CLI exited with code ${result.exitCode}${detail(result.stderr)}.`);
+  }
+  let lastMessage: string;
+  try { lastMessage = await readFile(outputPath, "utf8"); }
+  catch (error) {
+    await saveTransport(directory, "codex", result);
+    throw new NodulusError("PROVIDER_RESPONSE_MISSING", `Codex CLI did not write its final message: ${messageOf(error)}${detail(result.stderr)}.`);
+  }
+  await saveTransport(directory, "codex", result, lastMessage);
+  let envelope: unknown;
+  try { envelope = JSON.parse(lastMessage) as unknown; }
+  catch (error) { throw new NodulusError("PROVIDER_TRANSPORT_INVALID", `Codex CLI returned malformed response-envelope JSON: ${messageOf(error)}.`); }
+  if (!isRecord(envelope) || typeof envelope.response !== "string" || Object.keys(envelope).some((key) => key !== "response")) {
+    throw new NodulusError("PROVIDER_TRANSPORT_INVALID", "Codex CLI response envelope must contain exactly one string property named 'response'.");
+  }
+  return envelope.response;
 }
 
 async function invokeCursor(executable: string, cwd: string, invocation: ProviderInvocation, timeoutMs: number): Promise<string> {
@@ -115,8 +142,14 @@ async function invokeCursor(executable: string, cwd: string, invocation: Provide
   return envelope.result;
 }
 
-async function saveTransport(directory: string, kind: Kind, result: Awaited<ReturnType<typeof runProcess>>): Promise<void> {
-  await writeFile(path.join(directory, "transport.json"), `${JSON.stringify({ provider: kind, stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode }, null, 2)}\n`, "utf8");
+async function saveTransport(directory: string, kind: Kind, result: Awaited<ReturnType<typeof runProcess>>, lastMessage?: string): Promise<void> {
+  await writeFile(path.join(directory, "transport.json"), `${JSON.stringify({
+    provider: kind,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+    ...(lastMessage === undefined ? {} : { lastMessage }),
+  }, null, 2)}\n`, "utf8");
 }
 
 async function attemptDirectory(cwd: string, invocation: ProviderInvocation): Promise<string> {
@@ -132,3 +165,6 @@ function boundedTimeout(value: unknown): number {
 function detail(value: string): string { return value.trim() ? `: ${value.trim().slice(0, 4000)}` : ""; }
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
+function isCodexReasoningEffort(value: unknown): value is "minimal" | "low" | "medium" | "high" | "xhigh" {
+  return value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh";
+}

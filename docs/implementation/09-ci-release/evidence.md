@@ -1,6 +1,6 @@
 # Evidence: 09-ci-release
 
-Status: public Apache-2.0 version 1.0.0, its GitHub release/tag and a clean registry installation are verified. Automated/OIDC publication and upgrading between registry versions remain open. The first-release checkpoint below supersedes historical preparation statuses; npm trust and repository opt-in are still pending authentication.
+Status: public versions 1.0.0 and 1.0.1, automated OIDC publishing and registry upgrade are verified. Remaining external release-guard exercises stay open. Historical preparation statuses below are superseded by the latest checkpoint.
 
 ## Environment
 
@@ -120,3 +120,9 @@ This proves the initial public registry installation and workflow, not an upgrad
 After 1.0.0 became public, `npm run check` passed lint/typecheck and 115 runtime scenarios but PKG-006 failed: npm's real publish dry run rejected publishing over existing version 1.0.0 (six other package tests passed). The scenario now stages a real temporary package copy and changes only that copy to a unique prerelease version, with the required `--tag dry-run`; `--dry-run` and the bin-warning assertion remain. The source manifest stays unchanged and no test publishes a package. The initial prerelease attempt exposed npm's explicit-tag requirement before correction.
 
 GREEN on Windows: focused PKG-006 passed; final `npm run check` passed lint, typecheck, 115 runtime/release scenarios and seven package tests. Sol accepted the isolated test fix and documentation. Local Markdown links passed for 35 tracked files; `git diff --check` passed. Hosted results belong to the pushed revision and are reported separately.
+
+## Automated release and registry upgrade: 1.0.1
+
+After the owner completed npm security-key authentication, npm confirmed the trusted publisher for Rogeriohsjr/nodulus, ci-release.yml, environment npm-publish, with npm publish permission. GitHub environment policy permits only main; repository variable NODULUS_PUBLISH_ENABLED was set to true and read back. The authorized rerun of [main workflow 36079880134](https://github.com/Rogeriohsjr/nodulus/actions/runs/36079880134), source `95182b1d24bff8899e690f3611552486df14a07c`, passed all three OS checks and [publication job 107900966952](https://github.com/Rogeriohsjr/nodulus/actions/runs/36079880134/job/107900966952). Logs confirm successful OIDC token exchange, signed provenance, npm latest 1.0.1 and [GitHub release v1.0.1](https://github.com/Rogeriohsjr/nodulus/releases/tag/v1.0.1).
+
+After registry propagation, the clean consumer previously installed at 1.0.0 upgraded using `npm.cmd install --no-audit --no-fund --prefer-online @rogeriohsjr/nodulus@1.0.1`. Its installed CLI reported 1.0.1, registry latest resolved to 1.0.1, and the same real-file application workflow with external inference fixture passed (run `4dc3c032-fe1a-4377-b2d3-5d7ff3221b44`). REL-002 and REL-004 are verified. REL-003's live fork, concurrency and published-commit rerun exercises remain open; no duplicate-publish proof is inferred from successful first OIDC publication.

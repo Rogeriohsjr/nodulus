@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "dev-verify",
+  "providerProfile": "dev-reviewer",
+  "instructions": [
+    ".nodulus/instructions/dev-common.md",
+    ".nodulus/instructions/dev-review.md"
+  ],
+  "inputs": {
+    "request": {
+      "from": "request",
+      "contract": "request.v1"
+    }
+  },
+  "expectedOutputs": [
+    {
+      "name": "result",
+      "contract": "dev-review.v1",
+      "validator": ".nodulus/validators/dev-quality.mjs",
+      "validatorTimeoutMs": 120000
+    }
+  ]
+}

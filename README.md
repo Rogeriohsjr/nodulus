@@ -32,3 +32,7 @@ For development, use Node.js 24, run `npm ci`, then `npm run check` to run lint,
 Issues and pull requests are welcome. See the [contribution guide](https://github.com/Rogeriohsjr/nodulus/blob/main/CONTRIBUTING.md) for the development workflow and test expectations.
 
 Copyright 2026 Rogeriohsjr and Nodulus contributors. Licensed under [Apache-2.0](LICENSE), with attribution in [NOTICE](NOTICE). You may use, copy, modify and redistribute this project under those terms.
+
+## Develop with Nodulus
+
+The [development workflow example](https://github.com/Rogeriohsjr/nodulus/tree/main/examples/development-workflow) connects a Luna test author, Sol test reviewer, Luna implementer and Sol final reviewer. An actual `npm run check` validator gates completion. A separate verification workflow checks existing work, and escalation is optional. See the example for isolated-worktree setup, required CLI version and live-validation limitations.

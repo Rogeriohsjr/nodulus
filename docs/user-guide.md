@@ -69,3 +69,9 @@ The CLI returns immediately on clarification. It persists the pending request an
 Errors use the same JSON envelope shape and include an actionable `code` and `message`. Errors that occur before a run is created have `runId: null`; errors during execution retain the run and attempt records for inspection with `nodulus status <run-id> --json`. Credentials are excluded from captured provider settings. Unknown usage and cost values are reported as `null`.
 
 The project's `.nodulus/runs/` directory is generated state. Keep it out of source control unless your project deliberately needs to retain run history.
+
+## Codex node execution policies
+
+The development-workflow change adds Codex profile `sandbox` (`read-only` by default, or explicit `workspace-write`) and optional `reasoningEffort` (`minimal`, `low`, `medium`, `high`, `xhigh`). Supported effort still depends on the selected model. Nodulus captures these choices for resume and passes them to Codex with approval policy `never`; unsupported values fail before provider probes. No sandbox-bypass mode or arbitrary CLI argument list is accepted. These settings are not available in npm 1.0.1; use a release including this change or build this branch.
+
+See the repository's [development example](https://github.com/Rogeriohsjr/nodulus/tree/main/examples/development-workflow) for test-author, test-review, implementation and final-review nodes. Workflow sequencing does not automatically repair rejected reviews or commit changes.
