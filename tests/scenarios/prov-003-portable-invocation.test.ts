@@ -21,13 +21,11 @@ test.each(providers)("PROV-003 preserves long %s context across Unicode and shel
       expect(call.stdin).toContain("Ω");
       expect(call.stdin).toContain("& % must stay literal");
     } else {
-      const promptArgument = call.argv[call.argv.indexOf("-p") + 1];
-      expect(promptArgument).toMatch(/^Read the complete captured prompt at /);
-      expect(promptArgument.length).toBeLessThan(512);
-      expect(call.promptFile).toBeDefined();
-      expect(call.promptContents).toContain(uniqueTail);
-      expect(call.promptContents).toContain("Ω");
-      expect(call.promptContents).toContain("& % must stay literal");
+      expect(call.argv[call.argv.indexOf("-p") + 1]).toBe("--output-format");
+      expect(call.stdin).toContain(uniqueTail);
+      expect(call.stdin).toContain("Ω");
+      expect(call.stdin).toContain("& % must stay literal");
+      expect(call.promptFile).toBeUndefined();
     }
   } finally {
     cleanupProviderProject(project);

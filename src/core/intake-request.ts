@@ -34,7 +34,7 @@ type NodeDefinition = {
 };
 type ResolvedReference = { path: string; mode: "snapshot" | "workspace"; sha256: string; content?: string };
 type ResolvedProviderProfile = {
-  kind?: "codex" | "cursor";
+  kind?: "codex" | "cursor" | "opencode";
   enabled: boolean;
   executable: string;
   model?: string;
@@ -255,6 +255,9 @@ function validateProvider(settings: ProjectSettings, profileName: string, nodeId
       configError(`Codex provider profile '${profileName}' reasoningEffort must be one of: minimal, low, medium, high, xhigh.`);
     }
   }
+  if (profile.kind === "opencode" && profile.arguments !== undefined) {
+    configError(`OpenCode provider profile '${profileName}' does not permit arbitrary arguments.`);
+  }
   return profile;
 }
 
@@ -263,7 +266,7 @@ function safeProfileSnapshot(profile: ProjectSettings["providerProfiles"][string
     enabled: profile.enabled,
     executable: profile.executable,
   };
-  if (profile.kind === "codex" || profile.kind === "cursor") snapshot.kind = profile.kind;
+  if (profile.kind === "codex" || profile.kind === "cursor" || profile.kind === "opencode") snapshot.kind = profile.kind;
   if (typeof profile.model === "string") snapshot.model = profile.model;
   if (typeof profile.timeout === "number") snapshot.timeout = profile.timeout;
   if (typeof profile.timeoutMs === "number") snapshot.timeoutMs = profile.timeoutMs;

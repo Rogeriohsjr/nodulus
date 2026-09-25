@@ -1,0 +1,45 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama (local)",
+      "options": {
+        "baseURL": "http://127.0.0.1:11434/v1"
+      },
+      "models": {
+        "qwen3.5:9b": {
+          "name": "Qwen 3.5 9B"
+        }
+      }
+    }
+  },
+  "agent": {
+    "nodulus-response": {
+      "description": "Correct a Nodulus response envelope without taking actions",
+      "mode": "primary",
+      "prompt": "Return only the complete JSON response requested by the user. Do not use tools, edit files, execute commands, ask questions, or add commentary.",
+      "permission": {
+        "*": "deny"
+      }
+    }
+  },
+  "permission": {
+    "external_directory": "deny",
+    "task": "deny",
+    "webfetch": "deny",
+    "websearch": "deny",
+    "edit": {
+      "*": "allow",
+      ".nodulus/result*": "deny",
+      "result*": "deny"
+    },
+    "bash": {
+      "*": "allow",
+      "git commit *": "deny",
+      "git push *": "deny",
+      "git reset *": "deny",
+      "git clean *": "deny"
+    }
+  }
+}

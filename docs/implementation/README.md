@@ -1,6 +1,6 @@
 # Implementation sequence
 
-Status: folders 00 through 08 accepted, with hosted Windows/macOS/Linux validation. Public Apache-2.0 version 1.0.0 is published and a clean registry installation is verified. Automated OIDC release 1.0.1 and registry upgrade are verified; folder 09 remains open for external release-guard proof. See folder 09 evidence for the release checkpoint.
+Status: folders 00 through 08 accepted, with hosted Windows/macOS/Linux validation. Public Apache-2.0 version 2.0.0 is published; earlier automated OIDC release and registry-upgrade evidence is retained in folder 09, which remains open for external release-guard proof.
 
 Read [architecture](../architecture.md) and [testing policy](../testing.md). Work in numeric order; each folder depends on the preceding one. This keeps tests and implementation following the same user flow. A developer can implement one folder and hand off its evidence before the next begins.
 
@@ -31,9 +31,13 @@ Example assignment:
 
 > Implement docs/implementation/03-node-outcomes using $nodulus-scenario-tdd. Verify prerequisites, implement scenario by scenario with observed RED then GREEN, and update its evidence/checklists. Do not start 04.
 
-Foundation was implemented using $nodulus-delivery-validation and accepted locally on Windows. The subsequent Luna-builder/Sol-reviewer pass completed INIT-002 through INIT-004. Folders 02 through 08 are accepted. Folder 09 REL-001, REL-002 and REL-004 have hosted/registry proof; REL-003 retains external acceptance. Folder 10 adds bounded live Codex proof on Windows; live Cursor and macOS/Linux provider invocation remain unverified.
+Foundation was implemented using $nodulus-delivery-validation and accepted locally on Windows. The subsequent Luna-builder/Sol-reviewer pass completed INIT-002 through INIT-004. Folders 02 through 08 are accepted. Folder 09 REL-001, REL-002 and REL-004 have hosted/registry proof; REL-003 retains external acceptance. Folder 10 adds bounded live Codex proof on Windows. Cursor and OpenCode/Ollama also have Windows live adapter proof; macOS/Linux live-provider invocation remains unverified.
 
 
 ## Follow-up: repository development workflow
 
 [10-development-workflow](10-development-workflow/README.md) is the user-authorized dogfooding slice: explicit Codex execution policies, a four-checkpoint Luna/Sol workflow, and an isolated live coding pilot. Its prerequisites are the implemented runtime and installed package; remaining folder 09 release-guard exercises do not block local workflow testing. See its checklist and evidence before claiming live completion.
+
+## Follow-up: OpenCode development workflow
+
+[11-opencode-workflow](11-opencode-workflow/README.md) adds a local OpenCode/Ollama builder while retaining independent Luna test review, GPT-5.6 Sol final review and the fixed repository quality gate. Provider behavior is test-first; the live Windows exercise follows fixture GREEN and full local validation.
