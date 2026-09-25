@@ -1,8 +1,8 @@
-# 07-provider-adapters: Integrate Codex and Cursor
+# 07-provider-adapters: Integrate Codex, Cursor and OpenCode
 
-**Status:** accepted locally on Windows after independent Sol review. Provider tests use executable fixtures; live compatibility remains unverified. **Prerequisite:** 06-repair-recovery. **Method:** TDD for adapters; live compatibility verification is separate.
+**Status:** accepted locally on Windows after independent Sol review. Provider tests use executable fixtures; Codex and OpenCode/Ollama have separate Windows live proof. Cursor and live provider compatibility on macOS/Linux remain unverified. **Prerequisite:** 06-repair-recovery. **Method:** TDD for adapters; live compatibility verification is separate.
 
-A caller selects either installed provider without changing the workflow engine.
+A caller selects a supported installed provider without changing the workflow engine.
 
 Read [architecture](../../architecture.md) and [testing policy](../../testing.md). Record work in [evidence.md](evidence.md). Stop at this folder's scope unless the user assigns more.
 

@@ -33,3 +33,19 @@ test.each(providers)("PROV-004 invalid %s output cannot trigger an unsupported f
     cleanupProviderProject(project);
   }
 });
+
+test("PROV-004 keeps full-action replay forbidden while OpenCode may advertise response-only repair", async () => {
+  const { project, logPath } = await createProviderScenario("opencode", "repair-missing-session");
+  try {
+    const result = await runDefaultProviderCli(project, "A session is required for response-only repair.");
+    expect(result.code).toBe(1);
+    expect(result.envelope.result.error.code).toBe("RESPONSE_REPAIR_FAILED");
+    expect(result.envelope.result.error.message).toMatch(/session/i);
+    const calls = readProviderCalls(logPath);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].argv).toContain("build");
+    expect(calls[0].argv).not.toContain("plan");
+  } finally {
+    cleanupProviderProject(project);
+  }
+});

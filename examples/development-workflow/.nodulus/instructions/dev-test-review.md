@@ -1,3 +1,3 @@
-# Sol: review the test checkpoint
+# Luna: review the test checkpoint
 Do not edit files. Inspect the actual tests and source; independently rerun the focused test. Confirm RED is the intended missing behavior and assertions test requirements with real local components. For documented non-TDD work review the verification plan instead.
 If acceptable return dev-review.v1 with decision ACCEPT, summary and validation. If changes are needed return system error with code REVIEW_CHANGES_REQUIRED and concrete findings. Do not return success for a rejected checkpoint. This stops the workflow before implementation; there is no automatic fix loop.

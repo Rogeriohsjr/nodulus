@@ -39,7 +39,7 @@ Run `nodulus init` in an empty project directory, or pass `--project <path>`. In
 .nodulus/contracts/example.v1.schema.json
 ```
 
-The `example.v1` contract requires an object with a non-empty `message` string. The example has an unconfigured provider profile so you can choose and authenticate the provider you intend to use before running it. Add a profile to `providerProfiles` in settings and set the example node's `providerProfile` to that profile name. The built-in Codex/Cursor adapters use `kind: "codex"` or `kind: "cursor"`, `enabled: true`, and an `executable` path or command name. Authentication remains in the provider's own CLI; do not store credentials in Nodulus settings.
+The `example.v1` contract requires an object with a non-empty `message` string. The example has an unconfigured provider profile so you can choose and authenticate the provider you intend to use before running it. Add a profile to `providerProfiles` in settings and set the example node's `providerProfile` to that profile name. The built-in Codex, Cursor and OpenCode adapters use `kind: "codex"`, `kind: "cursor"` or `kind: "opencode"`, `enabled: true`, and an `executable` path or command name. Authentication and local model configuration remain in the provider's own CLI/configuration; do not store credentials in Nodulus settings.
 
 Use `nodulus doctor --json` to inspect settings and executable availability. The doctor check does not sign in or run a model.
 
@@ -73,5 +73,9 @@ The project's `.nodulus/runs/` directory is generated state. Keep it out of sour
 ## Codex node execution policies
 
 The development-workflow change adds Codex profile `sandbox` (`read-only` by default, or explicit `workspace-write`) and optional `reasoningEffort` (`minimal`, `low`, `medium`, `high`, `xhigh`). Supported effort still depends on the selected model. Nodulus captures these choices for resume and passes them to Codex with approval policy `never`; unsupported values fail before provider probes. No sandbox-bypass mode or arbitrary CLI argument list is accepted. These settings are not available in npm 1.0.1; use a release including this change or build this branch.
+
+## OpenCode local execution
+
+An OpenCode profile requires a complete model ID such as `ollama/qwen3.5:9b`. Nodulus verifies the OpenCode version and exact model listing before inference, sends the captured prompt on stdin, and runs with `--thinking`. It consumes raw JSON events only from the final assistant message whose `step_finish` reason is `stop`: text parts take precedence, with reasoning parts used only when that final message has no text. The selected content goes to the normal Nodulus outcome validator. If that validation rejects an OpenCode response with a captured session ID, a profile that explicitly lists `"capabilities": ["responseRepair"]` can request up to two corrections through the same session's `nodulus-response` agent; it saves each correction's transport separately and never replays the writing `build` invocation. Define that primary agent in the project's `opencode.json` with every tool denied, using the development-workflow example as the reference. OpenCode permissions are enforced by the project configuration; inspect them before allowing edits or shell commands. Nodulus rejects arbitrary provider argument arrays.
 
 See the repository's [development example](https://github.com/Rogeriohsjr/nodulus/tree/main/examples/development-workflow) for test-author, test-review, implementation and final-review nodes. Workflow sequencing does not automatically repair rejected reviews or commit changes.

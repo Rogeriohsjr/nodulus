@@ -35,4 +35,4 @@ Copyright 2026 Rogeriohsjr and Nodulus contributors. Licensed under [Apache-2.0]
 
 ## Develop with Nodulus
 
-The [development workflow example](https://github.com/Rogeriohsjr/nodulus/tree/main/examples/development-workflow) connects a Luna test author, Sol test reviewer, Luna implementer and Sol final reviewer. An actual `npm run check` validator gates completion. A separate verification workflow checks existing work, and escalation is optional. See the example for isolated-worktree setup, required CLI version and live-validation limitations.
+The [development workflow example](https://github.com/Rogeriohsjr/nodulus/tree/main/examples/development-workflow) connects an OpenCode/Qwen test author, Luna test reviewer, OpenCode/Qwen implementer and GPT-5.6 Sol final reviewer. An actual `npm run check` validator gates completion. A separate verification workflow checks existing work, and escalation is optional. See the example for isolated-worktree setup, required CLI versions and live-validation limitations.

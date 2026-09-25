@@ -5,6 +5,9 @@ import { expect, test } from "vitest";
 import { runWorkflow, type ProviderInvocation } from "../../src/application/run-workflow.js";
 
 test.each([{ rejectReview: false, failQuality: false }, { rejectReview: true, failQuality: false }, { rejectReview: false, failQuality: true }])("DEV-001 example sequences accepted checkpoints and stops on rejected review ($rejectReview/$failQuality)", async ({ rejectReview, failQuality }) => {
+  const openCodeConfig = JSON.parse(readFileSync(path.resolve("examples/development-workflow/opencode.json"), "utf8"));
+  expect(openCodeConfig.agent?.["nodulus-response"]).toMatchObject({ mode: "primary", permission: { "*": "deny" } });
+  expect(openCodeConfig.permission?.edit?.["result*"]).toBe("deny");
   const project = mkdtempSync(path.join(tmpdir(), "Nodulus development ü "));
   cpSync(path.resolve("examples/development-workflow/.nodulus"), path.join(project, ".nodulus"), { recursive: true });
   writeFileSync(path.join(project, "package.json"), JSON.stringify({ scripts: { check: "node .nodulus/fixture-quality.cjs" } }));
@@ -23,8 +26,12 @@ test.each([{ rejectReview: false, failQuality: false }, { rejectReview: true, fa
     if (failQuality) expect(result.result).toMatchObject({ error: { code: "VALIDATOR_EXECUTION_FAILED" } });
     expect(result.status).toBe(rejectReview || failQuality ? "error" : "success");
     expect(calls.map((call) => call.nodeId)).toEqual(rejectReview ? ["dev-tests", "dev-test-review"] : ["dev-tests", "dev-test-review", "dev-implement", "dev-review"]);
+    expect(calls[0]!.providerProfile).toMatchObject({ kind: "opencode", model: "ollama/qwen3.5:9b", capabilities: ["responseRepair"] });
+    expect(calls[1]!.providerProfile).toMatchObject({ kind: "codex", model: "gpt-6-luna", sandbox: "workspace-write" });
     expect(calls[1]!.inputs.tests).toMatchObject({ summary: "dev-tests" });
     if (!rejectReview) {
+      expect(calls[2]!.providerProfile).toMatchObject({ kind: "opencode", model: "ollama/qwen3.5:9b", capabilities: ["responseRepair"] });
+      expect(calls[3]!.providerProfile).toMatchObject({ kind: "codex", model: "gpt-5.6-sol", sandbox: "workspace-write" });
       expect(calls[2]!.inputs.testReview).toMatchObject({ decision: "ACCEPT" });
       expect(calls[3]!.inputs.implementation).toMatchObject({ summary: "dev-implement" });
     }

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "dev-test-review",
-  "providerProfile": "dev-reviewer",
+  "providerProfile": "dev-test-reviewer",
   "instructions": [
     ".nodulus/instructions/dev-common.md",
     ".nodulus/instructions/dev-test-review.md"

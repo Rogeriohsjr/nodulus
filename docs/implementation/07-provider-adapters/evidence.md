@@ -44,3 +44,27 @@ The test-only RED checkpoint ran all four PROV files with 2 existing green cases
 - Usage remains null when no trusted telemetry is reported; concrete adapters do not implement response-only correction, preventing action replay.
 
 Independent Sol correction review passed 7 focused cases and accepted implementation. Builder final full suite passed 102 tests; focused provider suite passed 18. Folder 08 is next.
+
+### OpenCode nested-event correction (2026-09-24)
+
+- RED: `npm run build; npx vitest run tests/scenarios/prov-007-opencode-adapter.test.ts` built successfully and ran 17 tests with three behavioral failures: final nested text selection and reasoning-only fallback both exited 1 instead of 0, and a nested invalid outcome returned `PROVIDER_RESPONSE_MISSING` instead of `RESPONSE_REPAIR_UNAVAILABLE`.
+- GREEN: the same command built successfully and passed all 17 tests after the OpenCode adapter added `--thinking` and selected only nested parts correlated to the final `step_finish` with reason `stop`. The fixture proves text wins over a schema-valid same-message reasoning outcome, ignores an earlier text outcome ending in `tool-calls`, and uses final-message reasoning only if text is absent.
+- Quality gate: `npm run check` was run twice. Lint, typecheck and build passed both times; the scenario suite consistently stopped at 142 passed / 3 failed because the existing `NODE-003 distinguishes validator timeout` and two `SAFE-003` validator timeout/cancellation tests exceeded Vitest's 5-second test timeout. Package tests did not start. No timeout thresholds or unrelated tests were changed.
+
+### OpenCode complete-outcome transport suffix RED (2026-09-24)
+
+- Test-only RED: `npm run build` passed, then `npx vitest run tests/scenarios/prov-007-opencode-adapter.test.ts` ran 17 tests with one relevant failure and 16 passes. The real executable fixture captured stdin equal to the persisted complete Nodulus prompt, but it lacked the required final adapter-owned instruction to return one complete system-outcome JSON object, reject artifact `data` alone and file output, and show the success shape with `status`, `artifacts`, `name`, `contract`, and `data`.
+- The new assertion requires stdin to equal the original persisted prompt verbatim, followed by two newlines and the exact transport suffix. It also confirms the user request remains in stdin and out of the argument array. Production adapter behavior remains unmodified pending implementation; no permissive output wrapping was added.
+
+### OpenCode complete-outcome transport suffix GREEN (2026-09-24)
+
+- `npm run build` passed, then `npx vitest run tests/scenarios/prov-007-opencode-adapter.test.ts` passed all 17 tests. OpenCode alone now appends the tested adapter-owned suffix after the complete persisted Nodulus prompt, using stdin and the existing argument array.
+- The suffix requires exactly one complete system-outcome JSON object as the final assistant response, rejects returning artifact `data` alone or writing the outcome to a file, and supplies the concrete success shape while deferring actual names/contracts to the node prompt. The existing parser, strict core validation, no-replay behavior, and Codex/Cursor transports remain unchanged.
+
+### OpenCode response-only repair GREEN (2026-09-24)
+
+- Accepted RED: `npm run build; npx vitest run tests/scenarios/prov-007-opencode-adapter.test.ts` had 17 passing tests and three intended behavioral failures because OpenCode did not expose a response-repair adapter hook.
+- GREEN: `npm run build; npx vitest run tests/scenarios/prov-007-opencode-adapter.test.ts` passed all 20 tests. A malformed build response with its final-message session ID now makes one or two same-session `nodulus-response` corrections without replaying the build invocation. The fixture proves final stopped-message text wins over reasoning and earlier-message distractors for repair responses, and verifies separate `repair-001`/`repair-002` transports. Live evidence showed that the built-in plan agent injects planning instructions into the correction session; the example therefore defines `nodulus-response` with every tool denied and a JSON-only system prompt.
+- Failure evidence: the repair-process fixture exits 24 with identifiable stdout/stderr; its `repair-001/transport.json` retains both streams while the original attempt transport remains intact. A missing session remains an actionable repair failure without a new build action.
+- Related capability check: `npx vitest run tests/scenarios/prov-004-capability-and-usage.test.ts` passed all 5 tests.
+- Final local quality gate: `npm run check` passed lint, typecheck and build, then stopped in the scenario suite at 146 passed / 3 failed because the existing validator-timeout cases `NODE-003 distinguishes validator timeout` and two `SAFE-003` cases exceeded Vitest's five-second test timeout. Package tests did not start; this is not a full quality-gate pass or live-provider proof.

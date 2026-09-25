@@ -3,6 +3,14 @@
   "defaultWorkflow": "develop-reviewed",
   "providerProfiles": {
     "dev-builder": {
+      "kind": "opencode",
+      "enabled": true,
+      "executable": "opencode",
+      "model": "ollama/qwen3.5:9b",
+      "capabilities": ["responseRepair"],
+      "timeoutMs": 600000
+    },
+    "dev-test-reviewer": {
       "kind": "codex",
       "enabled": true,
       "executable": "codex",
@@ -15,8 +23,8 @@
       "kind": "codex",
       "enabled": true,
       "executable": "codex",
-      "model": "gpt-6-sol",
-      "sandbox": "read-only",
+      "model": "gpt-5.6-sol",
+      "sandbox": "workspace-write",
       "reasoningEffort": "medium",
       "timeoutMs": 600000
     }
