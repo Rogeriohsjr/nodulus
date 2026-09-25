@@ -19,7 +19,7 @@
     "NOTICE"
   ],
   "bin": {
-    "nodulus": "./dist/bin.js"
+    "nodulus": "dist/bin.js"
   },
   "exports": {
     ".": {

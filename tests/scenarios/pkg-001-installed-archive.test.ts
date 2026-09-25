@@ -247,6 +247,17 @@ test("PKG-005 packs the scoped public package with Apache-2.0 notices in the arc
   expect(readFileSync(path.join(installedRoot, "NOTICE"), "utf8").trim().length).toBeGreaterThan(0);
 });
 
+test("PKG-006 npm public-publish dry-run reports no corrected bin metadata", () => {
+  const publishDryRun = crossSpawn.sync("npm", ["publish", "--dry-run", "--access", "public", "--json", "--ignore-scripts"], {
+    cwd: repository,
+    encoding: "utf8",
+    timeout: 120_000,
+    windowsHide: true,
+  });
+  expect(publishDryRun.status, `${String(publishDryRun.stdout)}\n${String(publishDryRun.stderr)}`).toBe(0);
+  expect(`${String(publishDryRun.stdout)}\n${String(publishDryRun.stderr)}`).not.toMatch(/invalid.*bin|bin.*invalid|bin.*removed/i);
+});
+
 function installedPackageDirectory(prefix: string): string {
   return path.join(prefix, "node_modules", ...packageName.split("/"));
 }
