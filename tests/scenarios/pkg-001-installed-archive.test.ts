@@ -11,6 +11,7 @@ const packageDirectory = path.join(scratch, "packed tarballs");
 const installedPrefix = path.join(scratch, "isolated-prefix");
 let archivePath = "";
 let packageVersion = "";
+let packageName = "";
 let archivedPaths: string[] = [];
 
 beforeAll(() => {
@@ -22,8 +23,9 @@ beforeAll(() => {
   }
   runOk("npm", ["run", "build"], repository);
   const packed = runOk("npm", ["pack", "--json", "--pack-destination", packageDirectory], repository);
-  const metadata = JSON.parse(packed.stdout)[0] as { filename: string; version: string; files: Array<{ path: string }> };
+  const metadata = JSON.parse(packed.stdout)[0] as { filename: string; name: string; version: string; files: Array<{ path: string }> };
   archivePath = path.join(packageDirectory, metadata.filename);
+  packageName = metadata.name;
   packageVersion = metadata.version;
   archivedPaths = metadata.files.map(({ path: filename }) => filename);
   runOk("npm", ["install", "--no-audit", "--no-fund", "--prefix", installedPrefix, archivePath], repository);
@@ -64,7 +66,7 @@ test("PKG-002 includes the user guide and starter assets while excluding develop
   expect(archivedPaths.some((filename) => filename.startsWith("dist/core/execute-single-node."))).toBe(false);
   expect(archivedPaths).toContain("dist/bin.js");
   expect(archivedPaths).toContain("dist/index.js");
-  const installedRoot = path.join(installedPrefix, "node_modules", "nodulus");
+  const installedRoot = installedPackageDirectory(installedPrefix);
   const readme = readFileSync(path.join(installedRoot, "README.md"), "utf8");
   const guide = readFileSync(path.join(installedRoot, "docs", "user-guide.md"), "utf8");
   expect(readme).toMatch(/docs\/user-guide\.md/);
@@ -74,7 +76,7 @@ test("PKG-002 includes the user guide and starter assets while excluding develop
 });
 
 test("PKG-002 resolves every local link in the installed package Markdown", () => {
-  const installedRoot = path.join(installedPrefix, "node_modules", "nodulus");
+  const installedRoot = installedPackageDirectory(installedPrefix);
   const markdownFiles = archivedPaths
     .filter((filename) => filename.endsWith(".md"))
     .map((filename) => path.join(installedRoot, filename));
@@ -103,7 +105,7 @@ test("PKG-004 imports the installed application API without CLI argv or stdout e
   const scriptPath = path.join(consumer, "consumer.mjs");
   writeFileSync(scriptPath, [
     "import { writeFileSync } from 'node:fs';",
-    "import { runWorkflow } from 'nodulus';",
+    "import { runWorkflow } from '@rogeriohsjr/nodulus';",
     `const result = await runWorkflow({ projectRoot: ${JSON.stringify(project)}, cwd: ${JSON.stringify(project)}, workflow: 'example', sources: [{ kind: 'inline', text: 'API boundary' }] }, { async invoke() { return JSON.stringify({ status: 'success', artifacts: [{ name: 'example', contract: 'example.v1', data: { message: 'api fixture' } }] }); } });`,
     `writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify(result));`,
   ].join("\n"), "utf8");
@@ -120,11 +122,11 @@ test("PKG-003 upgrades from a real older archive and resumes a paused run withou
   stageBuiltPackage(repository, priorStage);
   const priorPackageJson = path.join(priorStage, "package.json");
   const priorManifest = JSON.parse(readFileSync(priorPackageJson, "utf8"));
-  priorManifest.version = "0.0.0-fixture.1";
+  priorManifest.version = "1.0.0-fixture.1";
   writeFileSync(priorPackageJson, `${JSON.stringify(priorManifest, null, 2)}\n`, "utf8");
   const priorPacked = runOk("npm", ["pack", "--json", "--pack-destination", packageDirectory], priorStage);
   const priorFilename = (JSON.parse(priorPacked.stdout)[0] as { filename: string; version: string }).filename;
-  expect(priorFilename).toBe("nodulus-0.0.0-fixture.1.tgz");
+  expect(priorFilename).toBe("rogeriohsjr-nodulus-1.0.0-fixture.1.tgz");
 
   const prefix = path.join(scratch, "upgrade-prefix");
   runOk("npm", ["install", "--no-audit", "--no-fund", "--prefix", prefix, path.join(packageDirectory, priorFilename)], priorStage);
@@ -134,7 +136,7 @@ test("PKG-003 upgrades from a real older archive and resumes a paused run withou
   expect(oldInit.status, JSON.stringify(oldInit)).toBe(0);
   const oldVersion = runInstalled(prefix, ["--version"], project);
   expect(oldVersion.status).toBe(0);
-  expect(oldVersion.stdout.trim()).toBe("0.0.0-fixture.1");
+  expect(oldVersion.stdout.trim()).toBe("1.0.0-fixture.1");
   const fixture = installFixtureProvider(project, "pause-then-success");
   configureExampleProvider(project, fixture.executable);
   const paused = runInstalled(prefix, ["run", "--project", project, "--request", "Keep this run", "--json"], project);
@@ -149,7 +151,7 @@ test("PKG-003 upgrades from a real older archive and resumes a paused run withou
   const requestId = pending.result.request.id as string;
 
   runOk("npm", ["install", "--no-audit", "--no-fund", "--prefix", prefix, archivePath], project);
-  expect(JSON.parse(readFileSync(path.join(prefix, "node_modules", "nodulus", "package.json"), "utf8")).version).toBe(packageVersion);
+  expect(JSON.parse(readFileSync(path.join(installedPackageDirectory(prefix), "package.json"), "utf8")).version).toBe(packageVersion);
   const upgradedVersion = runInstalled(prefix, ["--version"], project);
   expect(upgradedVersion.status).toBe(0);
   expect(upgradedVersion.stdout.trim()).toBe(packageVersion);
@@ -223,7 +225,28 @@ function configureExampleProvider(project: string, executable: string): void {
 
 function stageBuiltPackage(source: string, destination: string): void {
   mkdirSync(destination, { recursive: true });
-  for (const item of ["package.json", "README.md", "dist", "docs"]) {
+  for (const item of ["package.json", "README.md", "NOTICE", "LICENSE", "dist", "docs"]) {
     cpSync(path.join(source, item), path.join(destination, item), { recursive: true });
   }
+}
+
+test("PKG-005 packs the scoped public package with Apache-2.0 notices in the archive", () => {
+  const installedRoot = installedPackageDirectory(installedPrefix);
+  const manifest = JSON.parse(readFileSync(path.join(installedRoot, "package.json"), "utf8"));
+  expect(manifest).toMatchObject({
+    name: "@rogeriohsjr/nodulus",
+    version: packageVersion,
+    private: false,
+    license: "Apache-2.0",
+    publishConfig: { access: "public" },
+  });
+  expect(manifest.version).not.toBe("0.0.0");
+  expect(archivedPaths).toContain("LICENSE");
+  expect(archivedPaths).toContain("NOTICE");
+  expect(readFileSync(path.join(installedRoot, "LICENSE"), "utf8")).toContain("Apache License");
+  expect(readFileSync(path.join(installedRoot, "NOTICE"), "utf8").trim().length).toBeGreaterThan(0);
+});
+
+function installedPackageDirectory(prefix: string): string {
+  return path.join(prefix, "node_modules", ...packageName.split("/"));
 }

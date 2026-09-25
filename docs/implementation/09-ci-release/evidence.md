@@ -1,6 +1,6 @@
 # Evidence: 09-ci-release
 
-Status: local policy tests and both hosted matrices are green. The process-liveness regression was corrected, independently reviewed, and verified by the final code-checkpoint runs below. Publication is deferred at the user's request. No repository release/tag, registry operation, or external publication was performed; the scenario creates and tags only a disposable local bare Git fixture.
+Status: local policy tests and both hosted matrices are green. The process-liveness regression was corrected, independently reviewed, and verified by the final code-checkpoint runs below. Public Apache-2.0 publication is now authorized; the scoped package is prepared but not yet published. Repository opt-in and npm trust are pending. No repository release/tag, registry operation, or external publication was performed; the scenario creates and tags only a disposable local bare Git fixture.
 
 ## Environment
 
@@ -40,7 +40,7 @@ The initial analyzer test import error (`default is not a function`) was test ha
 - Files changed for hosted regressions: provider scenario path comparisons use resolved filesystem paths; the disposable semantic-release process excludes `GITHUB_*` branch metadata while preserving other environment variables; its fixture repository URL uses a proper file URL. The production runtime and workflow configuration are unchanged.
 - Earlier folder 09 files: `.releaserc.json`, `.github/workflows/ci-release.yml`, release-policy tests, package developer dependencies/lockfile, folder documentation, and this evidence.
 - Action references are pinned to upstream release commits `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1` (v7.0.1) and `actions/setup-node@820762786026740c76f36085b0efc47a31fe5020` (v7.0.0); Node is pinned to major 24 in CI and release jobs.
-- Package remains `private: true`; the repo opt-in variable and protected npm environment have not been configured. REL-001 is checked with hosted evidence; publishing acceptance remains open.
+- At the initial CI checkpoint the package was `private: true`. The current authorized public manifest uses `@rogeriohsjr/nodulus`, `private: false` and Apache-2.0. Repository opt-in and npm trust remain pending; REL-001 has hosted proof and actual publishing acceptance remains open.
 - npm's trusted-publisher instructions require the package `repository.url` to match its GitHub repo; this metadata is present. Private source repositories do not receive npm provenance, but the official docs describe that as a provenance limitation rather than a trusted-publishing restriction. No trust relationship has been created or tested.
 - `.releaserc.json` uses explicit major/minor rules and a message catch-all patch rule, with matching Conventional Commits analysis and release-notes presets.
 - No public package ownership, trusted-publisher configuration, npm release, or registry install was performed.
@@ -72,3 +72,9 @@ Revision `494a603ecd65930efe5ca7b988f1854c4e4fb4ea` passed both [push run 360155
 Each job passed typecheck, build, 115 runtime/release scenario tests and five real package tests. Sol independently accepted the SAFE-003 liveness correction and reran its five focused tests. Documentation review checked 33 tracked Markdown files with zero missing local links and a clean diff check. This record identifies the tested code checkpoint; later documentation-only commits retain CI checks in the PR.
 
 All work authorized for local-first delivery is implemented, reviewed, committed and pushed. The full publication folder intentionally remains open: package identity, protected environment/trusted-publisher administration, actual release, external release-guard exercises and registry install/upgrade are deferred. Live Codex/Cursor inference remains unverified.
+
+## Public-release preparation
+
+The user authorized public source, copying/modification and community contributions. Apache-2.0 LICENSE, project NOTICE, CONTRIBUTING guidance and scoped package metadata are prepared. `npm whoami` returned `rogeriohsjr`; the registry lookup for `@rogeriohsjr/nodulus` returned 404 before first publication. No package ownership is claimed from that lookup alone.
+
+Local `npm run check` passed lint/typecheck, 115 runtime/release scenarios and six package scenarios. Sol accepted the public package implementation. Markdown link checks passed for 35 files. This is package readiness, not evidence of registry publication; external results follow separately.

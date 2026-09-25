@@ -1,6 +1,6 @@
 # 08-package-install: Install and upgrade the package
 
-**Status:** accepted locally on Windows after independent Sol review; registry publication is deferred. **Prerequisite:** 07-provider-adapters. **Method:** TDD for package behavior; registry and hosted delivery remain separate.
+**Status:** accepted locally on Windows after independent Sol review; public scoped packaging is accepted; registry publication is tracked in folder 09. **Prerequisite:** 07-provider-adapters. **Method:** TDD for package behavior; registry and hosted delivery remain separate.
 
 Users install a usable CLI and developers import the reusable core.
 
@@ -32,10 +32,16 @@ Given a separate temporary consumer, when it imports the packaged API, then it r
 
 - [x] PKG-004 acceptance verified and evidence recorded.
 
+### PKG-005: Ship the public identity and attribution
+
+Given the packed archive, when installed into an isolated consumer, then its manifest uses `@rogeriohsjr/nodulus`, public publishing access and Apache-2.0, and its LICENSE/NOTICE files are present. Future versions must retain the same package identity without a test hardcoding the initial version.
+
+- [x] PKG-005 acceptance verified and evidence recorded.
+
 ## Implementation guidance
 
 Write install/archive tests first. Add package bin/exports/files declarations, build outputs, schemas and user docs. Use an isolated installation prefix and clean consumer directories so checkout node_modules cannot hide missing runtime dependencies/assets. Use local tarballs; no registry mutation required.
-Choose an owned npm scope later; examples use a clearly marked placeholder until configured. Document global install/upgrade, latest-per-invocation and exact version pinning. Publishing makes updates available; it does not update existing installs automatically. No self-updater in v1.
+The authorized npm identity is `@rogeriohsjr/nodulus`, licensed Apache-2.0. Document global install/upgrade, latest-per-invocation and exact version pinning. Publishing makes updates available; it does not update existing installs automatically. No self-updater in v1.
 
 ## Developer sequence
 

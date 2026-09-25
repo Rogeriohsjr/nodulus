@@ -2,20 +2,30 @@
 
 Nodulus runs ordered workflows whose outputs are checked against JSON Schema contracts. The `nodulus` CLI writes project definitions under `.nodulus/` and keeps run state under `.nodulus/runs/`.
 
-## Install locally
+## Install and upgrade
 
-Use Node.js 24 and its bundled npm. This repository package is still private and uses the local placeholder name `nodulus`. For a local install, build and pack it from the checkout, then install that archive:
+Use Node.js 24 and its bundled npm. The public package name is `@rogeriohsjr/nodulus`; the executable remains `nodulus`.
+
+After the initial registry release is available, install or upgrade with:
+
+```sh
+npm install --global @rogeriohsjr/nodulus@latest
+nodulus --help
+nodulus --version
+```
+
+For reproducible installs, replace `latest` with an exact published version. Nodulus does not update itself. Installing a new version leaves project definitions and saved runs in their project directories; resume still checks compatibility.
+
+To install directly from a checkout before publication, build and pack locally:
 
 ```sh
 npm ci
 npm run build
 npm pack
-npm install --global ./nodulus-0.0.0.tgz
-nodulus --help
-nodulus --version
+npm install --global ./rogeriohsjr-nodulus-1.0.0.tgz
 ```
 
-To upgrade a local install, install the new tarball explicitly. Nodulus does not update itself. Once an owned npm scope and public release are configured, the intended install forms are `npm install --global @<your-scope>/nodulus@latest` for the newest published version or `npm install --global @<your-scope>/nodulus@1.2.3` to pin an exact version. These are placeholders for a future package-ownership decision; this private package is not available from the public registry.
+Use the actual archive filename printed by `npm pack` when the checkout version changes.
 
 ## Initialize and configure a project
 

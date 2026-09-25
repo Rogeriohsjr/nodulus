@@ -1,8 +1,8 @@
 # 09-ci-release: Validate platforms and publish releases
 
-**Status:** REL-001 is verified on hosted Windows/macOS/Linux; both final code-checkpoint CI runs passed. Publication and registry upgrade are deferred at the user's request. **Prerequisite:** 08-package-install. **Method:** Non-TDD hosted configuration; test-first for any custom decision code.
+**Status:** REL-001 is verified on hosted Windows/macOS/Linux; both final code-checkpoint CI runs passed. Public publication is now authorized; release and registry results are tracked in evidence. **Prerequisite:** 08-package-install. **Method:** Non-TDD hosted configuration; test-first for any custom decision code.
 
-After a main-branch merge passes checks and the repository owner explicitly enables publishing, users can obtain a versioned release. Publishing remains disabled while the package is private and the repository opt-in is absent.
+After a main-branch merge passes checks and the repository owner explicitly enables publishing, users can obtain a versioned release. The package is Apache-2.0 under `@rogeriohsjr/nodulus`. Automated publishing remains disabled until the repository opt-in and npm trust are configured.
 
 Read [architecture](../../architecture.md) and [testing policy](../../testing.md). Record work in [evidence.md](evidence.md). Stop at this folder's scope unless the user assigns more.
 
@@ -34,7 +34,7 @@ Given an authorized published version, when a clean consumer installs that exact
 
 ## Implementation guidance
 
-The workflow in `.github/workflows/ci-release.yml` runs Node 24 lint, typecheck, build, scenario and package checks on Windows, macOS and Linux for PRs to `main` and pushes to `main`/`codex/**`. The release job depends on every matrix leg, checks out `github.sha` again, and only runs on a non-deletion push to canonical `Rogeriohsjr/nodulus` when the repository variable `NODULUS_PUBLISH_ENABLED` is exactly `true`. It also stops unless `package.json` has `private: false`. The release environment is named `npm-publish`; configure required reviewers and restrict deployment branches to `main` before enabling the repository variable.
+The workflow in `.github/workflows/ci-release.yml` runs Node 24 lint, typecheck, build, scenario and package checks on Windows, macOS and Linux for PRs to `main` and pushes to `main`/`codex/**`. The release job depends on every matrix leg, checks out `github.sha` again, and only runs on a non-deletion push to canonical `Rogeriohsjr/nodulus` when the repository variable `NODULUS_PUBLISH_ENABLED` is exactly `true`. It also stops unless `package.json` has `private: false`. The release environment is named `npm-publish`; restrict deployment branches to `main` before enabling the repository variable. Required reviewers are optional and would add a manual approval to each release.
 
 Use semantic-release with explicit rules: every unreleased commit message gets at least a patch, `feat` gets minor, and breaking changes get major. The configured catch-all includes docs, chores, tests, CI, refactors and untyped messages. The Conventional Commits preset treats a `!` after the type/scope (for example `fix!: reject invalid mappings`) or a `BREAKING CHANGE:` footer as breaking metadata. semantic-release analyzes commits after the last release tag, so a rerun with no new commits creates no second version. The dry-run scenario exercises this against a disposable local Git remote. If release concurrency batches several main commits, one release may contain multiple merges; do not promise one package per merge. The workflow does not create release commits, so it cannot trigger itself through a version-bump commit.
 

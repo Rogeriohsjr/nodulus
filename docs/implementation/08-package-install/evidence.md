@@ -40,3 +40,9 @@ The test harness packs and installs local npm archives only. Package test tempor
 - No folder 09 actions/configuration or publication work started.
 
 Sol independently passed all 5 package cases after the archive corrections. Runtime suite passed 102 tests; npm test runs runtime and package suites sequentially. Folder 09 is next.
+
+## Public identity follow-up
+
+PKG-005 verifies the actual archive has `@rogeriohsjr/nodulus`, public access, Apache-2.0 metadata and shipped LICENSE/NOTICE. Scoped imports and scoped archive upgrades use real isolated consumers. The test compares versions against `npm pack` metadata so later releases remain valid.
+
+RED: focused package suite failed four cases and passed two with the original unscoped/private manifest: public metadata mismatch, scoped consumer import failure, scoped prior tarball filename mismatch and missing shipped NOTICE. GREEN: after manifest/lock/file-list changes, all six package tests passed. Full `npm run check` passed lint, typecheck, 115 runtime scenarios and six package tests on Windows. Sol accepted implementation and documentation was corrected to distinguish current public authorization from historical private checkpoints. Registry publication is tracked separately in folder 09.
