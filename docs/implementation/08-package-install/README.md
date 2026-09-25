@@ -38,6 +38,12 @@ Given the packed archive, when installed into an isolated consumer, then its man
 
 - [x] PKG-005 acceptance verified and evidence recorded.
 
+### PKG-006: Publish without metadata correction warnings
+
+Given the built package, when the actual npm publish command runs in dry-run mode, then it succeeds without correcting or warning about the CLI bin mapping. This check does not publish or prove registry acceptance.
+
+- [x] PKG-006 acceptance verified and evidence recorded.
+
 ## Implementation guidance
 
 Write install/archive tests first. Add package bin/exports/files declarations, build outputs, schemas and user docs. Use an isolated installation prefix and clean consumer directories so checkout node_modules cannot hide missing runtime dependencies/assets. Use local tarballs; no registry mutation required.

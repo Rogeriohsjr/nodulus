@@ -78,3 +78,11 @@ All work authorized for local-first delivery is implemented, reviewed, committed
 The user authorized public source, copying/modification and community contributions. Apache-2.0 LICENSE, project NOTICE, CONTRIBUTING guidance and scoped package metadata are prepared. `npm whoami` returned `rogeriohsjr`; the registry lookup for `@rogeriohsjr/nodulus` returned 404 before first publication. No package ownership is claimed from that lookup alone.
 
 Local `npm run check` passed lint/typecheck, 115 runtime/release scenarios and six package scenarios. Sol accepted the public package implementation. Markdown link checks passed for 35 files. This is package readiness, not evidence of registry publication; external results follow separately.
+
+## Public repository and initial publish attempt
+
+The repository visibility was changed to public under the user's authorization, and GitHub detected Apache-2.0. PR #1 merged as `59826b4533904dac88db8abdd313915aaa5231cf` after all Windows/macOS/Linux PR and push checks passed at `729f702`. The merge tree matched the tested tree. The `npm-publish` GitHub environment now allows only the `main` branch; automatic publication opt-in remains unset pending npm trust.
+
+The initial `npm publish --access public` on Windows/npm 11.12.1 paused for browser authentication. npm warned that normalization removed the CLI bin entry, so the attempt was canceled before authentication and no version was published. `npm publish --dry-run --access public --json` reproduced the warning. Sol traced the installed npm normalizer and found that the bin entry is retained: the warning describes normalizing `./dist/bin.js` to `dist/bin.js`, despite its misleading removal wording. The metadata will use the canonical path, with a real publish dry-run regression before retrying.
+
+The merged main revision also passed all three hosted validation jobs in [run 36077227656](https://github.com/Rogeriohsjr/nodulus/actions/runs/36077227656); the release job remained skipped.
