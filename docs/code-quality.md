@@ -24,6 +24,12 @@ Fix findings at their cause. Do not remove assertions, exclude production files,
 
 No arbitrary coverage percentage or line-count target substitutes for scenario coverage and review. Formatting is kept consistent with nearby code; this plan does not introduce repository-wide formatting churn. Live provider checks and registry publication remain separate from local quality checks.
 
+## PR title gate
+
+Follow [CONTRIBUTING.md](../CONTRIBUTING.md) when creating or renaming a PR. `Validate PR title` enforces the Conventional Commit header used by the squash-merge release process. The workflow reads PR metadata only, uses a pinned action and read-only permissions, and never checks out or executes PR code. It uses the workflow from `main`, so contributors cannot weaken the title rule by editing it in their own PR.
+
+The initial workflow must be merged before it can run; then its hosted pass/fail behavior and the required branch-protection check must be verified. See folder 09 evidence for rollout status. Human review must still validate the release classification and squash message.
+
 ## Validation record
 
 The initial lint/tooling rollout is a non-TDD configuration change. Oxlint was selected because its type-aware engine supports TypeScript 7; the available typescript-eslint version declared a TypeScript peer range below 6.1. No incompatible peer dependency was forced and the compiler was not downgraded. See [Oxlint type-aware linting](https://oxc.rs/docs/guide/usage/linter/type-aware) and [typescript-eslint dependency compatibility](https://typescript-eslint.io/users/dependency-versions/). Its implementation evidence records deliberate temporary rule violations, their failing lint results, removal of the probes, accumulated checks and independent review. These probes are configuration verification, not product scenario tests.
