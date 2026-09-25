@@ -34,12 +34,14 @@ test.each(providers)("PROV-001 translates Nodulus execution through the default 
       expect(call.argv).toContain("-p");
       expect(call.argv).toContain("--output-format");
       expect(call.argv[call.argv.indexOf("--output-format") + 1]).toBe("json");
+      expect(call.argv).toContain("--trust");
+      expect(call.argv).not.toContain("--force");
+      expect(call.argv).not.toContain("--yolo");
       expect(realpathSync(call.argv[call.argv.indexOf("--workspace") + 1])).toBe(realpathSync(project));
       expect(call.argv[call.argv.indexOf("--model") + 1]).toBe("fixture-model");
-      expect(call.argv[call.argv.indexOf("-p") + 1].length).toBeLessThan(512);
-      expect(call.promptFile).toBeDefined();
-      expect(path.isAbsolute(call.promptFile)).toBe(true);
-      expect(call.promptContents).toContain(`Translate this ${kind} fixture response.`);
+      expect(call.argv[call.argv.indexOf("-p") + 1]).toBe("--output-format");
+      expect(call.stdin).toContain(`Translate this ${kind} fixture response.`);
+      expect(call.promptFile).toBeUndefined();
     }
 
     const definitions = JSON.parse(readFileSync(path.join(project, ".nodulus", "runs", result.envelope.runId, "context", "definitions.json"), "utf8"));
@@ -81,8 +83,8 @@ test.each(providers)("PROV-001 keeps each %s resume invocation transport in its 
     } else {
       expect(first).toContain("needs_input");
       expect(second).toContain("success");
-      expect(readFileSync(path.join(providerRoot, "attempt-001", "prompt.md"), "utf8")).not.toContain("Answers to clarification questions");
-      expect(readFileSync(path.join(providerRoot, "attempt-002", "prompt.md"), "utf8")).toContain("Answers to clarification questions");
+      expect(calls[0]!.stdin).not.toContain("Answers to clarification questions");
+      expect(calls[1]!.stdin).toContain("Answers to clarification questions");
     }
   } finally {
     cleanupProviderProject(project);

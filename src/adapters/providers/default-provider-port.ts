@@ -95,7 +95,17 @@ async function checkReadiness(kind: Kind, executable: string, profile: Record<st
   if (result.timedOut || result.exitCode !== 0) {
     throw new NodulusError("PROVIDER_AUTH_REQUIRED", `${kind} authentication check failed${detail(result.stderr)}. Sign in using the provider's documented CLI command.`);
   }
-  // Cursor's status JSON has no relied-upon auth schema; only its documented exit status is used.
+  if (kind === "cursor") {
+    let status: unknown;
+    try { status = JSON.parse(result.stdout) as unknown; }
+    catch (error) { throw new NodulusError("PROVIDER_AUTH_UNAVAILABLE", `cursor authentication status returned malformed JSON: ${messageOf(error)}${detail(result.stderr)}.`); }
+    if (!isRecord(status) || typeof status.isAuthenticated !== "boolean") {
+      throw new NodulusError("PROVIDER_AUTH_UNAVAILABLE", "cursor authentication status did not include the expected isAuthenticated boolean.");
+    }
+    if (!status.isAuthenticated) {
+      throw new NodulusError("PROVIDER_AUTH_REQUIRED", "cursor authentication is required. Sign in using the provider's documented CLI command.");
+    }
+  }
 }
 
 async function checkOpenCodeModel(executable: string, profile: Record<string, unknown>, cwd: string, timeoutMs: number): Promise<void> {
@@ -164,11 +174,9 @@ async function invokeCodex(executable: string, cwd: string, invocation: Provider
 
 async function invokeCursor(executable: string, cwd: string, invocation: ProviderInvocation, timeoutMs: number): Promise<string> {
   const directory = await attemptDirectory(cwd, invocation);
-  const promptPath = path.join(directory, "prompt.md");
-  await writeFile(promptPath, invocation.prompt, "utf8");
-  const args = ["-p", `Read the complete captured prompt at ${promptPath}`, "--output-format", "json", "--workspace", cwd];
+  const args = ["-p", "--output-format", "json", "--trust", "--workspace", cwd];
   if (typeof invocation.providerProfile.model === "string") args.push("--model", invocation.providerProfile.model);
-  const result = await runProcess(executable, args, { cwd, timeoutMs });
+  const result = await runProcess(executable, args, { cwd, stdin: invocation.prompt, timeoutMs });
   await saveTransport(directory, "cursor", result);
   if (result.timedOut) throw new NodulusError("PROVIDER_TIMEOUT", "Cursor CLI exceeded its configured invocation timeout.");
   if (result.outputLimitExceeded) throw new NodulusError("PROVIDER_OUTPUT_LIMIT", "Cursor CLI exceeded the 2 MiB transport output limit.");

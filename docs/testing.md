@@ -38,6 +38,8 @@ Slice 00 establishes `npm run typecheck`, `npm run build`, `npm run test:scenari
 
 `npm run check` is the final local quality gate: lint, typecheck, then the sequential runtime and package suites. See [code quality](code-quality.md) for rule scope and the AI handoff checklist. Use `npm run lint:fix` only for changes you will inspect.
 
+Live provider smoke tests are separate because they require installed authenticated CLIs and may consume provider usage. For Cursor, set `NODULUS_LIVE_CURSOR=1` and optionally `NODULUS_CURSOR_EXECUTABLE` before running `npm run test:live:cursor`. Without the explicit opt-in, the live test is skipped. The test invokes the production adapter in a temporary directory, requests a fixed read-only JSON response, and never runs as part of `npm test` or `npm run check`.
+
 Vitest does not replace type checking. After each slice, run focused tests and accumulated scenarios. Record platform/revision. A local Windows pass is not proof of macOS/Linux compatibility.
 
 ## Explicit exceptions

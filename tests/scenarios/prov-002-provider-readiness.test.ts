@@ -23,6 +23,21 @@ test.each(providers)("PROV-002 reports %s authentication probe failures without 
   }
 });
 
+test("PROV-002 rejects Cursor's successful unauthenticated status response before inference", async () => {
+  const { project, logPath, probePath } = await createProviderScenario("cursor", "auth-json-unauthenticated");
+  try {
+    const result = await runDefaultProviderCli(project, "Do not infer without Cursor authentication");
+    expect(result.code).toBe(1);
+    expect(result.envelope.status).toBe("error");
+    expect(JSON.stringify(result.envelope.result)).toMatch(/auth|login|status/i);
+    expect(readProviderCalls(logPath)).toHaveLength(0);
+    const probes = readFileSync(probePath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    expect(probes.some((probe) => probe.argv[0] === "status" && probe.argv.includes("--format") && probe.argv.includes("json"))).toBe(true);
+  } finally {
+    cleanupProviderProject(project);
+  }
+});
+
 test.each(providers)("PROV-002 rejects an unsupported or unrecognized %s version before inference", async (kind) => {
   const { project, logPath, probePath } = await createProviderScenario(kind, "unsupported-version");
   try {

@@ -40,6 +40,7 @@
     "pretest:scenarios": "npm run build",
     "test:scenarios": "vitest run tests/scenarios --exclude tests/scenarios/pkg-*.test.ts",
     "test:package": "npm run build && vitest run tests/scenarios/pkg-001-installed-archive.test.ts",
+    "test:live:cursor": "vitest run tests/live/cursor-adapter.live.test.ts",
     "test": "npm run test:scenarios && npm run test:package",
     "check": "npm run lint && npm run typecheck && npm test"
   },

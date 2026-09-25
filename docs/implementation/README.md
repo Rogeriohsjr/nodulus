@@ -31,7 +31,7 @@ Example assignment:
 
 > Implement docs/implementation/03-node-outcomes using $nodulus-scenario-tdd. Verify prerequisites, implement scenario by scenario with observed RED then GREEN, and update its evidence/checklists. Do not start 04.
 
-Foundation was implemented using $nodulus-delivery-validation and accepted locally on Windows. The subsequent Luna-builder/Sol-reviewer pass completed INIT-002 through INIT-004. Folders 02 through 08 are accepted. Folder 09 REL-001, REL-002 and REL-004 have hosted/registry proof; REL-003 retains external acceptance. Folder 10 adds bounded live Codex proof on Windows; live Cursor and macOS/Linux provider invocation remain unverified.
+Foundation was implemented using $nodulus-delivery-validation and accepted locally on Windows. The subsequent Luna-builder/Sol-reviewer pass completed INIT-002 through INIT-004. Folders 02 through 08 are accepted. Folder 09 REL-001, REL-002 and REL-004 have hosted/registry proof; REL-003 retains external acceptance. Folder 10 adds bounded live Codex proof on Windows. Cursor and OpenCode/Ollama also have Windows live adapter proof; macOS/Linux live-provider invocation remains unverified.
 
 
 ## Follow-up: repository development workflow
