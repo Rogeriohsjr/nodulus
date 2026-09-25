@@ -17,7 +17,24 @@ For runtime behavior, write a scenario through a production entry point and obse
 
 Keep changes focused and update affected documentation. Run `npm run check` before opening a pull request; this runs lint, typecheck and the runtime/package suites sequentially. Include the problem, resulting behavior and validation evidence in your PR. CI validates Windows, macOS and Linux. Maintainers review contributions before merging; a contribution does not grant repository write or package-publishing permissions.
 
-Use descriptive Conventional Commit messages such as `fix: preserve paused runs` or `feat: add a workflow option`. Breaking changes must be identified. See folder 09 for the release policy; contributors do not need npm credentials to develop or test.
+## Pull request titles and releases
+
+The repository uses squash merging with the PR title as the default commit title and a blank commit body. Use this format:
+
+```text
+type(optional-scope)!: clear description
+```
+
+The scope and `!` are optional. Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`. A non-empty description is required.
+
+- `fix(cli): preserve paused runs` produces a patch release.
+- `feat: add a workflow option` produces a minor release.
+- `refactor!: remove an obsolete workflow format` produces a major release.
+- `docs: clarify local installation` produces a patch release under this project's policy.
+
+Use `!` in the title for every breaking change: the squash body is blank, so a `BREAKING CHANGE:` footer in a PR description or an individual branch commit will not reliably reach release analysis. Branch commits need not each follow this format; the final PR title must describe the complete change. Keep the validated title when merging instead of manually replacing the squash commit message.
+
+The `Validate PR title` workflow checks new/reopened PRs, new commits, title edits and transitions out of draft. Drafts use the same title format. This is a format check; reviewers still assess whether the type and description accurately describe the change. See folder 09 for release policy and rollout evidence. Contributors do not need npm credentials to develop or test.
 
 ## License and attribution
 

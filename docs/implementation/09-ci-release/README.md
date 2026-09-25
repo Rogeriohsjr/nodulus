@@ -44,6 +44,12 @@ The local policy tests invoke the actual semantic-release commit analyzer, and t
 
 References checked on 2026-09-24: [semantic-release commit analyzer](https://github.com/semantic-release/commit-analyzer), [npm trusted publishers](https://docs.npmjs.com/trusted-publishers/), [actions/checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1), and [actions/setup-node v7.0.0](https://github.com/actions/setup-node/releases/tag/v7.0.0). semantic-release v25.0.9 requires Node `^22.14.0 || >=24.10.0`; npm trusted publishing requires npm CLI `>=11.5.1` and Node `>=22.14.0`.
 
+## PR titles
+
+The repository is configured for squash-only merges with `PR_TITLE` and a blank body. [CONTRIBUTING.md](../../../CONTRIBUTING.md) defines the Conventional Commit title format and allowed types. `!` is required in the title for a breaking change because the PR body is not copied into the squash commit.
+
+The metadata-only `pr-title.yml` workflow runs on PR open/reopen/edit/synchronize/ready-for-review events against `main`. It uses a pinned third-party validator with read-only PR permission and no checkout. This hosted configuration uses the explicit non-TDD exception. Rollout requires merging the workflow into `main`, observing hosted invalid-title failure and valid-title success, then requiring `Validate PR title` in branch protection without changing existing review requirements.
+
 ## Developer sequence
 
 - [x] Identify applicable non-TDD exception and its verification plan.

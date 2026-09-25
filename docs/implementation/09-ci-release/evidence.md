@@ -86,3 +86,13 @@ The repository visibility was changed to public under the user's authorization, 
 The initial `npm publish --access public` on Windows/npm 11.12.1 paused for browser authentication. npm warned that normalization removed the CLI bin entry, so the attempt was canceled before authentication and no version was published. `npm publish --dry-run --access public --json` reproduced the warning. Sol traced the installed npm normalizer and found that the bin entry is retained: the warning describes normalizing `./dist/bin.js` to `dist/bin.js`, despite its misleading removal wording. The metadata will use the canonical path, with a real publish dry-run regression before retrying.
 
 The merged main revision also passed all three hosted validation jobs in [run 36077227656](https://github.com/Rogeriohsjr/nodulus/actions/runs/36077227656); the release job remained skipped.
+
+## PR title gate preparation
+
+User requested validation of the PR title used in Git history. GitHub settings were read back as squash-only, `squash_merge_commit_title: PR_TITLE`, and `squash_merge_commit_message: BLANK`; no merge-setting changes were needed. The existing review requirements are preserved.
+
+The metadata-only `pr-title.yml` uses `pull_request_target` for main-targeted PR opened/reopened/edited/synchronize/ready-for-review events. It grants only PR read permission, never checks out PR code and pins `amannn/action-semantic-pull-request` v6.1.1 to verified upstream commit `48f256284bd46cdaab1048c3721360e808335d50`. Allowed conventional types, optional scope, breaking `!` and a nonblank subject are documented for humans and AI agents.
+
+This is the Actions configuration non-TDD exception. Local js-yaml parsing and assertions verified trigger events, read-only permissions, single pinned action, check name and the subject regex accepting text/rejecting whitespace. No custom release decision code or runtime behavior changed. The workflow must first exist on main before GitHub can run it; hosted title-failure/title-success evidence and required-check activation remain pending until that bootstrap merge. Do not count an ordinary CI matrix as title-validation evidence.
+
+PR-title preparation checks: `npm run check` passed lint, typecheck, 115 runtime scenarios and seven package tests. Local Markdown links passed for 35 tracked files. Sol accepted the workflow and documentation; hosted activation is still pending.
