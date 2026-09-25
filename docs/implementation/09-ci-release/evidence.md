@@ -96,3 +96,7 @@ The metadata-only `pr-title.yml` uses `pull_request_target` for main-targeted PR
 This is the Actions configuration non-TDD exception. Local js-yaml parsing and assertions verified trigger events, read-only permissions, single pinned action, check name and the subject regex accepting text/rejecting whitespace. No custom release decision code or runtime behavior changed. The workflow must first exist on main before GitHub can run it; hosted title-failure/title-success evidence and required-check activation remain pending until that bootstrap merge. Do not count an ordinary CI matrix as title-validation evidence.
 
 PR-title preparation checks: `npm run check` passed lint, typecheck, 115 runtime scenarios and seven package tests. Local Markdown links passed for 35 tracked files. Sol accepted the workflow and documentation; hosted activation is still pending.
+
+## Hosted PR title rollout
+
+PR #3 was merged to activate the metadata-only title workflow. This follow-up records the hosted invalid-title and corrected-title checks and branch-protection activation. Results will be recorded after observing each terminal check; no runtime behavior changes.
