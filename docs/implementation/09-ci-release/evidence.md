@@ -96,3 +96,11 @@ The metadata-only `pr-title.yml` uses `pull_request_target` for main-targeted PR
 This is the Actions configuration non-TDD exception. Local js-yaml parsing and assertions verified trigger events, read-only permissions, single pinned action, check name and the subject regex accepting text/rejecting whitespace. No custom release decision code or runtime behavior changed. The workflow must first exist on main before GitHub can run it; hosted title-failure/title-success evidence and required-check activation remain pending until that bootstrap merge. Do not count an ordinary CI matrix as title-validation evidence.
 
 PR-title preparation checks: `npm run check` passed lint, typecheck, 115 runtime scenarios and seven package tests. Local Markdown links passed for 35 tracked files. Sol accepted the workflow and documentation; hosted activation is still pending.
+
+## Hosted PR title rollout
+
+PR #3 was merged to activate the metadata-only title workflow. The live check failed for draft PR #4 titled `Validate PR title rollout`: [run 36078636144](https://github.com/Rogeriohsjr/nodulus/actions/runs/36078636144) reported "No release type found". Editing only the title to `docs(ci): verify PR title validation rollout` triggered the edited event and passed: [run 36078683325](https://github.com/Rogeriohsjr/nodulus/actions/runs/36078683325). Both checks targeted commit `466454d02801b39385a7900d81584773b0412d98`.
+
+After the passing run, `Validate PR title` was added as a required main-branch status check, bound to GitHub Actions app ID 15368. The existing strict setting remained false. Readback confirmed the original review requirements remained unchanged: one approval, code-owner review, dismissal of stale approvals and approval of the latest push. Squash-only merging and PR-title/blank-body defaults were already configured and were not changed.
+
+This proves the hosted invalid-title failure and valid-title edit recovery on a repository PR. The workflow's fork-safe configuration was reviewed, but a separate fork-origin PR was not exercised. The check validates format, not semantic correctness of the chosen release type, and does not prevent an authorized maintainer from overriding a squash message.

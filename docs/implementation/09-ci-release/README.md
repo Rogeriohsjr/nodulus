@@ -48,7 +48,7 @@ References checked on 2026-09-24: [semantic-release commit analyzer](https://git
 
 The repository is configured for squash-only merges with `PR_TITLE` and a blank body. [CONTRIBUTING.md](../../../CONTRIBUTING.md) defines the Conventional Commit title format and allowed types. `!` is required in the title for a breaking change because the PR body is not copied into the squash commit.
 
-The metadata-only `pr-title.yml` workflow runs on PR open/reopen/edit/synchronize/ready-for-review events against `main`. It uses a pinned third-party validator with read-only PR permission and no checkout. This hosted configuration uses the explicit non-TDD exception. Rollout requires merging the workflow into `main`, observing hosted invalid-title failure and valid-title success, then requiring `Validate PR title` in branch protection without changing existing review requirements.
+The metadata-only `pr-title.yml` workflow runs on PR open/reopen/edit/synchronize/ready-for-review events against `main`. It uses a pinned third-party validator with read-only PR permission and no checkout. This hosted configuration uses the explicit non-TDD exception. The workflow is merged into `main`; hosted invalid-title failure and corrected-title success are verified. `Validate PR title` is required in branch protection, with existing review requirements preserved. See evidence for the exact runs.
 
 ## Developer sequence
 
