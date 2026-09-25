@@ -196,7 +196,7 @@ test.each([
     if (mode === "timeout") {
       const settingsPath = path.join(project, ".nodulus", "settings.json");
       const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
-      settings.providerProfiles.fixture.timeoutMs = 10;
+      settings.providerProfiles.fixture.timeoutMs = 500;
       writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
     }
     const result = await runDefaultProviderCli(project, `Exercise OpenCode ${mode}`);
@@ -241,7 +241,7 @@ test.each([
     if (mode === "timeout") {
       const settingsPath = path.join(project, ".nodulus", "settings.json");
       const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
-      settings.providerProfiles.fixture.timeoutMs = 10;
+      settings.providerProfiles.fixture.timeoutMs = 500;
       writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
     }
     const workflowPath = path.join(project, ".nodulus", "workflows", "example.json");
