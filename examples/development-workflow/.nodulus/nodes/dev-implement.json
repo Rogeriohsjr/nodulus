@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "dev-implement",
+  "providerProfile": "dev-builder",
+  "instructions": [
+    ".nodulus/instructions/dev-common.md",
+    ".nodulus/instructions/dev-implement.md"
+  ],
+  "inputs": {
+    "request": {
+      "from": "request",
+      "contract": "request.v1"
+    },
+    "tests": {
+      "from": "dev-tests.result",
+      "contract": "dev-work.v1"
+    },
+    "testReview": {
+      "from": "dev-test-review.result",
+      "contract": "dev-review.v1"
+    }
+  },
+  "expectedOutputs": [
+    {
+      "name": "result",
+      "contract": "dev-work.v1"
+    }
+  ]
+}

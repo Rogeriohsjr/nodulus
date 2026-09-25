@@ -41,6 +41,8 @@ type ResolvedProviderProfile = {
   timeout?: number;
   timeoutMs?: number;
   capabilities?: string[];
+  sandbox?: "read-only" | "workspace-write";
+  reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
 };
 
 const idPattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -245,6 +247,14 @@ function validateProvider(settings: ProjectSettings, profileName: string, nodeId
   const profile = settings.providerProfiles[profileName];
   if (!profile) configError(`Node '${nodeId}' references unknown provider profile '${profileName}'.`);
   if (!profile.enabled) configError(`Provider profile '${profileName}' used by node '${nodeId}' is disabled.`);
+  if (profile.kind === "codex") {
+    if (profile.sandbox !== undefined && profile.sandbox !== "read-only" && profile.sandbox !== "workspace-write") {
+      configError(`Codex provider profile '${profileName}' sandbox must be 'read-only' or 'workspace-write'.`);
+    }
+    if (profile.reasoningEffort !== undefined && !isCodexReasoningEffort(profile.reasoningEffort)) {
+      configError(`Codex provider profile '${profileName}' reasoningEffort must be one of: minimal, low, medium, high, xhigh.`);
+    }
+  }
   return profile;
 }
 
@@ -260,7 +270,15 @@ function safeProfileSnapshot(profile: ProjectSettings["providerProfiles"][string
   if (Array.isArray(profile.capabilities) && profile.capabilities.every((item) => typeof item === "string")) {
     snapshot.capabilities = profile.capabilities;
   }
+  if (profile.kind === "codex") {
+    snapshot.sandbox = profile.sandbox === undefined ? "read-only" : profile.sandbox as ResolvedProviderProfile["sandbox"];
+    if (isCodexReasoningEffort(profile.reasoningEffort)) snapshot.reasoningEffort = profile.reasoningEffort;
+  }
   return snapshot;
+}
+
+function isCodexReasoningEffort(value: unknown): value is NonNullable<ResolvedProviderProfile["reasoningEffort"]> {
+  return value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh";
 }
 
 function validateMappings(

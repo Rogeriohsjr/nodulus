@@ -108,3 +108,7 @@ Engine and schema versions are separate. Resume checks compatibility and provide
 
 This portable handoff consolidates the user's Nodulus module notes, execution canvas, and Design workflow orchestration discussion. No private vault/chat access is required to implement it.
 References: [TypeScript](https://www.typescriptlang.org/tsconfig/strict.html), [Commander](https://github.com/tj/commander.js), [Ajv](https://ajv.js.org/), [Vitest](https://vitest.dev/guide/).
+
+## Development-node policy follow-up
+
+Codex profiles can explicitly request `read-only` (the default) or `workspace-write` sandbox access and an allowlisted reasoning effort. These values are captured with each run and reused on resume, rather than adopting edited settings. Non-interactive calls use approval policy `never`; Nodulus does not expose sandbox-bypass flags. The provider owns actual sandbox enforcement. The [development workflow](../examples/development-workflow/README.md) uses separate Luna writer and Sol reviewer profiles; rejection stops the sequence rather than creating an automatic correction loop.

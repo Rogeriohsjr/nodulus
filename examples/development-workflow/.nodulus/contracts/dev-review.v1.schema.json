@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dev-review.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "decision": {
+      "const": "ACCEPT"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "validation": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "decision",
+    "summary",
+    "validation"
+  ]
+}

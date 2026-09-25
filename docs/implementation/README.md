@@ -33,3 +33,7 @@ Example assignment:
 
 Foundation was implemented using $nodulus-delivery-validation and accepted locally on Windows. The subsequent Luna-builder/Sol-reviewer pass completed INIT-002 through INIT-004. Folders 02 through 08 are accepted. Folder 09 REL-001 has hosted proof; REL-002 through REL-004 retain separate external acceptance. Provider adapters have fixture proof; live-provider checks remain unverified.
 
+
+## Follow-up: repository development workflow
+
+[10-development-workflow](10-development-workflow/README.md) is the user-authorized dogfooding slice: explicit Codex execution policies, a four-checkpoint Luna/Sol workflow, and an isolated live coding pilot. Its prerequisites are the implemented runtime and installed package; remaining folder 09 release-guard exercises do not block local workflow testing. See its checklist and evidence before claiming live completion.

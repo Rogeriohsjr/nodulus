@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "defaultWorkflow": "develop-reviewed",
+  "providerProfiles": {
+    "dev-builder": {
+      "kind": "codex",
+      "enabled": true,
+      "executable": "codex",
+      "model": "gpt-6-luna",
+      "sandbox": "workspace-write",
+      "reasoningEffort": "medium",
+      "timeoutMs": 600000
+    },
+    "dev-reviewer": {
+      "kind": "codex",
+      "enabled": true,
+      "executable": "codex",
+      "model": "gpt-6-sol",
+      "sandbox": "read-only",
+      "reasoningEffort": "medium",
+      "timeoutMs": 600000
+    }
+  }
+}
