@@ -1,0 +1,8 @@
+# Project defaults for future sessions; an already-running task keeps its model.
+model = "gpt-6-luna"
+model_reasoning_effort = "medium"
+
+[agents]
+default_subagent_model = "gpt-6-luna"
+default_subagent_reasoning_effort = "medium"
+max_concurrent_threads_per_session = 2

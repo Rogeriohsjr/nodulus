@@ -1,0 +1,89 @@
+name: CI and release
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches:
+      - main
+      - 'codex/**'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - name: Check out the event revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Verify checked out revision
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Run scenario suite
+        run: npm run test:scenarios
+      - name: Pack and install package scenarios
+        run: npm run test:package
+
+  release:
+    name: Publish validated main revision
+    needs: validate
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.deleted != true &&
+      github.repository == 'Rogeriohsjr/nodulus' &&
+      vars.NODULUS_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: npm-publish
+    concurrency:
+      group: nodulus-npm-publish
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Check out the exact validated commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Confirm exact revision and public package configuration
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node --input-type=module -e "import { readFileSync } from 'node:fs'; const manifest = JSON.parse(readFileSync('package.json', 'utf8')); if (manifest.private !== false) { console.error('Publishing is disabled while package.json private is not false.'); process.exit(1); }"
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Build the validated source revision
+        run: npm run build
+      - name: Calculate, tag, and publish the release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm exec -- semantic-release

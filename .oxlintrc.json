@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["eslint", "typescript", "oxc", "import"],
+  "categories": {
+    "correctness": "error"
+  },
+  "options": {
+    "typeAware": true
+  },
+  "rules": {
+    "typescript/no-floating-promises": "off"
+  },
+  "overrides": [
+    {
+      "files": ["src/**/*.ts"],
+      "rules": {
+        "typescript/no-floating-promises": "error"
+      }
+    },
+    {
+      "files": ["src/core/**/*.ts"],
+      "rules": {
+        "eslint/no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/adapters/**", "**/cli", "**/cli.*", "**/cli/**", "**/application/**"],
+                "message": "Core code depends on ports; it must not import CLI, application, or concrete adapter layers."
+              }
+            ]
+          }
+        ],
+        "import/no-commonjs": "error"
+      }
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "name": "@rogeriohsjr/nodulus",
+  "version": "1.0.0",
+  "private": false,
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rogeriohsjr/nodulus.git"
+  },
+  "type": "module",
+  "files": [
+    "dist/**",
+    "docs/user-guide.md",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "bin": {
+    "nodulus": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "scripts": {
+    "lint": "oxlint src tests scripts --deny-warnings",
+    "lint:fix": "oxlint --fix src tests scripts --deny-warnings",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "prebuild": "node scripts/clean-dist.mjs",
+    "build": "tsc --project tsconfig.json",
+    "pretest:scenarios": "npm run build",
+    "test:scenarios": "vitest run tests/scenarios --exclude tests/scenarios/pkg-*.test.ts",
+    "test:package": "npm run build && vitest run tests/scenarios/pkg-001-installed-archive.test.ts",
+    "test": "npm run test:scenarios && npm run test:package",
+    "check": "npm run lint && npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@types/cross-spawn": "^6.0.6",
+    "@types/node": "^26.6.2",
+    "conventional-changelog-conventionalcommits": "^9.3.1",
+    "oxlint": "^1.85.0",
+    "oxlint-tsgolint": "^7.0.2003",
+    "semantic-release": "^25.0.9",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "commander": "^15.0.0",
+    "cross-spawn": "^7.0.6"
+  }
+}
