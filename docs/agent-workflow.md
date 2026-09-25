@@ -27,7 +27,7 @@ One writer at a time. No continuous monitoring/polling loop, recursive delegatio
 
 ## Current assignment
 
-The foundation/INIT-001 pilot is complete. On 2026-09-24 the user authorized all remaining stories, with Luna building, Sol reviewing and the coordinator committing accepted milestones. Folders 00 through 08 and folder 09 CI are now implemented; publication remains deferred. For follow-up maintenance, use the same stable checkpoints and the code-quality checklist. Keep real provider and hosted release evidence distinct; prepare release configuration without representing unperformed publication as complete.
+The foundation/INIT-001 pilot is complete. On 2026-09-24 the user authorized all remaining stories, with Luna building, Sol reviewing and the coordinator committing accepted milestones. Folders 00 through 08 and folder 09 CI are implemented; version 1.0.0 is public, while automated-release and registry-upgrade proof remain open. For follow-up maintenance, use the same stable checkpoints and the code-quality checklist. Keep real provider and hosted release evidence distinct; prepare release configuration without representing unperformed publication as complete.
 
 ## Usage rationale and limitations
 

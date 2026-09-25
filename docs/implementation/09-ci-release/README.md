@@ -1,6 +1,6 @@
 # 09-ci-release: Validate platforms and publish releases
 
-**Status:** REL-001 is verified on hosted Windows/macOS/Linux; both final code-checkpoint CI runs passed. Public publication is now authorized; release and registry results are tracked in evidence. **Prerequisite:** 08-package-install. **Method:** Non-TDD hosted configuration; test-first for any custom decision code.
+**Status:** REL-001 is verified on hosted Windows/macOS/Linux. Public version 1.0.0 and its clean registry installation are verified; automated/OIDC publication and upgrading between registry releases remain open. **Prerequisite:** 08-package-install. **Method:** Non-TDD hosted configuration; test-first for any custom decision code.
 
 After a main-branch merge passes checks and the repository owner explicitly enables publishing, users can obtain a versioned release. The package is Apache-2.0 under `@rogeriohsjr/nodulus`. Automated publishing remains disabled until the repository opt-in and npm trust are configured.
 
@@ -40,7 +40,7 @@ Use semantic-release with explicit rules: every unreleased commit message gets a
 
 The release job grants only `contents: write` and `id-token: write`; npm authentication uses GitHub Actions trusted publishing/OIDC and deliberately does not configure a long-lived npm token or `registry-url`. The package `repository.url` names this GitHub repository so it can match the npm trusted-publisher configuration. The `GITHUB_TOKEN` publishes the GitHub release and tag. The job is absent for fork PR events and gated to the canonical repository. npm documents private-repository provenance as unsupported; provenance is only expected when both source repository and package are public. This does not require changing repository visibility for this workflow, but an actual npm trust relationship still must be configured and verified. Keep publishing disabled until an owner configures the protected environment, opt-in variable, trusted publisher and package identity, and authorizes publication.
 
-The local policy tests invoke the actual semantic-release commit analyzer, and the dry run uses a local bare Git remote without the npm/GitHub publishing plugins. Workflow YAML validation and these dry runs are preliminary: record hosted matrix URLs and terminal jobs after the workflow is pushed. Package scope/name ownership, GitHub/npm trusted publisher setup and external publishing require current-task authorization. Leave REL-002 and REL-004 open until the hosted release and clean registry install are actually verified.
+The local policy tests invoke the actual semantic-release commit analyzer, and the dry run uses a local bare Git remote without the npm/GitHub publishing plugins. Workflow YAML validation and these dry runs are preliminary: record hosted matrix URLs and terminal jobs after the workflow is pushed. Package scope/name ownership, GitHub/npm trusted publisher setup and external publishing require current-task authorization. Leave REL-002 open until automated/OIDC publishing is verified and REL-004 open until upgrading between published registry versions is verified; the initial clean registry installation has passed.
 
 References checked on 2026-09-24: [semantic-release commit analyzer](https://github.com/semantic-release/commit-analyzer), [npm trusted publishers](https://docs.npmjs.com/trusted-publishers/), [actions/checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1), and [actions/setup-node v7.0.0](https://github.com/actions/setup-node/releases/tag/v7.0.0). semantic-release v25.0.9 requires Node `^22.14.0 || >=24.10.0`; npm trusted publishing requires npm CLI `>=11.5.1` and Node `>=22.14.0`.
 
@@ -55,7 +55,7 @@ The metadata-only `pr-title.yml` workflow runs on PR open/reopen/edit/synchroniz
 - [x] Identify applicable non-TDD exception and its verification plan.
 - [x] Validate configuration and dry-run version/release policy, including docs-only changes.
 - [x] Record successful Windows/macOS/Linux hosted job URLs and exact SHA.
-- [ ] Record actual authorized npm version/tag/release and clean registry-install proof.
+- [x] Record actual authorized npm version/tag/release and clean registry-install proof.
 - [ ] Verify rerun/fork/failed-check release guards and document unresolved admin prerequisites.
 - [x] Run available accumulated checks and record limitations.
 - [ ] Review public contracts/docs; update evidence and only then mark this folder complete in the index.

@@ -1,6 +1,6 @@
 # Implementation sequence
 
-Status: folders 00 through 08 accepted, with hosted Windows/macOS/Linux validation. Folder 09 CI and local release-policy checks are implemented; public Apache-2.0 publication is now authorized and release/registry validation is in progress. See folder 09 evidence for the final CI checkpoint.
+Status: folders 00 through 08 accepted, with hosted Windows/macOS/Linux validation. Public Apache-2.0 version 1.0.0 is published and a clean registry installation is verified. Folder 09 remains open for automated publishing, registry upgrade and external release-guard proof. See folder 09 evidence for the release checkpoint.
 
 Read [architecture](../architecture.md) and [testing policy](../testing.md). Work in numeric order; each folder depends on the preceding one. This keeps tests and implementation following the same user flow. A developer can implement one folder and hand off its evidence before the next begins.
 

@@ -1,6 +1,6 @@
 # Evidence: 09-ci-release
 
-Status: local policy tests and both hosted matrices are green. The process-liveness regression was corrected, independently reviewed, and verified by the final code-checkpoint runs below. Public Apache-2.0 publication is now authorized; the scoped package is prepared but not yet published. Repository opt-in and npm trust are pending. No repository release/tag, registry operation, or external publication was performed; the scenario creates and tags only a disposable local bare Git fixture.
+Status: public Apache-2.0 version 1.0.0, its GitHub release/tag and a clean registry installation are verified. Automated/OIDC publication and upgrading between registry versions remain open. The first-release checkpoint below supersedes historical preparation statuses; npm trust and repository opt-in are still pending authentication.
 
 ## Environment
 
@@ -104,3 +104,19 @@ PR #3 was merged to activate the metadata-only title workflow. The live check fa
 After the passing run, `Validate PR title` was added as a required main-branch status check, bound to GitHub Actions app ID 15368. The existing strict setting remained false. Readback confirmed the original review requirements remained unchanged: one approval, code-owner review, dismissal of stale approvals and approval of the latest push. Squash-only merging and PR-title/blank-body defaults were already configured and were not changed.
 
 This proves the hosted invalid-title failure and valid-title edit recovery on a repository PR. The workflow's fork-safe configuration was reviewed, but a separate fork-origin PR was not exercised. The check validates format, not semantic correctness of the chosen release type, and does not prevent an authorized maintainer from overriding a squash message.
+
+## First public release: 1.0.0
+
+Published under explicit user authorization from the clean source revision `fbde472f0a4cef2ab7046cfdbac7d6ab80288d14`, whose [main CI run](https://github.com/Rogeriohsjr/nodulus/actions/runs/36078574888) passed all three platforms. On Windows with Node 24.15.0/npm 11.12.1, `npm publish --access public --loglevel warn` completed after the owner authenticated in the browser, returning `+ @rogeriohsjr/nodulus@1.0.0`.
+
+The [public npm package](https://www.npmjs.com/package/@rogeriohsjr/nodulus) reports version `1.0.0`, license `Apache-2.0`, and bin `nodulus: dist/bin.js`. Its registry integrity matches the prepared archive: `sha512-mfBgDvAtUOhQ3mqn5WxZmGWtlhHpgC5qlXgt1ibmdi0iUhW1nr3HRrNmU/YPY/EMXBtnt8YBrerXrKJon47gog==`. The [GitHub release and tag v1.0.0](https://github.com/Rogeriohsjr/nodulus/releases/tag/v1.0.0) target that source revision. This tag establishes the baseline for subsequent semantic-release versions.
+
+A clean temporary consumer installed the exact registry version with `npm.cmd install --prefix <temporary-consumer> --no-audit --no-fund @rogeriohsjr/nodulus@1.0.0`. The installed command shim passed `--version` (1.0.0), `--help`, and `init --project <path-with-spaces>`. A script imported the installed application API and ran the generated workflow with real files, validation and persistence, replacing only external inference with a fixture provider. Result: `status: success`, run ID `af2207c4-59eb-44d3-9327-847124e856f1`.
+
+This proves the initial public registry installation and workflow, not an upgrade between two registry releases or live Codex/Cursor inference. The first publication was interactive, not the GitHub OIDC release job: REL-002 and the remaining REL-004 upgrade acceptance stay open. Earlier sections describe historical preparation checkpoints, not the current package availability.
+
+### Post-publication package-test correction
+
+After 1.0.0 became public, `npm run check` passed lint/typecheck and 115 runtime scenarios but PKG-006 failed: npm's real publish dry run rejected publishing over existing version 1.0.0 (six other package tests passed). The scenario now stages a real temporary package copy and changes only that copy to a unique prerelease version, with the required `--tag dry-run`; `--dry-run` and the bin-warning assertion remain. The source manifest stays unchanged and no test publishes a package. The initial prerelease attempt exposed npm's explicit-tag requirement before correction.
+
+GREEN on Windows: focused PKG-006 passed; final `npm run check` passed lint, typecheck, 115 runtime/release scenarios and seven package tests. Sol accepted the isolated test fix and documentation. Local Markdown links passed for 35 tracked files; `git diff --check` passed. Hosted results belong to the pushed revision and are reported separately.
