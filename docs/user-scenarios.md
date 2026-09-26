@@ -75,4 +75,12 @@ These are acceptance requirements, not existing product behavior. Each linked fo
 - [REL-003: Avoid duplicate or unsafe publishing](implementation/09-ci-release/README.md#rel-003-avoid-duplicate-or-unsafe-publishing)
 - [REL-004: Verify the public upgrade path](implementation/09-ci-release/README.md#rel-004-verify-the-public-upgrade-path)
 
+## Planned execution observability
+
+These scenarios are documented only; implementation and tests remain pending in [folder 12](implementation/12-execution-observability/README.md).
+
+- [OBS-001 through OBS-005: effective requests, timeline and provider usage](implementation/12-execution-observability/scenarios.md).
+- [OBS-006 through OBS-009: partial evidence, invalid telemetry, repair/resume and status](implementation/12-execution-observability/scenarios.md).
+- [OBS-010 through OBS-012: cost provenance, compatibility and opt-in live proof](implementation/12-execution-observability/scenarios.md).
+
 

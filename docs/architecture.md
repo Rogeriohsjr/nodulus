@@ -98,6 +98,8 @@ Capture definitions, instructions, schema/engine versions, and resolved configur
 
 Record elapsed time, available usage/cache counts, and costs. Unknown metrics are null; estimates identify pricing provenance. Keep credentials out of captured configuration/logs. Diagnose an incomplete trailing JSONL line without treating it as checkpoint corruption.
 
+Current implementation saves elapsed metrics, but the concrete Codex/Cursor/OpenCode adapters return null usage. The saved prompt is the base node prompt and does not always include the adapter's final transport instructions. [Folder 12](implementation/12-execution-observability/README.md) plans effective-request capture, timestamped call correlation, provider measurements, coverage and optional cost estimates. Those additions are not implemented yet; see its verified baseline and scenario checklist before claiming support.
+
 ## Platform and version compatibility
 
 Windows/macOS are primary; test Linux too. Use Node path/process APIs and argument arrays, no bash-only runtime dependency. Exercise spaces, Unicode, executable wrappers, cancellation, timeout, and child cleanup.
