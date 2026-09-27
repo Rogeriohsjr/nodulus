@@ -1,21 +1,22 @@
 # Develop and review this repository with Nodulus
 
-This example turns the repository's local-builder and independent-review process into sequential Nodulus nodes. Writing nodes use OpenCode with local Ollama `qwen3.5:9b`; review nodes are fresh Codex CLI executions with explicit models and policies.
+This example turns the repository's local-builder and independent-review process into sequential Nodulus nodes. Writing nodes use OpenCode with local Ollama `qwen3.5:9b`; Qwen reviews run in fresh OpenCode sessions and the final review uses a fresh GPT-5.6 Sol Codex execution.
 
 ## Sequence
 
 1. `dev-tests`: OpenCode/Qwen writes real tests and observes meaningful RED (or records an applicable non-TDD exception).
-2. `dev-test-review`: Luna inspects the actual tests and independently verifies the checkpoint.
+2. `dev-test-review`: Qwen inspects the actual tests and independently verifies the checkpoint.
 3. `dev-implement`: OpenCode/Qwen implements to GREEN and runs required checks.
-4. `dev-review`: GPT-5.6 Sol inspects actual files and reruns focused checks.
+4. `dev-qwen-review`: Qwen independently inspects implementation and reruns the focused check.
+5. `dev-review`: GPT-5.6 Sol inspects actual files and reruns focused checks.
 
 Only an accepted review is a success artifact. A rejection returns `REVIEW_CHANGES_REQUIRED` and stops the workflow. Ask for a focused correction in a new request; v1 does not automatically loop or revise previous nodes. `needs_input` uses the normal saved clarification/resume flow. The separate `develop-escalate` workflow provides a GPT-5.6 Sol diagnosis when explicitly requested, normally after two correction rounds. No extra LLM supervisor runs.
 
 ## Setup
 
-Use a dedicated Git worktree with dependencies installed. Copy the contents of this example's `.nodulus` directory into that worktree's `.nodulus` directory. Merge settings and preserve existing definitions if the destination already exists; never blindly overwrite another workflow. Inspect and merge `opencode.json` into the worktree root so its local model and permissions are explicit. The names `dev-*` and `develop-reviewed` avoid the existing local `develop` example. Ignore `.nodulus/runs/` and `.nodulus/pilot/`.
+Use a dedicated Git worktree with dependencies installed. Copy the contents of this example's `.nodulus` directory into that worktree's `.nodulus` directory. Merge settings and preserve existing definitions if the destination already exists; never blindly overwrite another workflow. Copy `.agents/skills/nodulus-workflow-builder/SKILL.md` from this repository into the same path in the target worktree; nodes explicitly include it in their prompt, so skill auto-discovery is not required. Inspect and merge `opencode.json` into the worktree root so its local model and permissions are explicit. The names `dev-*` and `develop-reviewed` avoid the existing local `develop` example. Ignore `.nodulus/runs/` and `.nodulus/pilot/`.
 
-Node.js 24, OpenCode 1.18.32 or newer, a running Ollama service with `qwen3.5:9b`, and an authenticated Codex CLI are required. Models must be available to each provider. OpenCode local inference reports zero vendor cost but still consumes local compute; Codex review nodes consume account usage. Timeouts bound wall time, not tokens or money. A straight-through run makes two local OpenCode and two Codex invocations. The OpenCode writer explicitly enables `responseRepair`, allowing at most two non-writing corrections in the same captured session when its final Nodulus envelope is invalid. It never repeats the writing action. Workflow review rejection and implementation correction remain separate requests.
+Node.js 24, OpenCode 1.18.32 or newer, a running Ollama service with `qwen3.5:9b`, and an authenticated Codex CLI are required. Models must be available to each provider. OpenCode local inference reports zero vendor cost but still consumes local compute; Codex review nodes consume account usage. Timeouts bound wall time, not tokens or money. A straight-through run makes four local OpenCode invocations and one Codex invocation. The OpenCode writer explicitly enables `responseRepair`, allowing at most two non-writing corrections in the same captured session when its final Nodulus envelope is invalid. It never repeats the writing action. Workflow review rejection and implementation correction remain separate requests.
 
 ```sh
 npm ci
@@ -26,7 +27,7 @@ node dist/bin.js run --workflow develop-reviewed --request-file .nodulus/request
 
 For a published version containing this change, use `nodulus` in place of `node dist/bin.js`. Run `opencode models ollama` and `codex login status` from the worktree before invoking models. If multiple executables are installed, set each profile executable to the actual current binary or command shim.
 
-OpenCode writing permissions come from the root `opencode.json`; the supplied example denies external directories, subagents, web tools, commits, pushes, reset and clean while allowing in-worktree edits and test commands. It also defines a primary `nodulus-response` agent whose final permission rule denies every tool. Nodulus uses that agent only for same-session envelope correction, avoiding the built-in plan agent's unrelated planning instructions and preventing repair from editing files or running commands. Luna and GPT-5.6 Sol receive Codex `workspace-write` because build and Vitest create generated files; both review instructions prohibit source edits, and independent evidence records whether files changed. Codex uses approval policy `never`. These policies are not a Nodulus per-file isolation boundary. Use a separate worktree and explicit task paths; never use a sandbox or permission bypass to get a test green.
+OpenCode writing permissions come from the root `opencode.json`; the supplied example denies external directories, subagents, web tools, commits, pushes, reset and clean while allowing in-worktree edits and test commands. It also defines a primary `nodulus-response` agent whose final permission rule denies every tool. Nodulus uses that agent only for same-session envelope correction, avoiding the built-in plan agent's unrelated planning instructions and preventing repair from editing files or running commands. GPT-5.6 Sol receives Codex `workspace-write` because build and Vitest create generated files; all review instructions prohibit source edits, and independent evidence records whether files changed. Codex uses approval policy `never`. These policies are not a Nodulus per-file isolation boundary. Use a separate worktree and explicit task paths; never use a sandbox or permission bypass to get a test green.
 
 ## Pilot and evidence
 
@@ -45,3 +46,9 @@ To review and validate existing work without replaying the builder, use `develop
 ```sh
 node dist/bin.js run --workflow develop-verify --request "Review .nodulus/pilot/clamp.mjs and clamp.test.mjs against .nodulus/requests/pilot.md; do not edit files." --json
 ```
+
+## Qwen review limits and improvement
+
+Qwen writing and review sessions use the adapter's existing build agent. Reviewer instructions prohibit source edits, but this is not a separate filesystem sandbox. Inspect the reviewer diff and reject unexpected edits. Sol provides review by a different model family; Qwen agreement is not independent model diversity. Preserve failed runs and apply at most two focused correction requests. Skill changes require an observed failure and coordinator review; the workflow does not rewrite its own rules.
+
+The live local setup selects the authenticated npm Codex executable explicitly when another older Codex installation takes precedence on PATH. Do not change global configuration to mask an executable mismatch.

@@ -1,6 +1,6 @@
 # 12: Inspect execution traces, provider usage, and cost
 
-Status: **researched and planned; implementation has not started**. The current request authorizes documentation only. No runtime changes, new test execution, live inference, publishing, or rollout are authorized by this folder.
+Status at the planning handoff: **researched and planned; implementation had not started**. On 2026-09-26 the user authorized the installed Qwen builder/reviewer workflow with a final GPT-5.6 Sol review. The first live assignment is OBS-001 within checkpoint A; later scenarios remain pending. See [workflow execution evidence](../11-opencode-workflow/qwen-review-evidence.md). Publishing remains outside this scope.
 
 As a user, I want to inspect each workflow step, see the instructions Nodulus sent and the response it received, understand validation and repairs, and compare available token usage and cost without confusing estimates with charges.
 

@@ -1,6 +1,6 @@
 # Low-usage builder and reviewer
 
-The default project model and builder remain GPT-6 Luna at medium reasoning. At the user's request on 2026-09-24, routine checkpoint review uses GPT-6 Sol at medium reasoning. Keep reviews narrowly scoped to control usage.
+Historical setup (superseded for the installed development workflow below): the default project model and builder remain GPT-6 Luna at medium reasoning. At the user's request on 2026-09-24, routine checkpoint review uses GPT-6 Sol at medium reasoning. Keep reviews narrowly scoped to control usage.
 
 ## Roles and context
 
@@ -48,3 +48,9 @@ The Luna builder and GPT-6 Sol reviewer completed INIT-002 through INIT-004. INI
 ## Run this process through Nodulus
 
 The [development workflow example](../examples/development-workflow/README.md) implements four sequential checkpoints: OpenCode with local Qwen writes tests, Luna reviews the RED checkpoint, OpenCode/Qwen implements, and GPT-5.6 Sol performs final review before the fixed quality gate. An optional separate escalation workflow diagnoses blockers. These are explicit provider calls, not automatic loading of the Codex app agent-role files. The app-bundled CLI 0.144.4 rejects newer settings; the live pilot uses standalone CLI 0.156.1 with an explicit executable path. Workflow profiles choose each node's model and policy directly. See [folder 11 evidence](implementation/11-opencode-workflow/evidence.md) for the fixture and retained multi-run live proof; [folder 10](implementation/10-development-workflow/evidence.md) preserves the earlier Codex-only workflow history.
+
+## Current installed workflow (2026-09-26)
+
+The user now requests Qwen for test writing, test review, implementation and another code review, followed only by GPT-5.6 Sol for final model review. The `develop-reviewed` example uses that five-node sequence and the existing fixed `npm run check` validator. The coordinator selects one scenario, verifies actual evidence and commits accepted milestones. Earlier Luna/Sol subagent history above is retained as history, not the active role assignment.
+
+Use `.agents/skills/nodulus-workflow-builder/SKILL.md`; each node includes its contents directly in the prompt. Work is sequential with one writer, fresh reviewer sessions and no automatic correction loop. Qwen and Sol reviewers must not edit source. Skills improve through reviewed, evidence-backed corrections rather than automatic self-modification.

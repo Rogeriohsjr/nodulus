@@ -4,6 +4,7 @@
   "providerProfile": "dev-reviewer",
   "instructions": [
     ".nodulus/instructions/dev-common.md",
+    ".agents/skills/nodulus-workflow-builder/SKILL.md",
     ".nodulus/instructions/dev-escalate.md"
   ],
   "inputs": {
