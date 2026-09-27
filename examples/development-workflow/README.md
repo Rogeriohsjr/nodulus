@@ -22,16 +22,16 @@ Node.js 24, OpenCode 1.18.32 or newer, a running Ollama service with `qwen3.5:9b
 npm ci
 npm run build
 node dist/bin.js doctor --json
-node dist/bin.js run --workflow develop-reviewed --request-file .nodulus/requests/pilot.md --json
+node dist/bin.js run --workflow develop-reviewed --request-file .nodulus/requests/observability-obs-001.md --json
 ```
 
 For a published version containing this change, use `nodulus` in place of `node dist/bin.js`. Run `opencode models ollama` and `codex login status` from the worktree before invoking models. If multiple executables are installed, set each profile executable to the actual current binary or command shim.
 
 OpenCode writing permissions come from the root `opencode.json`; the supplied example denies external directories, subagents, web tools, commits, pushes, reset and clean while allowing in-worktree edits and test commands. It also defines a primary `nodulus-response` agent whose final permission rule denies every tool. Nodulus uses that agent only for same-session envelope correction, avoiding the built-in plan agent's unrelated planning instructions and preventing repair from editing files or running commands. GPT-5.6 Sol receives Codex `workspace-write` because build and Vitest create generated files; all review instructions prohibit source edits, and independent evidence records whether files changed. Codex uses approval policy `never`. These policies are not a Nodulus per-file isolation boundary. Use a separate worktree and explicit task paths; never use a sandbox or permission bypass to get a test green.
 
-## Pilot and evidence
+## Historical pilot and evidence
 
-The supplied pilot asks for a tiny `clamp` function and real Node tests only under `.nodulus/pilot/`. It exercises RED, test review, GREEN and final review without modifying product behavior. Successful fixture tests demonstrate mapping/stopping logic, not live model correctness. See [the implementation evidence](../../docs/implementation/10-development-workflow/evidence.md) for observed live results and limitations.
+The historical Node-test pilot asks for a tiny `clamp` function and real Node tests only under `.nodulus/pilot/`. Its prior run exercised RED, test review, GREEN and final review without modifying product behavior. Successful fixture tests demonstrate mapping/stopping logic, not live model correctness. See [the implementation evidence](../../docs/implementation/10-development-workflow/evidence.md) for observed live results and limitations.
 
 Inspect `.nodulus/runs/<run-id>/run.json`, `events.jsonl`, `nodes/<node-id>/attempt-001/` and `provider/<node-id>/attempt-001/`. The latter retains provider transport logs and final responses. Preserve failed attempts; do not report an error run as successful. The workflow does not commit, push, merge or publish. Review and commit accepted changes separately.
 
@@ -52,3 +52,11 @@ node dist/bin.js run --workflow develop-verify --request "Review .nodulus/pilot/
 Qwen writing and review sessions use the adapter's existing build agent. Reviewer instructions prohibit source edits, but this is not a separate filesystem sandbox. Inspect the reviewer diff and reject unexpected edits. Sol provides review by a different model family; Qwen agreement is not independent model diversity. Preserve failed runs and apply at most two focused correction requests. Skill changes require an observed failure and coordinator review; the workflow does not rewrite its own rules.
 
 The live local setup selects the authenticated npm Codex executable explicitly when another older Codex installation takes precedence on PATH. Do not change global configuration to mask an executable mismatch.
+
+## Required RED checkpoint configuration
+
+Before the run command above, the coordinator creates `.nodulus/development-task.json` with `{"mode":"vitest-red","testFile":"tests/scenarios/obs-001-effective-provider-request.test.ts"}` (substitute the assigned test). After the test writer and again after Qwen test-review ACCEPT, the fixed `dev-red.mjs` validator builds and runs only that test through real Vitest. It rejects passing tests, missing tests and setup/syntax failures before implementation can start; JSON reports are saved under `.nodulus/checkpoints/red/`. An assertion failure still needs review for relevance. Models must not edit this configuration or validator.
+
+For an actual documented non-TDD task, the coordinator may explicitly select `{"mode":"non-tdd","reason":"The specific docs/testing.md exception and replacement verification"}`. Never use that mode to bypass runtime TDD. The historical Node-test pilot needs a supported RED runner or manual checkpoint; the new automatic gate currently supports Vitest scenarios only. Missing task configuration fails closed.
+
+See [current local-run evidence](../../docs/implementation/11-opencode-workflow/qwen-review-evidence.md) for the rejected Qwen checkpoints and guard improvements. Workflow success alone is not accepted implementation evidence.

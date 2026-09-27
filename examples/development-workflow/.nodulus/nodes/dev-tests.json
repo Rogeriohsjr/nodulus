@@ -16,7 +16,9 @@
   "expectedOutputs": [
     {
       "name": "result",
-      "contract": "dev-work.v1"
+      "contract": "dev-work.v1",
+      "validator": ".nodulus/validators/dev-red.mjs",
+      "validatorTimeoutMs": 120000
     }
   ]
 }

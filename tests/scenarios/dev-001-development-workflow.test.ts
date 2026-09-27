@@ -14,6 +14,7 @@ test.each([{ rejectReview: false, failQuality: false }, { rejectReview: "dev-tes
   writeFileSync(path.join(project, ".nodulus/fixture-quality.cjs"), `require("node:fs").writeFileSync(".nodulus/quality-ran", "executed"); process.exit(${failQuality ? 7 : 0});`);
   cpSync(path.resolve(".agents/skills/nodulus-workflow-builder"), path.join(project, ".agents/skills/nodulus-workflow-builder"), { recursive: true });
   const sequence = ["dev-tests", "dev-test-review", "dev-implement", "dev-qwen-review", "dev-review"];
+  writeFileSync(path.join(project, ".nodulus/development-task.json"), JSON.stringify({ mode: "non-tdd", reason: "Orchestration fixture; no authored runtime change" }));
   const calls: ProviderInvocation[] = [];
   try {
     const result = await runWorkflow({ projectRoot: project, cwd: project, workflow: "develop-reviewed", sources: [{ kind: "inline", text: "Develop the isolated exercise" }] }, {

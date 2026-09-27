@@ -11,7 +11,7 @@ Read the assigned scenario and nearby working tests before using tools to edit. 
 
 ## Test writer
 
-Use the production application/CLI entry point, real temporary files and child-process fixture executables. Substitute only external inference. Copy a nearby test's working project setup and adjust its observable assertions. Do not mock fs, storage, internal adapters or process execution. Run the focused test before production edits. A compilation/import/setup failure is not RED; repair the harness and rerun until a requirement assertion fails. Never claim RED from an expected result you did not observe. Stop for test review with production behavior unchanged.
+Use the production application/CLI entry point, real temporary files and child-process fixture executables. Substitute only external inference. Copy a nearby test's working project setup and adjust its observable assertions. Do not mock fs, storage, internal adapters or process execution. Run the focused test before production edits. A compilation/import/setup failure is not RED; repair the harness and rerun until a requirement assertion fails. Never claim RED from an expected result you did not observe. Missing required files must fail an unconditional assertion; never skip the assertion or return early because the feature is absent. Verify prelaunch ordering inside the fixture before it responds when the requirement concerns timing. Do not change the scenario or claim it implemented to fit a passing draft. Stop for test review with production behavior unchanged.
 
 ## Implementer
 
@@ -19,7 +19,7 @@ Inspect the accepted test and the actual test-review artifact. Implement the sma
 
 ## Reviewer
 
-Do not edit source, tests, settings, skills, docs or evidence files. Inspect the actual diff and untracked files, not only the prior report. Rerun the focused test independently; test-review expects meaningful RED, code-review expects GREEN. Generated build/test files are permitted. Reject mocked internal boundaries, fabricated evidence, weakened assertions, unscoped changes and missing negative cases. Qwen review is a second pass by the same model family; Sol provides the independent final model review.
+Do not edit source, tests, settings, skills, docs or evidence files. Inspect the actual diff and untracked files, not only the prior report. Rerun the focused test independently; test-review expects meaningful RED, code-review expects GREEN. Generated build/test files are permitted. Reject mocked internal boundaries, fabricated evidence, weakened assertions, unscoped changes and missing negative cases. The fixed RED validator rejects passing tests and setup failures, but you must still verify that the failure is relevant to the requirement. Qwen review is a second pass by the same model family; Sol provides the independent final model review.
 
 ## Tools, evidence and stopping
 
