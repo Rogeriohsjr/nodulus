@@ -1,0 +1,246 @@
+{
+  "scope": "2026-09-28 supervised OBS-001/002 generation and review; raw transport step_finish reports, not normalized billing",
+  "deduplication": "One step per (sessionID, part.id); provider transport files only, excluding duplicate calls transport files.",
+  "runs": [
+    {
+      "runId": "90296b40-d9f6-47c6-ae4e-095e2ef528b9",
+      "status": "error",
+      "requestedModel": "ollama/qwen3.5:9b",
+      "providerCalls": 1,
+      "elapsedMs": 10190,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 2980,
+        "output": 1
+      }
+    },
+    {
+      "runId": "14ccccc9-558f-40e7-9b0c-ef2ea7b69a43",
+      "status": "error",
+      "requestedModel": "ollama/qwen3.5:9b",
+      "providerCalls": 1,
+      "elapsedMs": 24187,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 2818,
+        "output": 2037
+      }
+    },
+    {
+      "runId": "63599570-90aa-4454-be60-1303ca13af44",
+      "status": "error",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 42532,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 2763,
+        "output": 910
+      }
+    },
+    {
+      "runId": "3a078e73-f98f-49fc-b238-8a396f7064be",
+      "status": "error",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 3,
+      "elapsedMs": 61693,
+      "steps": 3,
+      "reportedTokens": {
+        "input": 12536,
+        "output": 2903
+      }
+    },
+    {
+      "runId": "4fc5cb54-686c-470a-a353-30e6545b285f",
+      "status": "error",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 3,
+      "elapsedMs": 37687,
+      "steps": 3,
+      "reportedTokens": {
+        "input": 7722,
+        "output": 1506
+      }
+    },
+    {
+      "runId": "fc1ac52a-0d67-43d7-b0a8-9695e712ac5d",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 14102,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 1431,
+        "output": 464
+      }
+    },
+    {
+      "runId": "98509df3-daf0-47fc-8e9d-0218fb3f566c",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 15336,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 1576,
+        "output": 465
+      }
+    },
+    {
+      "runId": "2acf4188-b26e-4a53-8a24-aff920833a72",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 3,
+      "elapsedMs": 49044,
+      "steps": 3,
+      "reportedTokens": {
+        "input": 9680,
+        "output": 2194
+      }
+    },
+    {
+      "runId": "35d45b10-010c-4e88-b505-c7bc2dc9306f",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 12772,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 3274,
+        "output": 448
+      }
+    },
+    {
+      "runId": "060fdb89-8a20-42ef-952d-f0d43f4aeae6",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 15148,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 1500,
+        "output": 430
+      }
+    },
+    {
+      "runId": "ad26dc8e-0347-42ef-8921-d43511ca02e0",
+      "status": "error",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 3,
+      "elapsedMs": 68971,
+      "steps": 3,
+      "reportedTokens": {
+        "input": 12927,
+        "output": 3126
+      }
+    },
+    {
+      "runId": "b60d2355-a69b-4050-abd4-c71c4ebe7c42",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 2,
+      "elapsedMs": 42071,
+      "steps": 3,
+      "reportedTokens": {
+        "input": 6572,
+        "output": 1114
+      }
+    },
+    {
+      "runId": "6b62868c-fe3a-48a3-97cb-9e6406d9dfab",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 42632,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 2687,
+        "output": 1201
+      }
+    },
+    {
+      "runId": "dd103ee6-2a23-4ffd-ad98-dd07978a6ff0",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 24043,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 1741,
+        "output": 1068
+      }
+    },
+    {
+      "runId": "d857668f-e43a-4e1d-9df5-a842d3bb9b4f",
+      "status": "error",
+      "requestedModel": "ollama/qwen-nodulus-35:latest",
+      "providerCalls": 3,
+      "elapsedMs": 70063,
+      "steps": 3,
+      "reportedTokens": {
+        "input": 17235,
+        "output": 3976
+      }
+    },
+    {
+      "runId": "ff0591aa-bbf6-4604-9ea6-46b5b78159de",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 23636,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 1723,
+        "output": 838
+      }
+    },
+    {
+      "runId": "89c0a9d9-572b-4e85-a943-736e1442b4c2",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 2,
+      "elapsedMs": 72678,
+      "steps": 2,
+      "reportedTokens": {
+        "input": 9461,
+        "output": 3619
+      }
+    },
+    {
+      "runId": "9f9c0912-65dc-4e7f-95be-dc3377aea585",
+      "status": "error",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 3,
+      "elapsedMs": 22659.647299999997,
+      "steps": 3,
+      "reportedTokens": {
+        "input": 25840,
+        "output": 152
+      }
+    },
+    {
+      "runId": "fce131da-c6b6-4ed8-9846-aaa1b54dd330",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 30593.7018,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 2132,
+        "output": 914
+      }
+    },
+    {
+      "runId": "c8744fe6-d71e-4d5f-bee1-148d8435f1b7",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 9042.5733,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 3006,
+        "output": 125
+      }
+    }
+  ]
+}

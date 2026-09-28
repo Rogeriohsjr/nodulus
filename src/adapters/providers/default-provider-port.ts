@@ -3,6 +3,7 @@ import path from "node:path";
 import type { ProviderInvocation, ProviderPort } from "../../core/ports/provider.js";
 import { NodulusError } from "../../core/shared/nodulus-error.js";
 import { runProcess } from "./process-runner.js";
+import { runCapturedProcess } from "./captured-process.js";
 
 type Kind = "codex" | "cursor" | "opencode";
 const invocationTimeout = 10 * 60 * 1000;
@@ -143,7 +144,7 @@ async function invokeCodex(executable: string, cwd: string, invocation: Provider
   }
   args.push("-");
   const transportPrompt = `${invocation.prompt}\n\nCodex transport envelope: return exactly one JSON object with a string property named response. Its string value must be the exact Nodulus outcome JSON text.`;
-  const result = await runProcess(executable, args, { cwd, stdin: transportPrompt, timeoutMs });
+  const result = await runCapturedProcess(executable, args, { cwd, stdin: transportPrompt, timeoutMs }, invocation);
   if (result.timedOut) {
     await saveTransport(directory, "codex", result);
     throw new NodulusError("PROVIDER_TIMEOUT", "Codex CLI exceeded its configured invocation timeout.");
@@ -176,7 +177,7 @@ async function invokeCursor(executable: string, cwd: string, invocation: Provide
   const directory = await attemptDirectory(cwd, invocation);
   const args = ["-p", "--output-format", "json", "--trust", "--workspace", cwd];
   if (typeof invocation.providerProfile.model === "string") args.push("--model", invocation.providerProfile.model);
-  const result = await runProcess(executable, args, { cwd, stdin: invocation.prompt, timeoutMs });
+  const result = await runCapturedProcess(executable, args, { cwd, stdin: invocation.prompt, timeoutMs }, invocation);
   await saveTransport(directory, "cursor", result);
   if (result.timedOut) throw new NodulusError("PROVIDER_TIMEOUT", "Cursor CLI exceeded its configured invocation timeout.");
   if (result.outputLimitExceeded) throw new NodulusError("PROVIDER_OUTPUT_LIMIT", "Cursor CLI exceeded the 2 MiB transport output limit.");
@@ -198,7 +199,7 @@ async function invokeOpenCode(executable: string, cwd: string, invocation: Provi
   }
   const args = ["run", "--format", "json", "--thinking", "--model", model, "--agent", "build", "--dir", cwd];
   const transportPrompt = `${invocation.prompt}\n\n${openCodeTransportSuffix}`;
-  const result = await runProcess(executable, args, { cwd, stdin: transportPrompt, timeoutMs });
+  const result = await runCapturedProcess(executable, args, { cwd, stdin: transportPrompt, timeoutMs }, invocation);
   await saveTransport(directory, "opencode", result);
   if (result.timedOut) throw new NodulusError("PROVIDER_TIMEOUT", "OpenCode CLI exceeded its configured invocation timeout.");
   if (result.outputLimitExceeded) throw new NodulusError("PROVIDER_OUTPUT_LIMIT", "OpenCode CLI exceeded the 2 MiB transport output limit.");
@@ -232,7 +233,7 @@ async function repairOpenCodeResponse(
   const args = ["run", "--format", "json", "--thinking", "--model", model, "--agent", "nodulus-response", "--session", session.sessionID, "--dir", cwd];
   const prompt = `Your previous final Nodulus response was rejected with INVALID_NODE_RESPONSE. Return only a corrected complete Nodulus system outcome JSON object. Do not run tools or perform actions. Do not write the outcome to a file. Preserve the node-supplied artifact name, contract, and data. A structurally complete success response has this exact shape: {"status":"success","artifacts":[{"name":"node-supplied name","contract":"node-supplied contract","data":{}}]}. Check that both the data object and its containing artifact object close before the artifacts array.\n\nPrevious response:\n${previousRawResponse}\n\nValidation errors:\n${validationErrors.join("\n")}`;
   let result;
-  try { result = await runProcess(executable, args, { cwd, stdin: prompt, timeoutMs }); }
+  try { result = await runCapturedProcess(executable, args, { cwd, stdin: prompt, timeoutMs }, invocation, "repair_response"); }
   catch (error) { throw new NodulusError("RESPONSE_REPAIR_FAILED", `OpenCode response-only repair could not be started: ${messageOf(error)}`); }
   await saveTransport(directory, "opencode", result);
   if (result.timedOut) throw new NodulusError("RESPONSE_REPAIR_FAILED", "OpenCode response-only repair exceeded its configured invocation timeout.");

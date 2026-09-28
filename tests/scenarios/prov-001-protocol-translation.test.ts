@@ -71,6 +71,9 @@ test.each(providers)("PROV-001 keeps each %s resume invocation transport in its 
     const first = readFileSync(transport1, "utf8");
     const second = readFileSync(transport2, "utf8");
     const runRoot = path.join(project, ".nodulus", "runs", paused.envelope.runId);
+    const events = readFileSync(path.join(runRoot, "events.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+    expect(events.find(event => event.event === "run.resumed")).toMatchObject({ timestamp: expect.any(String), sequence: expect.any(Number) });
+    expect(events.map(event => event.sequence)).toEqual(events.map((_, index) => index + 1));
     expect(readFileSync(path.join(runRoot, "nodes", "example", "attempt-001", "prompt.md"), "utf8")).not.toContain("Answers to clarification questions");
     expect(readFileSync(path.join(runRoot, "nodes", "example", "attempt-002", "prompt.md"), "utf8")).toContain("Answers to clarification questions");
     if (kind === "codex") {

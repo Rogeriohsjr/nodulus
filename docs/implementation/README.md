@@ -42,6 +42,6 @@ Foundation was implemented using $nodulus-delivery-validation and accepted local
 
 [11-opencode-workflow](11-opencode-workflow/README.md) adds a local OpenCode/Ollama builder while retaining independent Luna test review, GPT-5.6 Sol final review and the fixed repository quality gate. Provider behavior is test-first; the live Windows exercise follows fixture GREEN and full local validation.
 
-## Planned follow-up: execution observability
+## Follow-up: execution observability
 
-[12-execution-observability](12-execution-observability/README.md) contains research, the proposed log/usage/cost design, twelve scenarios and an ordered AI implementation checklist. **Documentation only: implementation has not started.** It builds on 06/07/10/11; all runtime and live-provider acceptance remains pending.
+[12-execution-observability](12-execution-observability/README.md) contains research, the proposed log/usage/cost design, twelve scenarios and an ordered AI implementation checklist. **OBS-001/002 implemented and locally accepted** with effective request capture, call/validation links and timestamped events. Local Qwen/OpenCode exercised the new records. Provider usage/cost/status scenarios OBS-003–012 remain pending; see its evidence and execution report.
