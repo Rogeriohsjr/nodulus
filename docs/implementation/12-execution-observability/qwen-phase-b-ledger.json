@@ -1,0 +1,302 @@
+{
+  "scope": "2026-09-28 OBS-003/004/005 supervised local Qwen development, documentation and review. Schema success is not code acceptance.",
+  "deduplication": "Provider transport files only; unique (sessionID, part.id) step_finish records within each run; no assistant totals or duplicate calls transport copies.",
+  "runs": [
+    {
+      "packet": "01-codex-tests",
+      "runId": "e7dd8ae6-23a7-4ec7-8887-2fd8412b0fd7",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 23976.52,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 1814,
+        "output": 1110,
+        "reasoning": 0
+      },
+      "telemetrySaved": 0
+    },
+    {
+      "packet": "01b-codex-test-correction",
+      "runId": "b3a3ad9b-f2e6-4f99-b9b0-803507cf4bff",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 19729.513,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 2156,
+        "output": 783,
+        "reasoning": 0
+      },
+      "telemetrySaved": 0
+    },
+    {
+      "packet": "02-cursor-tests",
+      "runId": "7cf8c4a1-6b55-401e-863d-f400806f6740",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 29617.773,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 1789,
+        "output": 1522,
+        "reasoning": 0
+      },
+      "telemetrySaved": 0
+    },
+    {
+      "packet": "02b-cursor-test-correction",
+      "runId": "926e968e-c53b-4d60-98d7-4b65bfebc592",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 16753.367,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 1790,
+        "output": 756,
+        "reasoning": 0
+      },
+      "telemetrySaved": 0
+    },
+    {
+      "packet": "03-opencode-tests",
+      "runId": "795ec0a2-5790-49b4-9dcc-d30d20223641",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 2,
+      "elapsedMs": 47081.476,
+      "steps": 2,
+      "reportedTokens": {
+        "input": 7443,
+        "output": 2273,
+        "reasoning": 0
+      },
+      "telemetrySaved": 0
+    },
+    {
+      "packet": "03b-opencode-test-correction",
+      "runId": "b6e988de-2d00-4896-8868-54ae348d0fe9",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 29475.236,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 1804,
+        "output": 895,
+        "reasoning": 0
+      },
+      "telemetrySaved": 0
+    },
+    {
+      "packet": "04-usage-common",
+      "runId": "62c94ddb-fa5b-43d2-b28f-6258f7eebb32",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 25894.721,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 2056,
+        "output": 1317,
+        "reasoning": 0
+      },
+      "telemetrySaved": 0
+    },
+    {
+      "packet": "04b-usage-common-qwen9b",
+      "runId": "66bbf1cb-ca61-4cd2-85cc-31aa497afea4",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-9b:latest",
+      "providerCalls": 3,
+      "elapsedMs": 144803.95,
+      "steps": 3,
+      "reportedTokens": {
+        "input": 25534,
+        "output": 5740,
+        "reasoning": 0
+      },
+      "telemetrySaved": 0
+    },
+    {
+      "packet": "04c-sum-field",
+      "runId": "74450558-e521-494a-b42d-5ae511a6d200",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 11790.783,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 1533,
+        "output": 437,
+        "reasoning": 0
+      },
+      "telemetrySaved": 0
+    },
+    {
+      "packet": "05-cursor-parser",
+      "runId": "f57489b8-ab10-4b67-8d66-47c5320fd395",
+      "status": "error",
+      "requestedModel": "ollama/qwen-nodulus-9b:latest",
+      "providerCalls": 1,
+      "elapsedMs": 60943.09,
+      "steps": 2,
+      "reportedTokens": {
+        "input": 3423,
+        "output": 1,
+        "reasoning": 0
+      },
+      "telemetrySaved": 0
+    },
+    {
+      "packet": "05b-cursor-parser-14b",
+      "runId": "0f0b29f3-72f4-4590-81f6-fc1639d3cbc7",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 2,
+      "elapsedMs": 26777.876,
+      "steps": 2,
+      "reportedTokens": {
+        "input": 4528,
+        "output": 1142,
+        "reasoning": 0
+      },
+      "telemetrySaved": 0
+    },
+    {
+      "packet": "06-codex-parser",
+      "runId": "5f24d42d-fdac-4b3c-af6c-8e7fc79c73ec",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 18843.317,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 1734,
+        "output": 775,
+        "reasoning": 0
+      },
+      "telemetrySaved": 0
+    },
+    {
+      "packet": "06b-codex-correction",
+      "runId": "e0f87f16-de86-4820-8f1d-6f6fa7cc9980",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 19045.316,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 1720,
+        "output": 787,
+        "reasoning": 0
+      },
+      "telemetrySaved": 0
+    },
+    {
+      "packet": "07-opencode-parser",
+      "runId": "67ed74a6-5ec5-4e39-a634-b3c30317229b",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 16432.972,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 1773,
+        "output": 625,
+        "reasoning": 0
+      },
+      "telemetrySaved": 0
+    },
+    {
+      "packet": "07b-opencode-correction",
+      "runId": "1ef4fdd9-3f90-485d-8f12-a4091419fe4e",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 21112.925,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 1886,
+        "output": 915,
+        "reasoning": 0
+      },
+      "telemetrySaved": 0
+    },
+    {
+      "packet": "08-document-node",
+      "runId": "6d0ae1b6-e8ca-4814-aec2-c9154ed7ebbb",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 25627.953,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 2293,
+        "output": 568,
+        "reasoning": 0
+      },
+      "telemetrySaved": 0
+    },
+    {
+      "packet": "09-documentation",
+      "runId": "0d671e32-f1b7-4d5a-b828-64666a367a81",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 26001.486,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 1596,
+        "output": 629,
+        "reasoning": 0
+      },
+      "telemetrySaved": 1
+    },
+    {
+      "packet": "09b-documentation-correction",
+      "runId": "2fced891-b350-4199-b41b-bcae01ef7dcc",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 18045.694,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 1770,
+        "output": 488,
+        "reasoning": 0
+      },
+      "telemetrySaved": 1
+    },
+    {
+      "packet": "10-qwen-review",
+      "runId": "40e8cb8e-9812-459a-819d-72ce5fcaef3e",
+      "status": "success",
+      "requestedModel": "ollama/qwen-nodulus-coder:latest",
+      "providerCalls": 1,
+      "elapsedMs": 11378.843,
+      "steps": 1,
+      "reportedTokens": {
+        "input": 5046,
+        "output": 75,
+        "reasoning": 0
+      },
+      "telemetrySaved": 1
+    }
+  ],
+  "totals": {
+    "runs": 19,
+    "providerCalls": 23,
+    "steps": 24,
+    "elapsedMs": 593332.811,
+    "reportedTokens": {
+      "input": 71688,
+      "output": 20838,
+      "reasoning": 0
+    }
+  }
+}

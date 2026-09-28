@@ -1,10 +1,11 @@
+import { parseProviderTelemetry } from "./provider-telemetry.js";
 import type { ProviderInvocation } from '../../core/ports/provider.js';
 import { runProcess } from './process-runner.js';
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-async function runCapturedProcess(executable: string, args: string[], options: { cwd: string; stdin: string; timeoutMs: number }, invocation: ProviderInvocation, operation: 'invoke' | 'repair_response' = 'invoke') {
+async function runCapturedProcess(executable: string, args: string[], options: { cwd: string; stdin: string; timeoutMs: number }, invocation: ProviderInvocation, operation: 'invoke' | 'repair_response' = 'invoke', cliVersion: string | null = null) {
   const callId = invocation.call?.callId ?? randomUUID();
   const attempt = invocation.call?.attempt ?? invocation.attempt;
   const runRoot = path.join(options.cwd, '.nodulus', 'runs', invocation.runId);
@@ -63,7 +64,16 @@ async function runCapturedProcess(executable: string, args: string[], options: {
 
   await writeFile(path.join(callDirectory, 'transport.json'), JSON.stringify(transport, null, 2), 'utf8');
 
-  return runProcessResult;
+  const telemetry = parseProviderTelemetry(String(invocation.providerProfile.kind), runProcessResult.stdout, cliVersion);
+  telemetry.callId = callId;
+  telemetry.source.transportRef = `${callRelative}/transport.json`;
+  if (runProcessResult.timedOut || runProcessResult.outputLimitExceeded || runProcessResult.exitCode !== 0) {
+    telemetry.coverage = telemetry.stepCount ? "partial" : "unavailable";
+    telemetry.normalized = { inputTokens: null, outputTokens: null };
+    telemetry.diagnostics.push("Provider transport did not complete successfully");
+  }
+  await writeFile(path.join(callDirectory, 'telemetry.json'), JSON.stringify(telemetry, null, 2), 'utf8');
+  return { ...runProcessResult, callId, telemetry };
 }
 
 export { runCapturedProcess };

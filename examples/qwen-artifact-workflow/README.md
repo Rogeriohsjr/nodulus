@@ -24,3 +24,9 @@ A success status means the artifact matched its contract. Independently verify a
 For review, supply the accepted diff/source and actual check evidence; the reviewer has no filesystem access. Read `decision` and `findings`: a schema-valid `changes_required` artifact is a rejected review even though the Nodulus run succeeded. A separate GPT-5.6 Sol checkpoint performs final code review under the user's existing authorization; this example contains no automatic cloud call.
 
 See the [task-packet skill](../../.agents/skills/nodulus-task-packets/SKILL.md) and [execution report](../../docs/implementation/12-execution-observability/qwen-execution-report.md). Full prompts/transports stay in the local run store, outside source control.
+
+## Documentation after implementation
+
+After checks pass, run `node dist/bin.js run --workflow qwen-document --request-file .nodulus/requests/documentation.md --json`, then apply the same independent review before saving its contents. Supply accepted source behavior and exact evidence. This dedicated node uses a single full-content artifact representation, with one explicitly allowed Markdown path (`docs/provider-usage.md` in this example). Change the contract's allowed path for another assignment. It cannot write files itself. In OBS-003–005, both documentation calls produced valid artifacts, but their prose still required factual corrections; see the [hiccup history](../../docs/implementation/12-execution-observability/qwen-hiccups.md).
+
+The tool-writing example now chains documentation between implementation and both reviews. The artifact example keeps dispatch/application supervised until a tested generic applicator exists. Neither a schema-valid document nor a nonempty file proves its claims.

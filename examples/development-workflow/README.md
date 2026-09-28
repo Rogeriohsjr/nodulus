@@ -7,8 +7,9 @@ This example turns the repository's local-builder and independent-review process
 1. `dev-tests`: OpenCode/Qwen writes real tests and observes meaningful RED (or records an applicable non-TDD exception).
 2. `dev-test-review`: Qwen inspects the actual tests and independently verifies the checkpoint.
 3. `dev-implement`: OpenCode/Qwen implements to GREEN and runs required checks.
-4. `dev-qwen-review`: Qwen independently inspects implementation and reruns the focused check.
-5. `dev-review`: GPT-5.6 Sol inspects actual files and reruns focused checks.
+4. `dev-document`: Qwen updates affected Markdown docs and records actual evidence; a validator requires nonempty, confined documentation files.
+5. `dev-qwen-review`: Qwen independently inspects implementation and reruns the focused check.
+6. `dev-review`: GPT-5.6 Sol inspects actual files and reruns focused checks.
 
 Only an accepted review is a success artifact. A rejection returns `REVIEW_CHANGES_REQUIRED` and stops the workflow. Ask for a focused correction in a new request; v1 does not automatically loop or revise previous nodes. `needs_input` uses the normal saved clarification/resume flow. The separate `develop-escalate` workflow provides a GPT-5.6 Sol diagnosis when explicitly requested, normally after two correction rounds. No extra LLM supervisor runs.
 
@@ -16,7 +17,7 @@ Only an accepted review is a success artifact. A rejection returns `REVIEW_CHANG
 
 Use a dedicated Git worktree with dependencies installed. Copy the contents of this example's `.nodulus` directory into that worktree's `.nodulus` directory. Merge settings and preserve existing definitions if the destination already exists; never blindly overwrite another workflow. Copy `.agents/skills/nodulus-workflow-builder/SKILL.md` from this repository into the same path in the target worktree; nodes explicitly include it in their prompt, so skill auto-discovery is not required. Inspect and merge `opencode.json` into the worktree root so its local model and permissions are explicit. The names `dev-*` and `develop-reviewed` avoid the existing local `develop` example. Ignore `.nodulus/runs/` and `.nodulus/pilot/`.
 
-Node.js 24, OpenCode 1.18.32 or newer, a running Ollama service with `qwen3.5:9b`, and an authenticated Codex CLI are required. Models must be available to each provider. OpenCode local inference reports zero vendor cost but still consumes local compute; Codex review nodes consume account usage. Timeouts bound wall time, not tokens or money. A straight-through run makes four local OpenCode invocations and one Codex invocation. The OpenCode writer explicitly enables `responseRepair`, allowing at most two non-writing corrections in the same captured session when its final Nodulus envelope is invalid. It never repeats the writing action. Workflow review rejection and implementation correction remain separate requests.
+Node.js 24, OpenCode 1.18.32 or newer, a running Ollama service with `qwen3.5:9b`, and an authenticated Codex CLI are required. Models must be available to each provider. OpenCode local inference reports zero vendor cost but still consumes local compute; Codex review nodes consume account usage. Timeouts bound wall time, not tokens or money. A straight-through run makes five local OpenCode invocations and one Codex invocation. The OpenCode writer explicitly enables `responseRepair`, allowing at most two non-writing corrections in the same captured session when its final Nodulus envelope is invalid. It never repeats the writing action. Workflow review rejection and implementation correction remain separate requests.
 
 ```sh
 npm ci
@@ -66,3 +67,7 @@ See [current local-run evidence](../../docs/implementation/11-opencode-workflow/
 Use the coordinator skill `.agents/skills/nodulus-task-packets/SKILL.md` to split a scenario before dispatch. The worker receives one packet rather than the entire planning skill. See [the OBS-001 packet experiment](../../docs/implementation/12-execution-observability/packets/README.md).
 
 After copying the example definitions and configuring `.nodulus/development-task.json` for the assigned test, run `nodulus run --workflow packet-test --request-file <test-packet.md> --json`. The fixed RED gate must pass, and the coordinator must verify assertion relevance, inspect all changed/untracked paths and freeze the test hash. Only then run `nodulus run --workflow packet-implement --request-file <implementation-packet.md> --json`. This small implementation node validates the response contract only: the coordinator must independently verify its scoped GREEN command, unchanged test hash and file scope before accepting work. Run the full `npm run check` at final acceptance, not on every packet. These are existing Nodulus commands with small workflow definitions, not a new CLI API. A successful run is not coordinator acceptance and does not complete its parent scenario. The examples are supervised; automatic scope/hash receipt enforcement remains future work.
+
+## Documentation acceptance
+
+Both reviewers receive the documentation artifact alongside the implementation. A failed documentation node or empty/missing/out-of-repository document blocks review. The file validator proves existence and nonempty text, not freshness or factual accuracy; reviewers must compare the actual diff against implementation and check evidence. Fixture tests prove the six-node sequence and stop behavior. This full tool-writing sequence was not run live for OBS-003–005: that work used the separately supervised artifact workflow with local 14B Qwen, including documentation drafts that required coordinator corrections. The 9B profile here remains a configurable example, not a claim of autonomous success.

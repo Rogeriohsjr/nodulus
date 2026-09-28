@@ -2,7 +2,9 @@
 
 Research checked on 2026-09-25. Source pages and development branches can change. Record the installed CLI version and the protocol revision behind each future fixture. No live inference was performed for this research.
 
-## Verified repository baseline
+Implementation update, 2026-09-28: OBS-001–005 supersede the historical baseline below. [Provider usage](../../provider-usage.md) documents shipped source behavior and exact-version evidence; [evidence](evidence.md) separates fixtures from live OpenCode proof.
+
+## Historical verified repository baseline
 
 Reviewed main `1519183`, including these existing modules:
 

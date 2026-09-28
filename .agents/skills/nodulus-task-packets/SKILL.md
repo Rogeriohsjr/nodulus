@@ -31,3 +31,11 @@ If an explicit correction reads a file but ends with prose promising an edit, st
 - Check both envelope and payload: Qwen returned Markdown fences inside a schema-valid source string. Reject or explicitly record supervised normalization before applying; a valid artifact is not compile or test evidence.
 - Do not silently rewrite an immutable raw artifact to make it look accepted. Keep integration receipts and rejected outputs. Reviewers need the integrated diff and actual checks, not the model's summary.
 - A small successful correction is not proof that larger tasks work unattended. Retain the stable focused Sol review gate and report local inference separately from coordinator/reviewer account usage.
+
+## Lessons from OBS-003–005
+
+- Include one literal provider record and the exact typed return shape. Separate counter validation from protocol extraction and normalization. Drafts that combined these invented field owners, helper signatures and version names despite lengthy prose.
+- Choose one payload representation per node when possible. A 9B draft returned both content and edits and consumed two envelope repairs before its still-incorrect code could be inspected. The documentation node now uses full content only.
+- Run the fixed behavioral/compiler checks before accepting code. Record omitted assertions or coordinator corrections explicitly; schema acceptance and model self-reported checks are not evidence.
+- Add a documentation checkpoint after accepted implementation. Supply exact current evidence, then verify provider/version qualifications and pending scope against source. Two schema-valid documentation drafts still misstated normalization. File existence gates need factual review too.
+- Change model/configuration as an experiment with a recorded incident and outcome, not as proof that a larger model solves development. The 14B alias yielded usable microfunctions; both 9B and 14B still required corrections. Preserve failed runs and distinguish hypotheses from observed causes.

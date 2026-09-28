@@ -1,3 +1,4 @@
+import type { ProviderTelemetry } from "./ports/provider-telemetry.js";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Ajv2020 } from "ajv/dist/2020.js";
@@ -678,8 +679,15 @@ async function recordProviderMetric(
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   let usage: ProviderUsage | null = null;
+  let telemetry: ProviderTelemetry | null = null;
   try {
-    const reported = provider.usageForLastCall?.();
+    telemetry = provider.telemetryForCall?.(call.callId) ?? null;
+    const reported = provider.telemetryForCall ? telemetry ? {
+      inputTokens: telemetry.normalized.inputTokens,
+      outputTokens: telemetry.normalized.outputTokens,
+      cacheReadTokens: telemetry.coverage === "complete" ? telemetry.reported.cacheReadTokens : null,
+      costUsd: telemetry.coverage === "complete" ? telemetry.reported.costUsd : null,
+    } : null : provider.usageForLastCall?.();
     if (reported && typeof reported === "object") {
       usage = {
         inputTokens: finiteOrNull(reported.inputTokens),
@@ -688,8 +696,9 @@ async function recordProviderMetric(
         costUsd: finiteOrNull(reported.costUsd),
       };
     }
+    if (telemetry && usage && Object.values(usage).every(value => value === null)) usage = null;
   } catch { usage = null; }
-  calls.push({ nodeId, attempt, usage, elapsedMs: Math.max(0, elapsedMs), callId: call.callId, operation: call.operation });
+  calls.push({ nodeId, attempt, usage, elapsedMs: Math.max(0, elapsedMs), callId: call.callId, operation: call.operation, ...(telemetry ? { telemetry } : {}) });
   await storage.writeRunFiles(projectRoot, runId, { "metrics.json": json(calls) });
 }
 

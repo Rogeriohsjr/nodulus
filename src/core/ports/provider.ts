@@ -1,3 +1,4 @@
+import type { ProviderTelemetry } from "./provider-telemetry.js";
 export type ProviderCallContext = {
   callId: string;
   attempt: number;
@@ -29,7 +30,7 @@ export type ProviderUsage = {
   cacheReadTokens: number | null;
   costUsd: number | null;
 };
-export type ProviderCallMetric = { nodeId: string; attempt: number; usage: ProviderUsage | null; elapsedMs: number; callId?: string; operation?: "invoke" | "repair_response" };
+export type ProviderCallMetric = { nodeId: string; attempt: number; usage: ProviderUsage | null; elapsedMs: number; callId?: string; operation?: "invoke" | "repair_response"; telemetry?: ProviderTelemetry };
 
 /** External provider boundary; implementations return untrusted raw response text. */
 export interface ProviderPort {
@@ -42,5 +43,7 @@ export interface ProviderPort {
   ): Promise<string>;
   /** Trusted adapter telemetry for the immediately preceding invocation. */
   usageForLastCall?(): ProviderUsage | null;
+  /** Measurements scoped to one invocation, never a user-wide session total. */
+  telemetryForCall?(callId: string): ProviderTelemetry | null;
   isAvailable?(profile: Record<string, unknown>): Promise<boolean> | boolean;
 }

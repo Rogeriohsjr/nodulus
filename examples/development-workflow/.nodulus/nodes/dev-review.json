@@ -19,6 +19,10 @@
     "localReview": {
       "from": "dev-qwen-review.result",
       "contract": "dev-review.v1"
+    },
+    "documentation": {
+      "from": "dev-document.result",
+      "contract": "dev-work.v1"
     }
   },
   "expectedOutputs": [
