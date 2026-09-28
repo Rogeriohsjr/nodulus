@@ -39,3 +39,5 @@ If an explicit correction reads a file but ends with prose promising an edit, st
 - Run the fixed behavioral/compiler checks before accepting code. Record omitted assertions or coordinator corrections explicitly; schema acceptance and model self-reported checks are not evidence.
 - Add a documentation checkpoint after accepted implementation. Supply exact current evidence, then verify provider/version qualifications and pending scope against source. Two schema-valid documentation drafts still misstated normalization. File existence gates need factual review too.
 - Change model/configuration as an experiment with a recorded incident and outcome, not as proof that a larger model solves development. The 14B alias yielded usable microfunctions; both 9B and 14B still required corrections. Preserve failed runs and distinguish hypotheses from observed causes.
+
+- Run the final package/check gate after documentation changes too. A new source-valid user-guide link failed installed-package CI because its target was absent from the archive allowlist. Source links and an earlier package pass are insufficient for a later changed artifact.
