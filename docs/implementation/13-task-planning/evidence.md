@@ -26,4 +26,4 @@ Post-RED mutation regression: 08:59:26 EDT, two real test commands changed the a
 - GPT-5.6 Sol: ACCEPT after focused re-review of the post-RED hash guard; previous contract/identity findings resolved.
 - `npm run check`: PASS on the final code/packaged-doc state, 2026-09-29 09:01 EDT: lint, typecheck, 222 scenario tests in 51 files, then 8 actual archive/installation/upgrade tests. PKG-008 verifies the installed shim, bundled hidden workflow assets, helper modules, local provider config and idempotent setup.
 - First full attempt: one pre-existing NODE-003 timeout fixture saw its delayed marker despite timeout under concurrent load. The isolated five-case file passed; the unchanged full command then passed. No timeout assertion or production termination logic was weakened. This is an observed intermittent failure, not a proven root cause.
-- No public npm release or merge performed. Hosted CI evidence remains separate and will be linked to the PR.
+- No public npm release or merge performed. Hosted CI evidence remains separate: see [PR #13 checks](https://github.com/Rogeriohsjr/nodulus/pull/13/checks) for the exact head revision. The PR is stacked on #12.
