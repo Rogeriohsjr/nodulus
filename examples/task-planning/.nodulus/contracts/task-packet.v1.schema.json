@@ -1,0 +1,22 @@
+{
+  "$id": "task-packet.v1",
+  "type": "object",
+  "required": [
+    "task",
+    "repository",
+    "contextHash"
+  ],
+  "properties": {
+    "task": {
+      "type": "object"
+    },
+    "repository": {
+      "type": "object"
+    },
+    "contextHash": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

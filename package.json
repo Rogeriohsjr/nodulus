@@ -17,10 +17,14 @@
     "docs/provider-usage.md",
     "README.md",
     "LICENSE",
-    "NOTICE"
+    "NOTICE",
+    "scripts/task-workflow/**",
+    "examples/task-planning/**",
+    "docs/task-workflow.md"
   ],
   "bin": {
-    "nodulus": "dist/bin.js"
+    "nodulus": "dist/bin.js",
+    "nodulus-task": "scripts/task-workflow/cli.mjs"
   },
   "exports": {
     ".": {
@@ -33,8 +37,8 @@
     "node": ">=24.0.0 <25"
   },
   "scripts": {
-    "lint": "oxlint src tests scripts --deny-warnings",
-    "lint:fix": "oxlint --fix src tests scripts --deny-warnings",
+    "lint": "oxlint src tests scripts examples/task-planning --deny-warnings",
+    "lint:fix": "oxlint --fix src tests scripts examples/task-planning --deny-warnings",
     "typecheck": "tsc --project tsconfig.json --noEmit",
     "prebuild": "node scripts/clean-dist.mjs",
     "build": "tsc --project tsconfig.json",

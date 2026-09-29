@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync } from "node:fs";
 import path from "node:path";
 const directory = path.join(process.cwd(), ".nodulus/fixtures");
 const control = JSON.parse(readFileSync(path.join(directory, "usage-control.json"), "utf8"));
@@ -12,6 +12,13 @@ const expected = control.kind === "codex" ? "exec" : control.kind === "cursor" ?
 if (args[0] !== expected) { process.stderr.write("Unexpected fixture arguments"); process.exit(64); }
 const log = path.join(directory, "provider-invocations.jsonl");
 if (existsSync(log)) { process.stderr.write("Unexpected second inference"); process.exit(65); }
+if (control.blockTelemetryWrite) {
+  const runs = path.join(process.cwd(), ".nodulus/runs");
+  for (const run of readdirSync(runs)) {
+    const calls = path.join(runs, run, "calls");
+    if (existsSync(calls)) for (const call of readdirSync(calls)) mkdirSync(path.join(calls, call, "telemetry.json"));
+  }
+}
 let stdin = ""; for await (const chunk of process.stdin) stdin += chunk;
 appendFileSync(log, JSON.stringify({ argv: args, stdin, cwd: process.cwd() }) + "\n");
 if (control.kind === "codex") writeFileSync(flag("--output-last-message"), JSON.stringify({ response: control.outcome }));

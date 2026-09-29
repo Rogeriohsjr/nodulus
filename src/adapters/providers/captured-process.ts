@@ -72,7 +72,13 @@ async function runCapturedProcess(executable: string, args: string[], options: {
     telemetry.normalized = { inputTokens: null, outputTokens: null };
     telemetry.diagnostics.push("Provider transport did not complete successfully");
   }
-  await writeFile(path.join(callDirectory, 'telemetry.json'), JSON.stringify(telemetry, null, 2), 'utf8');
+
+  try {
+    await writeFile(path.join(callDirectory, 'telemetry.json'), JSON.stringify(telemetry, null, 2), 'utf8');
+  } catch {
+    telemetry.diagnostics.push('Telemetry persistence failed');
+  }
+
   return { ...runProcessResult, callId, telemetry };
 }
 

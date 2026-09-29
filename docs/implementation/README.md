@@ -45,3 +45,7 @@ Foundation was implemented using $nodulus-delivery-validation and accepted local
 ## Follow-up: execution observability
 
 [12-execution-observability](12-execution-observability/README.md) contains research, the proposed log/usage/cost design, twelve scenarios and an ordered AI implementation checklist. **OBS-001–005 implemented and locally accepted** with effective request capture, call/validation links, timestamped events and provider usage parsing. Local Qwen/OpenCode exercised the new records. Failure/cost/status scenarios OBS-006–012 remain pending; see its evidence and execution report.
+
+## Follow-up: reusable task planning
+
+[13-task-planning](13-task-planning/README.md) adds ready/split/blocked packets, repository/dependency/test ownership, explicit non-TDD exceptions, a packaged helper and supervised apply/check/docs/review workflows. The local Qwen pilot implements only OBS007A optional telemetry-file write isolation; parent OBS-007 remains open.

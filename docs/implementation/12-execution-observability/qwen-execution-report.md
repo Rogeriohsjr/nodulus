@@ -124,3 +124,7 @@ The packet skill's four-primary-call default is a starting experiment budget, no
 Hosted run [36446410656](https://github.com/Rogeriohsjr/nodulus/actions/runs/36446410656) caught the missing packaged guide on all three platforms after all 183 runtime scenarios passed. H-11 records the coordinator packaging correction; consult evidence.md for final rerun results. This initial failed run is retained as evidence.
 
 After the packaging correction, full local `npm run check` passed again (183 scenarios, 7 package tests; package phase 11:52:14 EDT). [PR #12](https://github.com/Rogeriohsjr/nodulus/pull/12) records the final hosted checks for the pushed revision.
+
+## Checkpoint C: reusable planning pilot (2026-09-29)
+
+See the [separate run report](../13-task-planning/qwen-planning-pilot-report.md), [C ledger](../13-task-planning/qwen-phase-c-ledger.json) and [evidence](../13-task-planning/evidence.md). Reusable planning, one-file apply/check gates and explicit test-hash approval are now implemented as packaged workflow helpers. IMP-04/05/07 are partially delivered, not fully completed product proposals. Local Qwen implemented OBS007A; parent OBS-007 stays pending. The new report explains each improvement with its motivating scenario and acceptance limit, and records substantial coordinator intervention. No unattended-development claim is made.

@@ -33,3 +33,19 @@ Both main and auxiliary OpenCode models were local, enabled providers were restr
 The workflow retained raw attempts, applied bounded response-only repairs, validated artifacts and stopped on declared failures. The new telemetry measured later Qwen calls without additional inference. The six-node documentation sequence is proven with external-boundary fixtures; the separate artifact documentation node ran live locally.
 
 The complete development flow is **not yet proven autonomous**. The coordinator supplied substantial integration, corrections, test expansion, artifact application and factual review. To claim unattended delivery, a future controlled run must start from a clean allowed worktree, preserve test requirements, perform meaningful RED/GREEN, safely apply changes, update accurate docs, pass fixed checks and independent review, and produce receipts without unrecorded manual edits. The execution report's proposed improvements are not silently marked implemented.
+
+## Checkpoint C additions (2026-09-29)
+
+The [new report](../13-task-planning/qwen-planning-pilot-report.md) preserves comparison and attribution; the [C ledger](../13-task-planning/qwen-phase-c-ledger.json) identifies each run. We kept the existing 14B local alias; no new model switch or controlled comparison occurred.
+
+| Incident | Observed cause and intervention | Outcome / lesson |
+| --- | --- | --- |
+| H-C01: empty artifact and two repairs | Proven empty/mismatched result; disabled automatic response repair, verified tiny exact JSON, then narrowed request | Tiny probe succeeded, but did not prove coding. Whole-workflow budget remains proposed. |
+| H-C02: invented plan-test/validator fields | Draft misunderstood nested ownership and validator entry point; one test correction still incomplete | Coordinator corrected tests and rejected/replaced validator. More prose alone did not remove supervision. |
+| H-C03: OBS007A test harness errors | Draft used stdout before declaration and wrong field owner; correction kept a duplicate const assignment | Coordinator fixed harness/type details; actual CLI exit assertion then produced relevant RED. Harness failures were not counted as RED. |
+| H-C04: behavior passed, lint failed | Qwen emitted an unused catch binding; only focused behavioral check was configured in the live manifest | Coordinator removed binding and reran lint/typecheck/test. Future manifests should include all applicable fixed checks. |
+| H-C05: docs envelope blocked completion | Qwen used status/data instead of status/artifacts and malformed JSON; automatic repair was unavailable | Literal complete wrapper and concise scope succeeded in a bounded docs/review continuation. Accepted code was not replayed. Generic phase-aware recovery is still proposed. |
+| H-C06: review found contract gaps | Initial helper adopted unreviewed tests, reused task IDs without fingerprints, accepted targets executor could not finish, and lacked docs-only flow | Exact test hash/task fingerprints, cardinality gates and docs-only workflow plus regression tests resolved these. |
+| H-C07: RED command could change frozen files | Sol noticed selection trusted the pre-command snapshot | Two real mutation scenarios failed as expected before a post-RED rehash was added; all eight selection cases then passed. |
+
+H-C08: the first full quality run hit the existing NODE-003 delayed-marker timeout assertion under concurrent load (221/222 passed). The isolated five cases and unchanged full check then passed (222 scenarios + 8 package tests). Scheduling contention is a hypothesis, not a demonstrated cause; no production timeout or assertion was changed. Track recurrence separately from the planning pilot.

@@ -37,3 +37,7 @@ Implementation boxes are checked only with recorded evidence. Fixture GREEN is r
 > Implement only checkpoint A in docs/implementation/12-execution-observability using the Nodulus scenario TDD skill. Verify prerequisites and read the design/scenarios first. Exercise real application entry points, storage, and child-process fixtures; replace only external inference. Observe a meaningful failing assertion, implement the smallest change, run focused checks, and record evidence. Do not start B, invoke live providers, publish, or mark future checkpoints complete.
 
 This historical assignment template describes the completed checkpoint A. Choose the next explicitly authorized checkpoint for future work.
+
+## 2026-09-29 pilot follow-up
+
+[OBS007A](obs-007-pilot.md) now isolates optional telemetry.json write failure after a valid provider result, preserving counters and diagnostics without repeated inference. The [planning pilot report](../13-task-planning/qwen-planning-pilot-report.md) records local Qwen and supervisor contributions. This is one acceptance case; checkpoint C and parent OBS-007 remain unchecked.

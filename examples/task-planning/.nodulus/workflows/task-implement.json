@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "task-implement",
+  "inputs": {
+    "packet": {
+      "contract": "task-packet.v1"
+    }
+  },
+  "nodes": [
+    "packet-code",
+    "packet-docs",
+    "packet-review"
+  ]
+}

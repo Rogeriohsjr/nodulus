@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "task-plan",
+  "providerProfile": "qwen-artifact",
+  "instructions": [
+    ".nodulus/instructions/task-plan.md"
+  ],
+  "inputs": {
+    "request": {
+      "from": "request",
+      "contract": "request.v1"
+    },
+    "context": {
+      "from": "caller.context",
+      "contract": "task-context.v1"
+    }
+  },
+  "expectedOutputs": [
+    {
+      "name": "plan",
+      "contract": "task-plan.v1",
+      "validator": ".nodulus/validators/task-plan.mjs"
+    }
+  ]
+}
