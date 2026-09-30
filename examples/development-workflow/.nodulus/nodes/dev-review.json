@@ -4,6 +4,7 @@
   "providerProfile": "dev-reviewer",
   "instructions": [
     ".nodulus/instructions/dev-common.md",
+    ".agents/skills/nodulus-workflow-builder/SKILL.md",
     ".nodulus/instructions/dev-review.md"
   ],
   "inputs": {
@@ -14,6 +15,10 @@
     "implementation": {
       "from": "dev-implement.result",
       "contract": "dev-work.v1"
+    },
+    "localReview": {
+      "from": "dev-qwen-review.result",
+      "contract": "dev-review.v1"
     }
   },
   "expectedOutputs": [

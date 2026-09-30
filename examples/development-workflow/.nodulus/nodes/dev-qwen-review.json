@@ -1,24 +1,26 @@
 {
   "schemaVersion": 1,
-  "id": "dev-tests",
-  "providerProfile": "dev-builder",
+  "id": "dev-qwen-review",
+  "providerProfile": "dev-local-reviewer",
   "instructions": [
     ".nodulus/instructions/dev-common.md",
     ".agents/skills/nodulus-workflow-builder/SKILL.md",
-    ".nodulus/instructions/dev-tests.md"
+    ".nodulus/instructions/dev-qwen-review.md"
   ],
   "inputs": {
     "request": {
       "from": "request",
       "contract": "request.v1"
+    },
+    "implementation": {
+      "from": "dev-implement.result",
+      "contract": "dev-work.v1"
     }
   },
   "expectedOutputs": [
     {
       "name": "result",
-      "contract": "dev-work.v1",
-      "validator": ".nodulus/validators/dev-red.mjs",
-      "validatorTimeoutMs": 120000
+      "contract": "dev-review.v1"
     }
   ]
 }
