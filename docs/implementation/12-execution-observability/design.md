@@ -1,6 +1,6 @@
 # Proposed design and dependencies
 
-Everything below is planned, unless explicitly labelled existing. Read [research](research.md) before translating provider fields.
+Checkpoints A–B implement effective request/transport records, timestamped correlation and provider-specific call telemetry. `telemetry.json` and each metrics row now include CLI version, nullable reported counters, exact-version normalization, coverage and source references. Current shape and limits are in [provider usage](../../provider-usage.md). The broader capture-status classifications, fault isolation, aggregate coverage and pricing below remain design work for C–F; do not interpret every field in the proposed schema as implemented. Read [research](research.md) before translating provider fields.
 
 ## Ownership and flow
 

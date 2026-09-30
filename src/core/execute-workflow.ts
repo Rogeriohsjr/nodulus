@@ -1,3 +1,4 @@
+import type { ProviderTelemetry } from "./ports/provider-telemetry.js";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Ajv2020 } from "ajv/dist/2020.js";
@@ -5,8 +6,9 @@ import type { AnySchema } from "ajv";
 import type { IntakeRequest, IntakeResult } from "./intake-request.js";
 import type { ArtifactValidator } from "./ports/artifact-validator.js";
 import type { IntakeStorage, RunFiles } from "./ports/intake-storage.js";
-import type { ProviderCallMetric, ProviderPort, ProviderUsage } from "./ports/provider.js";
+import type { ProviderCallContext, ProviderCallMetric, ProviderInvocation, ProviderPort, ProviderUsage } from "./ports/provider.js";
 import { resolveOutputReference } from "./workflow-mapping.js";
+import { appendRunEvent, recordValidationEvent, traceProviderCall } from "./execution-events.js";
 
 type Node = {
   id: string;
@@ -173,7 +175,10 @@ export async function executeWorkflow(
     const nodeAnswers = state.startNodeId === node.id ? state.answers ?? {} : {};
     const prompt = buildPrompt(context, node, nodeInstructions, mapped.values, nodeAnswers);
     let attempt = state.startNodeId === node.id ? state.attempt ?? 2 : 1;
-    const invocation = {
+    let activeCall: ProviderCallContext = { callId: randomUUID(), attempt, operation: "invoke" };
+    const invocation: ProviderInvocation = {
+      call: activeCall,
+      providerProfileId: node.providerProfile,
       runId,
       attempt,
       workflow: context.workflow.id,
@@ -186,6 +191,8 @@ export async function executeWorkflow(
     let attemptRoot = `nodes/${node.id}/attempt-${String(attempt).padStart(3, "0")}`;
     const startedAt = new Date().toISOString();
     const invocationRecord = {
+      callId: activeCall.callId,
+      operation: activeCall.operation,
       runId,
       workflow: context.workflow.id,
       nodeId: node.id,
@@ -208,12 +215,15 @@ export async function executeWorkflow(
     await appendEvent(request.projectRoot, runId, storage, { event: "node.started", runId, nodeId: node.id, attempt });
 
     let raw: string;
-    const callStartedAt = Date.now();
+    const callStartedAt = performance.now();
     try {
-      raw = await provider.invoke(invocation);
-      if (typeof raw !== "string") throw new Error("Provider returned a non-string response.");
+      raw = await traceProviderCall(request.projectRoot, runId, storage, { nodeId: node.id, ...activeCall }, async () => {
+        const response = await provider.invoke(invocation);
+        if (typeof response !== "string") throw new Error("Provider returned a non-string response.");
+        return response;
+      });
     } catch (error) {
-      await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, attempt, Date.now() - callStartedAt);
+      await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, attempt, performance.now() - callStartedAt, activeCall);
       const diagnostic = { code: "PROVIDER_FAILURE", message: messageOf(error) };
       const validation = { valid: false, code: diagnostic.code, errors: [diagnostic.message] };
       await storage.writeRunFiles(request.projectRoot, runId, {
@@ -225,7 +235,7 @@ export async function executeWorkflow(
       return finishError(request.projectRoot, runId, storage, diagnostic.code, diagnostic.message, attemptRoot, validation, completedNodes, node.id);
     }
 
-    await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, attempt, Date.now() - callStartedAt);
+    await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, attempt, performance.now() - callStartedAt, activeCall);
     await storage.writeRunFiles(request.projectRoot, runId, { [`${attemptRoot}/response.raw.txt`]: raw });
     let parsed = parseProviderOutcome(raw);
     let repairCount = 0;
@@ -251,11 +261,15 @@ export async function executeWorkflow(
         const message = "The provider response remained invalid after two response-only repairs.";
         return finishError(request.projectRoot, runId, storage, "REPAIR_EXHAUSTED", message, currentAttemptRoot, validation, completedNodes, node.id);
       }
+      await recordValidationEvent(request.projectRoot, runId, storage, currentAttemptRoot);
       repairCount += 1;
       currentAttempt += 1;
+      activeCall = { callId: randomUUID(), attempt: currentAttempt, operation: "repair_response", parentCallId: activeCall.callId };
       currentAttemptRoot = `nodes/${node.id}/attempt-${String(currentAttempt).padStart(3, "0")}`;
       const repairRecord = {
         ...invocationRecord,
+        callId: activeCall.callId,
+        parentCallId: activeCall.parentCallId,
         attempt: currentAttempt,
         operation: "response_repair",
         previousAttempt: currentAttempt - 1,
@@ -271,12 +285,16 @@ export async function executeWorkflow(
         [`${currentAttemptRoot}/stderr.log`]: "",
       });
       await appendEvent(request.projectRoot, runId, storage, { event: "node.repair.started", runId, nodeId: node.id, attempt: currentAttempt });
-      const repairStartedAt = Date.now();
+      const repairStartedAt = performance.now();
       try {
-        raw = await repair(invocation, raw, errors);
-        if (typeof raw !== "string") throw new Error("Provider repair returned a non-string response.");
+        const previousRaw = raw;
+        raw = await traceProviderCall(request.projectRoot, runId, storage, { nodeId: node.id, ...activeCall }, async () => {
+          const response = await repair({ ...invocation, call: activeCall }, previousRaw, errors);
+          if (typeof response !== "string") throw new Error("Provider repair returned a non-string response.");
+          return response;
+        });
       } catch (error) {
-        await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, currentAttempt, Date.now() - repairStartedAt);
+        await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, currentAttempt, performance.now() - repairStartedAt, activeCall);
         const message = messageOf(error);
         const repairValidation = { valid: false, code: "RESPONSE_REPAIR_FAILED", errors: [message] };
         await storage.writeRunFiles(request.projectRoot, runId, {
@@ -286,7 +304,7 @@ export async function executeWorkflow(
         });
         return finishError(request.projectRoot, runId, storage, "RESPONSE_REPAIR_FAILED", message, currentAttemptRoot, repairValidation, completedNodes, node.id);
       }
-      await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, currentAttempt, Date.now() - repairStartedAt);
+      await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, currentAttempt, performance.now() - repairStartedAt, activeCall);
       await storage.writeRunFiles(request.projectRoot, runId, { [`${currentAttemptRoot}/response.raw.txt`]: raw });
       parsed = parseProviderOutcome(raw);
       outputCheck = undefined;
@@ -315,6 +333,7 @@ export async function executeWorkflow(
         "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "error", activeNode: node.id, completedNodes, attempt }),
         "result.json": json(result),
       });
+      await recordValidationEvent(request.projectRoot, runId, storage, attemptRoot);
       await appendEvent(request.projectRoot, runId, storage, { event: "node.error", runId, nodeId: node.id, error: parsed.outcome.error });
       return { runId, status: "error", result: { error: parsed.outcome.error } };
     }
@@ -336,6 +355,7 @@ export async function executeWorkflow(
         "pending/request.json": json(pending),
         "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "needs_input", activeNode: node.id, completedNodes, attempt, requestId, pendingKind: "node", pendingNodeId: node.id, answers: nodeAnswers }),
       });
+      await recordValidationEvent(request.projectRoot, runId, storage, attemptRoot);
       await appendEvent(request.projectRoot, runId, storage, { event: "node.needs_input", runId, nodeId: node.id, requestId });
       return { runId, status: "needs_input", result: { request: pending } };
     }
@@ -428,6 +448,7 @@ export async function executeWorkflow(
       persisted[`nodes/${node.id}/artifacts/${artifact.name}.json`] = json(artifact);
     }
     await storage.writeRunFiles(request.projectRoot, runId, persisted);
+    await recordValidationEvent(request.projectRoot, runId, storage, attemptRoot);
     acceptedOutputs.set(node.id, new Map(parsed.outcome.artifacts.map((artifact) => [artifact.name, artifact])));
     completedNodes.push(node.id);
 
@@ -617,6 +638,7 @@ async function finishError(
   if (attemptRoot) files[`${attemptRoot}/result.json`] = json({ status: "error", error: { code, message } });
   if (attemptRoot && validation !== undefined) files[`${attemptRoot}/validation.json`] = json(validation);
   await storage.writeRunFiles(projectRoot, runId, files);
+  if (attemptRoot && validation !== undefined) await recordValidationEvent(projectRoot, runId, storage, attemptRoot);
   await appendEvent(projectRoot, runId, storage, { event: "run.failed", runId, code });
   return { runId, status: "error", result: { error: { code, message } } };
 }
@@ -635,9 +657,8 @@ async function storeValidation(
   });
 }
 
-async function appendEvent(projectRoot: string, runId: string, storage: IntakeStorage, event: unknown): Promise<void> {
-  const current = await storage.readRunFile(projectRoot, runId, "events.jsonl");
-  await storage.writeRunFiles(projectRoot, runId, { "events.jsonl": `${current}${JSON.stringify(event)}\n` });
+async function appendEvent(projectRoot: string, runId: string, storage: IntakeStorage, event: Record<string, unknown>): Promise<void> {
+  await appendRunEvent(projectRoot, runId, storage, event);
 }
 
 async function recordProviderMetric(
@@ -648,6 +669,7 @@ async function recordProviderMetric(
   nodeId: string,
   attempt: number,
   elapsedMs: number,
+  call: ProviderCallContext,
 ): Promise<void> {
   let calls: ProviderCallMetric[] = [];
   try {
@@ -657,8 +679,15 @@ async function recordProviderMetric(
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   let usage: ProviderUsage | null = null;
+  let telemetry: ProviderTelemetry | null = null;
   try {
-    const reported = provider.usageForLastCall?.();
+    telemetry = provider.telemetryForCall?.(call.callId) ?? null;
+    const reported = provider.telemetryForCall ? telemetry ? {
+      inputTokens: telemetry.normalized.inputTokens,
+      outputTokens: telemetry.normalized.outputTokens,
+      cacheReadTokens: telemetry.coverage === "complete" ? telemetry.reported.cacheReadTokens : null,
+      costUsd: telemetry.coverage === "complete" ? telemetry.reported.costUsd : null,
+    } : null : provider.usageForLastCall?.();
     if (reported && typeof reported === "object") {
       usage = {
         inputTokens: finiteOrNull(reported.inputTokens),
@@ -667,8 +696,11 @@ async function recordProviderMetric(
         costUsd: finiteOrNull(reported.costUsd),
       };
     }
+    if (telemetry && usage && Object.values(usage).every(value => value === null)) usage = null;
   } catch { usage = null; }
-  calls.push({ nodeId, attempt, usage, elapsedMs: Math.max(0, elapsedMs) });
+  let launched: boolean | null = null;
+  try { const value = provider.launchForCall?.(call.callId); if (typeof value === 'boolean') launched = value; } catch { /* optional evidence cannot invalidate the artifact */ }
+  calls.push({ nodeId, attempt, usage, elapsedMs: Math.max(0, elapsedMs), callId: call.callId, operation: call.operation, launched, ...(telemetry ? { telemetry } : {}) });
   await storage.writeRunFiles(projectRoot, runId, { "metrics.json": json(calls) });
 }
 

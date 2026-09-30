@@ -1,3 +1,11 @@
+import type { ProviderTelemetry } from "./provider-telemetry.js";
+export type ProviderCallContext = {
+  callId: string;
+  attempt: number;
+  operation: "invoke" | "repair_response";
+  parentCallId?: string;
+};
+
 export type ProviderInvocation = {
   runId: string;
   /** One-based full provider invocation number for this node in the run. */
@@ -9,6 +17,9 @@ export type ProviderInvocation = {
   inputs: Record<string, unknown>;
   /** Profile options captured for this run, with credentials excluded. */
   providerProfile: Record<string, unknown>;
+  /** Runtime-owned call identity; optional for existing custom callers. */
+  call?: ProviderCallContext;
+  providerProfileId?: string;
   /** Validated answers supplied after a node requested clarification. */
   answers?: Record<string, unknown>;
 };
@@ -19,7 +30,7 @@ export type ProviderUsage = {
   cacheReadTokens: number | null;
   costUsd: number | null;
 };
-export type ProviderCallMetric = { nodeId: string; attempt: number; usage: ProviderUsage | null; elapsedMs: number };
+export type ProviderCallMetric = { nodeId: string; attempt: number; usage: ProviderUsage | null; elapsedMs: number; callId?: string; operation?: "invoke" | "repair_response"; telemetry?: ProviderTelemetry; launched?: boolean | null };
 
 /** External provider boundary; implementations return untrusted raw response text. */
 export interface ProviderPort {
@@ -32,5 +43,9 @@ export interface ProviderPort {
   ): Promise<string>;
   /** Trusted adapter telemetry for the immediately preceding invocation. */
   usageForLastCall?(): ProviderUsage | null;
+  /** Measurements scoped to one invocation, never a user-wide session total. */
+  telemetryForCall?(callId: string): ProviderTelemetry | null;
+  /** True only with completed process capture; null means launch is uncertain. */
+  launchForCall?(callId: string): boolean | null;
   isAvailable?(profile: Record<string, unknown>): Promise<boolean> | boolean;
 }

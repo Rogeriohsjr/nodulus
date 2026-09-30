@@ -1,0 +1,5 @@
+{
+  "$id": "request.v1",
+  "type": "string",
+  "minLength": 1
+}

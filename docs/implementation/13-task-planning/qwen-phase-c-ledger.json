@@ -1,0 +1,329 @@
+{
+  "date": "2026-09-29",
+  "endpoint": "http://127.0.0.1:11434/v1",
+  "model": "ollama/qwen-nodulus-coder:latest",
+  "summary": {
+    "runs": 10,
+    "providerCalls": 14,
+    "reportedInputTokens": 42896,
+    "reportedOutputTokens": 8081,
+    "elapsedSeconds": 242.615,
+    "repairs": 2
+  },
+  "runs": [
+    {
+      "packet": "01-plan-tests",
+      "runId": "905d3b9b-b6a7-430e-b297-1c368af2070a",
+      "status": "error",
+      "calls": [
+        {
+          "callId": "235894c5-2346-45f2-a57c-794510c6586a",
+          "operation": "repair_response",
+          "model": "ollama/qwen-nodulus-coder:latest",
+          "elapsedMs": 19998.4383,
+          "reported": {
+            "inputTokens": 3022,
+            "outputTokens": 1018,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "recordIds": [
+            "[\"ses_f12dea667ffedwMO4Sf7TROZ5a\",\"prt_0ed21e8d20011DLplE5I5SRwbm\"]"
+          ]
+        },
+        {
+          "callId": "27359397-bd6d-4fa6-a17b-4f0c838f2ae3",
+          "operation": "invoke",
+          "model": "ollama/qwen-nodulus-coder:latest",
+          "elapsedMs": 19820.3648,
+          "reported": {
+            "inputTokens": 2873,
+            "outputTokens": 2,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "recordIds": [
+            "[\"ses_f12dea667ffedwMO4Sf7TROZ5a\",\"prt_0ed219c3b001Cm3QsXVEWvOaL0\"]",
+            "[\"ses_f12dea667ffedwMO4Sf7TROZ5a\",\"prt_0ed219eb0001b7daDtne7XTi7g\"]"
+          ]
+        },
+        {
+          "callId": "91bcfb78-2050-48fb-bde7-c12dcbe0ce6f",
+          "operation": "repair_response",
+          "model": "ollama/qwen-nodulus-coder:latest",
+          "elapsedMs": 22585.167299999994,
+          "reported": {
+            "inputTokens": 5204,
+            "outputTokens": 1029,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "recordIds": [
+            "[\"ses_f12dea667ffedwMO4Sf7TROZ5a\",\"prt_0ed2245110015ahexy5WKsVI95\"]"
+          ]
+        }
+      ]
+    },
+    {
+      "packet": "01a-probe",
+      "runId": "93d77193-01c9-496b-9e2e-3bab60138203",
+      "status": "success",
+      "calls": [
+        {
+          "callId": "b099bef5-bb5a-4983-85aa-0830e1763140",
+          "operation": "invoke",
+          "model": "ollama/qwen-nodulus-coder:latest",
+          "elapsedMs": 4640.4693,
+          "reported": {
+            "inputTokens": 1353,
+            "outputTokens": 47,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "recordIds": [
+            "[\"ses_f12dc802affejiCtl7NJ2RVodh\",\"prt_0ed2389ac001gBn2x3DpmZ7Yb7\"]"
+          ]
+        }
+      ]
+    },
+    {
+      "packet": "01b-plan-tests",
+      "runId": "e62f032a-6265-4738-ae42-52d3c948db55",
+      "status": "success",
+      "calls": [
+        {
+          "callId": "a3f85b25-f6c2-4c98-8b06-8a529329ad46",
+          "operation": "invoke",
+          "model": "ollama/qwen-nodulus-coder:latest",
+          "elapsedMs": 12340.2854,
+          "reported": {
+            "inputTokens": 1543,
+            "outputTokens": 540,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "recordIds": [
+            "[\"ses_f12db796bffe84TYRV3ndSiT8E\",\"prt_0ed24ae6e001QR6LIcIW4hFWoY\"]"
+          ]
+        }
+      ]
+    },
+    {
+      "packet": "01c-plan-tests-correction",
+      "runId": "e0eae79f-6243-4bc4-9acb-776ac8e96525",
+      "status": "success",
+      "calls": [
+        {
+          "callId": "7ffbad88-2cc0-476d-981b-db4654ef9346",
+          "operation": "invoke",
+          "model": "ollama/qwen-nodulus-coder:latest",
+          "elapsedMs": 19363.3221,
+          "reported": {
+            "inputTokens": 1794,
+            "outputTokens": 597,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "recordIds": [
+            "[\"ses_f12daa3e2ffeg9T6AFxC471XEF\",\"prt_0ed259f6b001YbiVN9jXaHqyHy\"]"
+          ]
+        }
+      ]
+    },
+    {
+      "packet": "02-plan-validator",
+      "runId": "a90a4335-7f9e-4d13-aead-01520aabd629",
+      "status": "success",
+      "calls": [
+        {
+          "callId": "08ec675e-a7b5-4ec7-892e-41a33fc6ce6c",
+          "operation": "invoke",
+          "model": "ollama/qwen-nodulus-coder:latest",
+          "elapsedMs": 18143.6938,
+          "reported": {
+            "inputTokens": 1725,
+            "outputTokens": 1092,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "recordIds": [
+            "[\"ses_f12d90aeeffegr8dmt2IxiF1SN\",\"prt_0ed27374c001pOp15xxe2oQWkI\"]"
+          ]
+        }
+      ]
+    },
+    {
+      "packet": "03-obs007-test",
+      "runId": "aac9874c-02d8-4ab7-9387-e9df496a8b6c",
+      "status": "success",
+      "calls": [
+        {
+          "callId": "d0631ada-d60f-4936-aa47-8b3d4a05c4eb",
+          "operation": "invoke",
+          "model": "ollama/qwen-nodulus-coder:latest",
+          "elapsedMs": 11061.1857,
+          "reported": {
+            "inputTokens": 1648,
+            "outputTokens": 547,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "recordIds": [
+            "[\"ses_f12cfc797ffep2O5iSVDPDvbk4\",\"prt_0ed305efe001oEyC25w75IOT1c\"]"
+          ]
+        }
+      ]
+    },
+    {
+      "packet": "03b-obs007-test-correction",
+      "runId": "bc59cb36-5657-44c5-9181-12f4b2852f73",
+      "status": "success",
+      "calls": [
+        {
+          "callId": "2cfcee3a-985a-467a-b30a-71989854ffe3",
+          "operation": "invoke",
+          "model": "ollama/qwen-nodulus-coder:latest",
+          "elapsedMs": 21021.0195,
+          "reported": {
+            "inputTokens": 1849,
+            "outputTokens": 614,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "recordIds": [
+            "[\"ses_f12ce1224ffeQLfVm1mJPTGNte\",\"prt_0ed323354001fAsjG9FwqBxJIe\"]"
+          ]
+        }
+      ]
+    },
+    {
+      "packet": "04-plan",
+      "runId": "b699e30c-5718-45d5-813b-0fbfa20fc3b1",
+      "status": "success",
+      "calls": [
+        {
+          "callId": "3020293d-00c6-45e3-9792-80a7322979f8",
+          "operation": "invoke",
+          "model": "ollama/qwen-nodulus-coder:latest",
+          "elapsedMs": 20368.0537,
+          "reported": {
+            "inputTokens": 4354,
+            "outputTokens": 497,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "recordIds": [
+            "[\"ses_f12c8ab1affeQtBO4c59bIwbew\",\"prt_0ed3799cd001rTAI6xKmAzPnRA\"]"
+          ]
+        }
+      ]
+    },
+    {
+      "packet": "05-implement",
+      "runId": "7184c8db-4759-4775-a741-7e26cda2a691",
+      "status": "error",
+      "calls": [
+        {
+          "callId": "41ab7d9b-caba-41da-b59e-b3298dcc196a",
+          "operation": "invoke",
+          "model": "ollama/qwen-nodulus-coder:latest",
+          "elapsedMs": 28516.466999999997,
+          "reported": {
+            "inputTokens": 4571,
+            "outputTokens": 489,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "recordIds": [
+            "[\"ses_f12c6a933ffedzUywLbU0xpCLZ\",\"prt_0ed39bd7f001T90HALdyhC037c\"]"
+          ]
+        },
+        {
+          "callId": "86019c36-f4da-41d2-a751-55c1c23fc2c7",
+          "operation": "invoke",
+          "model": "ollama/qwen-nodulus-coder:latest",
+          "elapsedMs": 21490.490400000002,
+          "reported": {
+            "inputTokens": 3563,
+            "outputTokens": 1074,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "recordIds": [
+            "[\"ses_f12c71712ffecSFV4zGaAQBTka\",\"prt_0ed3935ca001bOpIIb40hwWWs8\"]"
+          ]
+        }
+      ]
+    },
+    {
+      "packet": "06-finish",
+      "runId": "85d58854-5db3-4211-b87b-b92a23160072",
+      "status": "success",
+      "calls": [
+        {
+          "callId": "055cd1cc-b2f9-432e-98b5-e48b863d5662",
+          "operation": "invoke",
+          "model": "ollama/qwen-nodulus-coder:latest",
+          "elapsedMs": 8074.0425,
+          "reported": {
+            "inputTokens": 4834,
+            "outputTokens": 114,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "recordIds": [
+            "[\"ses_f12c5053fffeQeMtN3m0holPCC\",\"prt_0ed3b15a40010v0bKuDCR9MBVO\"]"
+          ]
+        },
+        {
+          "callId": "fc9a3b01-0593-42c4-abf0-85e68a0489ba",
+          "operation": "invoke",
+          "model": "ollama/qwen-nodulus-coder:latest",
+          "elapsedMs": 15192.3418,
+          "reported": {
+            "inputTokens": 4563,
+            "outputTokens": 421,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "recordIds": [
+            "[\"ses_f12c54a52ffeYJos2wai08DKaM\",\"prt_0ed3aec6d001ex3dSCxRiDRph9\"]"
+          ]
+        }
+      ]
+    }
+  ],
+  "rawVerification": {
+    "uniqueStepFinishParts": 15,
+    "reportedInputTokens": 42896,
+    "reportedOutputTokens": 8081
+  }
+}

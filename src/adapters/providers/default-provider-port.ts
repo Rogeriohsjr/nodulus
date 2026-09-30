@@ -1,8 +1,12 @@
+import type { ProviderTelemetry } from "../../core/ports/provider-telemetry.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProviderInvocation, ProviderPort } from "../../core/ports/provider.js";
 import { NodulusError } from "../../core/shared/nodulus-error.js";
 import { runProcess } from "./process-runner.js";
+import { runCapturedProcess } from "./captured-process.js";
+
+type Capture = typeof runCapturedProcess;
 
 type Kind = "codex" | "cursor" | "opencode";
 const invocationTimeout = 10 * 60 * 1000;
@@ -16,8 +20,22 @@ const openCodeTransportSuffix = "OpenCode transport instruction: Return exactly 
 
 export function createDefaultProviderPort(projectRoot: string): ProviderPort {
   const openCodeRepairSessions = new Map<string, { sessionID: string; count: number }>();
+  const telemetryByCall = new Map<string, ProviderTelemetry>();
+  const launchByCall = new Map<string, boolean | null>();
+  const versions = new Map<string, string>();
+  let lastTelemetry: ProviderTelemetry | null = null;
+  const captureWithVersion = (version: string | null): Capture => async (executable, args, options, invocation, operation) => {
+    if (invocation.call) launchByCall.set(invocation.call.callId, null);
+    const result = await runCapturedProcess(executable, args, options, invocation, operation, version);
+    launchByCall.set(result.callId, true);
+    lastTelemetry = result.telemetry;
+    telemetryByCall.set(result.callId, result.telemetry);
+    return result;
+  };
   return {
     async invoke(invocation) {
+      lastTelemetry = null;
+      if (invocation.call) launchByCall.set(invocation.call.callId, false);
       const profile = invocation.providerProfile;
       const kind = requireKind(profile);
       try {
@@ -25,26 +43,30 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
         const executable = typeof profile.executable === "string" ? profile.executable : "";
         const timeout = boundedTimeout(profile.timeoutMs);
         const readinessTimeout = kind === "opencode" ? invocationTimeout : timeout;
-        await checkVersion(kind, executable, projectRoot, readinessTimeout);
+        const version = await checkVersion(kind, executable, projectRoot, readinessTimeout);
+        versions.set(repairSessionKey(invocation), version);
+        const capture = captureWithVersion(version);
         await checkReadiness(kind, executable, profile, projectRoot, readinessTimeout);
         return await (kind === "codex"
-          ? invokeCodex(executable, projectRoot, invocation, timeout)
+          ? invokeCodex(executable, projectRoot, invocation, timeout, capture)
           : kind === "cursor"
-            ? invokeCursor(executable, projectRoot, invocation, timeout)
-            : invokeOpenCode(executable, projectRoot, invocation, timeout, openCodeRepairSessions));
+            ? invokeCursor(executable, projectRoot, invocation, timeout, capture)
+            : invokeOpenCode(executable, projectRoot, invocation, timeout, openCodeRepairSessions, capture));
       } catch (error) {
         if (kind === "opencode" && error instanceof NodulusError) return providerError(error);
         throw error;
       }
     },
     async repairResponse(invocation, previousRawResponse, validationErrors) {
+      lastTelemetry = null;
+      if (invocation.call) launchByCall.set(invocation.call.callId, false);
       const kind = requireKind(invocation.providerProfile);
       if (kind !== "opencode") {
         throw new NodulusError("RESPONSE_REPAIR_UNAVAILABLE", "Safe response-only repair is unavailable for this provider; the full provider action will not be replayed.");
       }
       const executable = typeof invocation.providerProfile.executable === "string" ? invocation.providerProfile.executable : "";
       const timeout = boundedTimeout(invocation.providerProfile.timeoutMs);
-      return repairOpenCodeResponse(executable, projectRoot, invocation, previousRawResponse, validationErrors, timeout, openCodeRepairSessions);
+      return repairOpenCodeResponse(executable, projectRoot, invocation, previousRawResponse, validationErrors, timeout, openCodeRepairSessions, captureWithVersion(versions.get(repairSessionKey(invocation)) ?? null));
     },
     async isAvailable(profile) {
       if (profile.enabled !== true || typeof profile.executable !== "string" || !profile.executable) return false;
@@ -57,7 +79,14 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
         return true;
       } catch { return false; }
     },
-    usageForLastCall: () => null,
+    telemetryForCall: callId => telemetryByCall.get(callId) ?? null,
+    launchForCall: callId => launchByCall.get(callId) ?? null,
+    usageForLastCall: () => lastTelemetry ? {
+      inputTokens: lastTelemetry.normalized.inputTokens,
+      outputTokens: lastTelemetry.normalized.outputTokens,
+      cacheReadTokens: lastTelemetry.coverage === "complete" ? lastTelemetry.reported.cacheReadTokens : null,
+      costUsd: lastTelemetry.coverage === "complete" ? lastTelemetry.reported.costUsd : null,
+    } : null,
   };
 }
 
@@ -66,7 +95,7 @@ function requireKind(profile: Record<string, unknown>): Kind {
   throw new NodulusError("PROVIDER_KIND_REQUIRED", "The default provider adapter requires an explicit provider kind: 'codex', 'cursor', or 'opencode'.");
 }
 
-async function checkVersion(kind: Kind, executable: string, cwd: string, timeoutMs: number): Promise<void> {
+async function checkVersion(kind: Kind, executable: string, cwd: string, timeoutMs: number): Promise<string> {
   let result;
   try { result = await runProcess(executable, ["--version"], { cwd, timeoutMs }); }
   catch (error) { throw new NodulusError("PROVIDER_EXECUTABLE_UNAVAILABLE", `${kind} executable could not be started: ${messageOf(error)}`); }
@@ -79,6 +108,7 @@ async function checkVersion(kind: Kind, executable: string, cwd: string, timeout
   if (kind === "opencode" && compareVersion(match.slice(1).map(Number), [1, 18, 32]) < 0) {
     throw new NodulusError("PROVIDER_VERSION_UNSUPPORTED", `OpenCode CLI version ${match[0].trim()} is unsupported; the verified minimum is 1.18.32.`);
   }
+  return match[0].trim();
 }
 
 function compareVersion(actual: number[], required: number[]): number {
@@ -123,7 +153,7 @@ async function checkOpenCodeModel(executable: string, profile: Record<string, un
   }
 }
 
-async function invokeCodex(executable: string, cwd: string, invocation: ProviderInvocation, timeoutMs: number): Promise<string> {
+async function invokeCodex(executable: string, cwd: string, invocation: ProviderInvocation, timeoutMs: number, capture: Capture): Promise<string> {
   const directory = await attemptDirectory(cwd, invocation);
   const outputPath = path.join(directory, "last-message.txt");
   const schemaPath = path.join(directory, "outcome.schema.json");
@@ -143,7 +173,7 @@ async function invokeCodex(executable: string, cwd: string, invocation: Provider
   }
   args.push("-");
   const transportPrompt = `${invocation.prompt}\n\nCodex transport envelope: return exactly one JSON object with a string property named response. Its string value must be the exact Nodulus outcome JSON text.`;
-  const result = await runProcess(executable, args, { cwd, stdin: transportPrompt, timeoutMs });
+  const result = await capture(executable, args, { cwd, stdin: transportPrompt, timeoutMs }, invocation);
   if (result.timedOut) {
     await saveTransport(directory, "codex", result);
     throw new NodulusError("PROVIDER_TIMEOUT", "Codex CLI exceeded its configured invocation timeout.");
@@ -172,11 +202,11 @@ async function invokeCodex(executable: string, cwd: string, invocation: Provider
   return envelope.response;
 }
 
-async function invokeCursor(executable: string, cwd: string, invocation: ProviderInvocation, timeoutMs: number): Promise<string> {
+async function invokeCursor(executable: string, cwd: string, invocation: ProviderInvocation, timeoutMs: number, capture: Capture): Promise<string> {
   const directory = await attemptDirectory(cwd, invocation);
   const args = ["-p", "--output-format", "json", "--trust", "--workspace", cwd];
   if (typeof invocation.providerProfile.model === "string") args.push("--model", invocation.providerProfile.model);
-  const result = await runProcess(executable, args, { cwd, stdin: invocation.prompt, timeoutMs });
+  const result = await capture(executable, args, { cwd, stdin: invocation.prompt, timeoutMs }, invocation);
   await saveTransport(directory, "cursor", result);
   if (result.timedOut) throw new NodulusError("PROVIDER_TIMEOUT", "Cursor CLI exceeded its configured invocation timeout.");
   if (result.outputLimitExceeded) throw new NodulusError("PROVIDER_OUTPUT_LIMIT", "Cursor CLI exceeded the 2 MiB transport output limit.");
@@ -190,7 +220,7 @@ async function invokeCursor(executable: string, cwd: string, invocation: Provide
   return envelope.result;
 }
 
-async function invokeOpenCode(executable: string, cwd: string, invocation: ProviderInvocation, timeoutMs: number, repairSessions: Map<string, { sessionID: string; count: number }>): Promise<string> {
+async function invokeOpenCode(executable: string, cwd: string, invocation: ProviderInvocation, timeoutMs: number, repairSessions: Map<string, { sessionID: string; count: number }>, capture: Capture): Promise<string> {
   const directory = await attemptDirectory(cwd, invocation);
   const model = invocation.providerProfile.model;
   if (typeof model !== "string" || model.trim() === "") {
@@ -198,7 +228,7 @@ async function invokeOpenCode(executable: string, cwd: string, invocation: Provi
   }
   const args = ["run", "--format", "json", "--thinking", "--model", model, "--agent", "build", "--dir", cwd];
   const transportPrompt = `${invocation.prompt}\n\n${openCodeTransportSuffix}`;
-  const result = await runProcess(executable, args, { cwd, stdin: transportPrompt, timeoutMs });
+  const result = await capture(executable, args, { cwd, stdin: transportPrompt, timeoutMs }, invocation);
   await saveTransport(directory, "opencode", result);
   if (result.timedOut) throw new NodulusError("PROVIDER_TIMEOUT", "OpenCode CLI exceeded its configured invocation timeout.");
   if (result.outputLimitExceeded) throw new NodulusError("PROVIDER_OUTPUT_LIMIT", "OpenCode CLI exceeded the 2 MiB transport output limit.");
@@ -216,6 +246,7 @@ async function repairOpenCodeResponse(
   validationErrors: string[],
   timeoutMs: number,
   repairSessions: Map<string, { sessionID: string; count: number }>,
+  capture: Capture,
 ): Promise<string> {
   const model = invocation.providerProfile.model;
   if (typeof model !== "string" || model.trim() === "") {
@@ -232,7 +263,7 @@ async function repairOpenCodeResponse(
   const args = ["run", "--format", "json", "--thinking", "--model", model, "--agent", "nodulus-response", "--session", session.sessionID, "--dir", cwd];
   const prompt = `Your previous final Nodulus response was rejected with INVALID_NODE_RESPONSE. Return only a corrected complete Nodulus system outcome JSON object. Do not run tools or perform actions. Do not write the outcome to a file. Preserve the node-supplied artifact name, contract, and data. A structurally complete success response has this exact shape: {"status":"success","artifacts":[{"name":"node-supplied name","contract":"node-supplied contract","data":{}}]}. Check that both the data object and its containing artifact object close before the artifacts array.\n\nPrevious response:\n${previousRawResponse}\n\nValidation errors:\n${validationErrors.join("\n")}`;
   let result;
-  try { result = await runProcess(executable, args, { cwd, stdin: prompt, timeoutMs }); }
+  try { result = await capture(executable, args, { cwd, stdin: prompt, timeoutMs }, invocation, "repair_response"); }
   catch (error) { throw new NodulusError("RESPONSE_REPAIR_FAILED", `OpenCode response-only repair could not be started: ${messageOf(error)}`); }
   await saveTransport(directory, "opencode", result);
   if (result.timedOut) throw new NodulusError("RESPONSE_REPAIR_FAILED", "OpenCode response-only repair exceeded its configured invocation timeout.");

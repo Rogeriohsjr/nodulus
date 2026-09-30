@@ -6,7 +6,13 @@ import { ProcessArtifactValidator } from "../adapters/validation/process-artifac
 import type { IntakeStorage } from "../core/ports/intake-storage.js";
 import { NodulusError } from "../core/shared/nodulus-error.js";
 import { executeWorkflow } from "../core/execute-workflow.js";
+import { appendRunEvent } from "../core/execution-events.js";
 import type { ApplicationRunResult, ProviderPort } from "./run-workflow.js";
+import { readCallEvidence, type CallEvidence } from './call-evidence.js';
+import { summarizeRunMetrics, type RunMetrics } from "./summarize-run-metrics.js";
+import { summarizeCostEstimates } from "./summarize-cost-estimates.js";
+import { parsePricingSnapshot } from "../core/pricing-snapshot.js";
+import type { PricingSnapshot } from "../core/cost-estimate.js";
 
 export type ResumeWorkflowRequest = {
   projectRoot: string;
@@ -21,11 +27,9 @@ export type RunStatusResult = {
   checkpoint: unknown;
   pendingRequest?: unknown;
   events?: unknown[];
-  metrics?: {
-    calls: import("../core/ports/provider.js").ProviderCallMetric[];
-    totals: import("../core/ports/provider.js").ProviderUsage;
-  };
-  diagnostics?: { incompleteTrailingEvent: boolean };
+  callEvidence?: CallEvidence[];
+  metrics?: RunMetrics;
+  diagnostics?: { incompleteTrailingEvent: boolean; messages: string[] };
 };
 
 export type ResumeWorkflowDependencies = { storage?: IntakeStorage };
@@ -62,11 +66,32 @@ export async function getRunStatus(
   storage: IntakeStorage = new LocalIntakeStorage(),
 ): Promise<RunStatusResult> {
   const checkpoint = await readCheckpoint(projectRoot, runId, storage);
-  const [events, incompleteTrailingEvent, metrics] = await Promise.all([
-    readCompleteEvents(projectRoot, runId, storage),
-    hasIncompleteTrailingEvent(projectRoot, runId, storage),
-    readMetrics(projectRoot, runId, storage),
+  const [eventResult, rawMetrics, rawPricing] = await Promise.all([
+    readRunEvents(projectRoot, runId, storage),
+    readOptionalRunFile(projectRoot, runId, "metrics.json", storage),
+    readOptionalRunFile(projectRoot, runId, "pricing.json", storage),
   ]);
+  const startedCalls = eventResult.events.flatMap((event) => {
+    if (typeof event !== "object" || event === null || Array.isArray(event)) return [];
+    const record = event as Record<string, unknown>;
+    return record.event === "provider.call.started" && typeof record.callId === "string" && typeof record.nodeId === "string"
+      ? [{ callId: record.callId, nodeId: record.nodeId }]
+      : [];
+  });
+  const { metrics, diagnostics: metricDiagnostics } = summarizeRunMetrics(rawMetrics, startedCalls);
+  const pricingDiagnostics: string[] = [];
+  let pricingSnapshot: PricingSnapshot | null = null;
+  if (rawPricing !== null) {
+    try { pricingSnapshot = parsePricingSnapshot(rawPricing); }
+    catch (error) { pricingDiagnostics.push(`pricing.json is invalid: ${messageOf(error)}`); }
+  }
+  const estimates = summarizeCostEstimates(
+    metrics.calls,
+    metrics.coverage.inputTokens.totalCalls,
+    pricingSnapshot,
+  );
+  if (estimates.estimates !== undefined) metrics.estimates = estimates.estimates;
+  if (estimates.coverage !== undefined) metrics.estimateCoverage = estimates.coverage;
   let pendingRequest: unknown;
   if (checkpoint.status === "needs_input") {
     try {
@@ -79,68 +104,59 @@ export async function getRunStatus(
     runId,
     status: checkpoint.status,
     checkpoint,
-    events,
+    events: eventResult.events,
+    callEvidence: await readCallEvidence(projectRoot, runId, storage, eventResult.events, metrics.calls),
     metrics,
-    diagnostics: { incompleteTrailingEvent },
+    diagnostics: {
+      incompleteTrailingEvent: eventResult.incompleteTrailingEvent,
+      messages: [...eventResult.diagnostics, ...metricDiagnostics, ...pricingDiagnostics, ...estimates.diagnostics],
+    },
     ...(pendingRequest === undefined ? {} : { pendingRequest }),
   };
 }
 
-async function readCompleteEvents(projectRoot: string, runId: string, storage: IntakeStorage): Promise<unknown[]> {
-  const raw = await storage.readRunFile(projectRoot, runId, "events.jsonl");
+async function readRunEvents(
+  projectRoot: string,
+  runId: string,
+  storage: IntakeStorage,
+): Promise<{ events: unknown[]; incompleteTrailingEvent: boolean; diagnostics: string[] }> {
+  let raw: string;
+  try { raw = await storage.readRunFile(projectRoot, runId, "events.jsonl"); }
+  catch { return { events: [], incompleteTrailingEvent: false, diagnostics: ["events.jsonl is missing or unreadable"] }; }
   const lines = raw.split("\n");
   const hasNewline = raw.endsWith("\n");
   if (hasNewline) lines.pop();
+  const diagnostics: string[] = [];
   let trailing: unknown;
+  let incompleteTrailingEvent = false;
   if (!hasNewline) {
     const line = lines.pop() ?? "";
-    try { trailing = JSON.parse(line) as unknown; }
-    catch { /* partial tail is deliberately excluded */ }
+    if (line) {
+      try { trailing = JSON.parse(line) as unknown; }
+      catch {
+        incompleteTrailingEvent = true;
+        diagnostics.push("events.jsonl has an incomplete trailing event");
+      }
+    }
   }
   const events: unknown[] = [];
   for (const line of lines) {
     if (!line.trim()) continue;
     try { events.push(JSON.parse(line) as unknown); }
-    catch { /* malformed complete lines are omitted from the status view */ }
+    catch { diagnostics.push("events.jsonl has an invalid complete event"); }
   }
   if (trailing !== undefined) events.push(trailing);
-  return events;
+  return { events, incompleteTrailingEvent, diagnostics };
 }
 
-async function hasIncompleteTrailingEvent(projectRoot: string, runId: string, storage: IntakeStorage): Promise<boolean> {
-  const raw = await storage.readRunFile(projectRoot, runId, "events.jsonl");
-  if (raw.endsWith("\n")) return false;
-  const last = raw.slice(raw.lastIndexOf("\n") + 1);
-  if (!last) return false;
-  try { JSON.parse(last); return false; }
-  catch { return true; }
-}
-
-async function readMetrics(
+async function readOptionalRunFile(
   projectRoot: string,
   runId: string,
+  path: string,
   storage: IntakeStorage,
-): Promise<NonNullable<RunStatusResult["metrics"]>> {
-  let calls: import("../core/ports/provider.js").ProviderCallMetric[] = [];
-  try {
-    calls = JSON.parse(await storage.readRunFile(projectRoot, runId, "metrics.json")) as typeof calls;
-    if (!Array.isArray(calls)) calls = [];
-  } catch { calls = []; }
-  const sum = (key: keyof import("../core/ports/provider.js").ProviderUsage): number | null => {
-    const values = calls.map((call) => call.usage?.[key] ?? null);
-    return values.length > 0 && values.every((value): value is number => typeof value === "number")
-      ? values.reduce((total, value) => total + value, 0)
-      : null;
-  };
-  return {
-    calls,
-    totals: {
-      inputTokens: sum("inputTokens"),
-      outputTokens: sum("outputTokens"),
-      cacheReadTokens: sum("cacheReadTokens"),
-      costUsd: sum("costUsd"),
-    },
-  };
+): Promise<string | null> {
+  try { return await storage.readRunFile(projectRoot, runId, path); }
+  catch { return null; }
 }
 
 export async function resumeWorkflow(
@@ -220,7 +236,6 @@ async function resumeWorkflowLocked(
 
   const intake = { runId, runDirectory: "" };
   const answersRelativePath = `answers/${request.requestId}.json`;
-  const oldEvents = await storage.readRunFile(projectRoot, runId, "events.jsonl");
   await storage.writeRunFiles(projectRoot, runId, {
     [answersRelativePath]: json(request.answers),
     ...(nextInputs === inputs ? {} : { "inputs.json": json(nextInputs) }),
@@ -231,8 +246,8 @@ async function resumeWorkflowLocked(
       pendingKind: null,
       ...(pendingKind === "node" ? { answers: state.answers } : {}),
     }),
-    "events.jsonl": `${oldEvents}${JSON.stringify({ event: "run.resumed", runId, requestId: request.requestId })}\n`,
   });
+  await appendRunEvent(projectRoot, runId, storage, { event: "run.resumed", runId, requestId: request.requestId });
   return executeWorkflow({
     projectRoot,
     cwd: projectRoot,

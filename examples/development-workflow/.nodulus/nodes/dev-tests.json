@@ -4,6 +4,7 @@
   "providerProfile": "dev-builder",
   "instructions": [
     ".nodulus/instructions/dev-common.md",
+    ".agents/skills/nodulus-workflow-builder/SKILL.md",
     ".nodulus/instructions/dev-tests.md"
   ],
   "inputs": {
@@ -15,7 +16,9 @@
   "expectedOutputs": [
     {
       "name": "result",
-      "contract": "dev-work.v1"
+      "contract": "dev-work.v1",
+      "validator": ".nodulus/validators/dev-red.mjs",
+      "validatorTimeoutMs": 120000
     }
   ]
 }

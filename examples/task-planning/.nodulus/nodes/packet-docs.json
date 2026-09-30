@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "packet-docs",
+  "providerProfile": "qwen-artifact",
+  "instructions": [
+    ".nodulus/instructions/packet-docs.md"
+  ],
+  "inputs": {
+    "request": {
+      "from": "request",
+      "contract": "request.v1"
+    },
+    "packet": {
+      "from": "caller.packet",
+      "contract": "task-packet.v1"
+    },
+    "implementation": {
+      "from": "packet-code.changes",
+      "contract": "task-change.v1"
+    }
+  },
+  "expectedOutputs": [
+    {
+      "name": "changes",
+      "contract": "task-change.v1",
+      "validator": ".nodulus/validators/packet-docs.mjs",
+      "validatorTimeoutMs": 120000
+    }
+  ]
+}

@@ -5,6 +5,8 @@
     "dev-tests",
     "dev-test-review",
     "dev-implement",
+    "dev-document",
+    "dev-qwen-review",
     "dev-review"
   ]
 }

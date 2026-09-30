@@ -36,7 +36,8 @@ test.each(sourceCases)("REQ-001 preserves the exact %s request", async (_sourceN
       .trim()
       .split(/\r?\n/)
       .map((line) => JSON.parse(line));
-    expect(events).toEqual([{ event: "run.intake.completed", runId: run.runId, workflow: "example" }]);
+    expect(events).toEqual([{ event: "run.intake.completed", runId: run.runId, workflow: "example", sequence: 1, timestamp: expect.any(String) }]);
+    expect(new Date(events[0].timestamp).toISOString()).toBe(events[0].timestamp);
     const context = JSON.parse(readFileSync(path.join(run.runDirectory, "context/definitions.json"), "utf8"));
     expect(context.workflow.id).toBe("example");
     expect(context.nodes[0].id).toBe("example");

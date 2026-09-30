@@ -1,6 +1,6 @@
 # 12: Inspect execution traces, provider usage, and cost
 
-Status: **researched and planned; implementation has not started**. The current request authorizes documentation only. No runtime changes, new test execution, live inference, publishing, or rollout are authorized by this folder.
+Status on 2026-09-30: **checkpoints A–F (OBS-001–012) are locally, independently, and hosted-fixture accepted**. OBS-012 acceptance includes only the authorized Windows OpenCode/Ollama live cell; every other live provider/platform cell remains pending. Qwen generated drafts through Nodulus/OpenCode on localhost Ollama; supervisor integration and factual review remain explicit. See [evidence](evidence.md), the [execution/improvements report](qwen-execution-report.md), [checkpoint D evidence](obs-008-009.md), and the [OBS-010 cost guide](obs-010-cost-estimates.md). Publishing remains outside this scope.
 
 As a user, I want to inspect each workflow step, see the instructions Nodulus sent and the response it received, understand validation and repairs, and compare available token usage and cost without confusing estimates with charges.
 
@@ -11,6 +11,7 @@ As a user, I want to inspect each workflow step, see the instructions Nodulus se
 3. [User scenarios and test assertions](scenarios.md): production-entry-point tests with real local files/processes.
 4. [Implementation sequence and AI handoff](implementation.md): checkpoints and scoped assignments.
 5. [Evidence](evidence.md): document checks now; future RED/GREEN and live proof separately.
+6. [Local Qwen packet experiment](packets/report.md): decomposition skill, two rejected attempts, usage and initial SDLC improvements. This is historical evidence; the later completion is recorded in the execution report.
 
 ## Prerequisites and scope
 
@@ -22,17 +23,21 @@ This slice extends the existing local run store, provider adapters, and status c
 
 | Done | Checkpoint | Scenarios | Depends on |
 | --- | --- | --- | --- |
-| [ ] | A: Correlated boundary records and timestamps | OBS-001, OBS-002 | Prerequisites above |
-| [ ] | B: Codex, Cursor, and OpenCode usage | OBS-003, OBS-004, OBS-005 | A |
-| [ ] | C: Partial evidence and telemetry failures | OBS-006, OBS-007 | B |
-| [ ] | D: Repair/resume accounting and status | OBS-008, OBS-009 | C |
-| [ ] | E: Optional reproducible cost estimates | OBS-010 | D |
-| [ ] | F: Portable acceptance and developer handoff | OBS-011, OBS-012 | E |
+| [x] | A: Correlated boundary records and timestamps | OBS-001, OBS-002 | Prerequisites above |
+| [x] | B: Codex, Cursor, and OpenCode usage | OBS-003, OBS-004, OBS-005 | A |
+| [x] | C: Partial evidence and telemetry failures | OBS-006, OBS-007 | B |
+| [x] | D: Repair/resume accounting and status | OBS-008, OBS-009 | C |
+| [x] | E: Optional reproducible cost estimates | OBS-010 | D; focused checks and independent review accepted at `b57f441` |
+| [x] | F: Portable acceptance and developer handoff | OBS-011, OBS-012 | E; local gate and independent review accepted at `0a97d60`; optional live cells remain pending |
 
-All implementation boxes stay unchecked until exact evidence is recorded. Fixture GREEN is required for local acceptance; live compatibility has its own matrix and requires later authorization. An unavailable optional live CLI must not block the normal offline test suite.
+Implementation boxes are checked only with recorded evidence. Fixture GREEN is required for local acceptance; live compatibility has its own matrix and requires later authorization. An unavailable optional live CLI must not block the normal offline test suite.
 
 ## Assignment template
 
 > Implement only checkpoint A in docs/implementation/12-execution-observability using the Nodulus scenario TDD skill. Verify prerequisites and read the design/scenarios first. Exercise real application entry points, storage, and child-process fixtures; replace only external inference. Observe a meaningful failing assertion, implement the smallest change, run focused checks, and record evidence. Do not start B, invoke live providers, publish, or mark future checkpoints complete.
 
-This template is for a later implementation request; it is not an instruction to execute during the documentation task.
+This historical assignment template describes the completed checkpoint A. Choose the next explicitly authorized checkpoint for future work.
+
+## 2026-09-29 pilot follow-up
+
+[OBS007A](obs-007-pilot.md) now isolates optional telemetry.json write failure after a valid provider result, preserving counters and diagnostics without repeated inference. The [planning pilot report](../13-task-planning/qwen-planning-pilot-report.md) records local Qwen and supervisor contributions. This was one acceptance case at the time; checkpoint C acceptance is now recorded in the completion report.

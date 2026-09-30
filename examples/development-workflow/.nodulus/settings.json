@@ -7,16 +7,19 @@
       "enabled": true,
       "executable": "opencode",
       "model": "ollama/qwen3.5:9b",
-      "capabilities": ["responseRepair"],
+      "capabilities": [
+        "responseRepair"
+      ],
       "timeoutMs": 600000
     },
     "dev-test-reviewer": {
-      "kind": "codex",
+      "kind": "opencode",
       "enabled": true,
-      "executable": "codex",
-      "model": "gpt-6-luna",
-      "sandbox": "workspace-write",
-      "reasoningEffort": "medium",
+      "executable": "opencode",
+      "model": "ollama/qwen3.5:9b",
+      "capabilities": [
+        "responseRepair"
+      ],
       "timeoutMs": 600000
     },
     "dev-reviewer": {
@@ -26,6 +29,16 @@
       "model": "gpt-5.6-sol",
       "sandbox": "workspace-write",
       "reasoningEffort": "medium",
+      "timeoutMs": 600000
+    },
+    "dev-local-reviewer": {
+      "kind": "opencode",
+      "enabled": true,
+      "executable": "opencode",
+      "model": "ollama/qwen3.5:9b",
+      "capabilities": [
+        "responseRepair"
+      ],
       "timeoutMs": 600000
     }
   }

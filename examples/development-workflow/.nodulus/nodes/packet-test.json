@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "packet-test",
+  "providerProfile": "dev-builder",
+  "instructions": [
+    ".nodulus/instructions/packet-execute.md"
+  ],
+  "inputs": {
+    "request": {
+      "from": "request",
+      "contract": "request.v1"
+    }
+  },
+  "expectedOutputs": [
+    {
+      "name": "result",
+      "contract": "dev-work.v1",
+      "validator": ".nodulus/validators/dev-red.mjs",
+      "validatorTimeoutMs": 120000
+    }
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "frozenTest": "68497228d2621d941419f5f1e351431b9cfbb4cebb89cab6b283a1f3ed6193a4",
+  "model": "nodulus-bench-qwen25-14b-8k:latest",
+  "endpoint": "127.0.0.1:11435 -> 127.0.0.1:11434",
+  "testUnchanged": true,
+  "source": "export const value = 2;",
+  "document": "Actual exported value is 2.",
+  "runs": [
+    {
+      "runId": "54aff50b-08d0-4bad-8dee-b4863b2e2bc5",
+      "status": "success",
+      "calls": [
+        {
+          "callId": "fae747f9-9ceb-4e11-a9cc-aa91e256082d",
+          "input": 1621,
+          "output": 85,
+          "costUsd": 0,
+          "elapsedMs": 4218.3853,
+          "transport": "calls/fae747f9-9ceb-4e11-a9cc-aa91e256082d/transport.json"
+        }
+      ]
+    },
+    {
+      "runId": "5bff4414-d55b-442e-b2d2-2e632e528d4b",
+      "status": "success",
+      "calls": [
+        {
+          "callId": "eb677c4b-6e22-4f81-9487-ea9ad1398261",
+          "input": 1568,
+          "output": 91,
+          "costUsd": 0,
+          "elapsedMs": 4293.2586,
+          "transport": "calls/eb677c4b-6e22-4f81-9487-ea9ad1398261/transport.json"
+        }
+      ]
+    },
+    {
+      "runId": "5dc47bd1-fd9c-48fb-ac8b-3917a1489e77",
+      "status": "success",
+      "calls": [
+        {
+          "callId": "15b24692-7ba7-4783-bd6e-8642c851943d",
+          "input": 1354,
+          "output": 96,
+          "costUsd": 0,
+          "elapsedMs": 4323.0657,
+          "transport": "calls/15b24692-7ba7-4783-bd6e-8642c851943d/transport.json"
+        }
+      ]
+    },
+    {
+      "runId": "8188acba-54ca-44eb-af58-832c4a973862",
+      "status": "success",
+      "calls": [
+        {
+          "callId": "6bbb2ca8-f845-447a-bdd1-d50053c59876",
+          "input": 1374,
+          "output": 96,
+          "costUsd": 0,
+          "elapsedMs": 4347.467699999999,
+          "transport": "calls/6bbb2ca8-f845-447a-bdd1-d50053c59876/transport.json"
+        }
+      ]
+    },
+    {
+      "runId": "8965145c-4d2a-420f-9e56-287db1741759",
+      "status": "success",
+      "calls": [
+        {
+          "callId": "c7ca301e-c512-41f7-8e98-850b9401ab21",
+          "input": 1745,
+          "output": 67,
+          "costUsd": 0,
+          "elapsedMs": 4049.3044999999997,
+          "transport": "calls/c7ca301e-c512-41f7-8e98-850b9401ab21/transport.json"
+        }
+      ]
+    },
+    {
+      "runId": "fd56aef4-12e6-4081-ab66-d7049e20dbe9",
+      "status": "success",
+      "calls": [
+        {
+          "callId": "d3ffaccb-9bbe-4d1e-bc88-9741f8c5edf1",
+          "input": 1825,
+          "output": 67,
+          "costUsd": 0,
+          "elapsedMs": 4053.1755000000003,
+          "transport": "calls/d3ffaccb-9bbe-4d1e-bc88-9741f8c5edf1/transport.json"
+        }
+      ]
+    }
+  ],
+  "reentry": {
+    "status": 0,
+    "stdout": "{\"status\":\"accepted\",\"iterations\":2}\n",
+    "runsAfter": 6
+  },
+  "totals": {
+    "input": 9487,
+    "output": 502,
+    "costUsd": 0
+  }
+}

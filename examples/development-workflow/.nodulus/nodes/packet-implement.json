@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "packet-implement",
+  "providerProfile": "dev-builder",
+  "instructions": [
+    ".nodulus/instructions/packet-execute.md"
+  ],
+  "inputs": {
+    "request": {
+      "from": "request",
+      "contract": "request.v1"
+    }
+  },
+  "expectedOutputs": [
+    {
+      "name": "result",
+      "contract": "dev-work.v1"
+    }
+  ]
+}

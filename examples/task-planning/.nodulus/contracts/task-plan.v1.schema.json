@@ -1,0 +1,203 @@
+{
+  "$id": "task-plan.v1",
+  "type": "object",
+  "properties": {
+    "contextHash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decision": {
+      "enum": [
+        "ready",
+        "split",
+        "blocked"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "questions": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "repoId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "runtime",
+              "documentation",
+              "pipeline",
+              "metadata",
+              "upgrade"
+            ]
+          },
+          "dependsOn": {
+            "type": "array",
+            "minItems": 0,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "goal": {
+            "type": "string",
+            "minLength": 1
+          },
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "symbol": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "change": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "path",
+                "symbol",
+                "change"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "references": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "symbol": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "path",
+                "symbol"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "acceptance": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "testing": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "enum": [
+                  "tdd",
+                  "non-tdd"
+                ]
+              },
+              "testFile": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expectedFailure": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "exception": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "checkIds": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "required": [
+              "mode",
+              "testFile",
+              "expectedFailure",
+              "exception",
+              "checkIds"
+            ],
+            "additionalProperties": false
+          },
+          "documentation": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "required": [
+          "id",
+          "repoId",
+          "title",
+          "kind",
+          "dependsOn",
+          "goal",
+          "files",
+          "references",
+          "acceptance",
+          "testing",
+          "documentation"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "contextHash",
+    "decision",
+    "summary",
+    "questions",
+    "tasks"
+  ],
+  "additionalProperties": false
+}

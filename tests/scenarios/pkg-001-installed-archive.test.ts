@@ -1,3 +1,4 @@
+import { exerciseTaskLoop } from '../support/task-loop-scenario.js';
 import { afterAll, beforeAll, expect, test } from "vitest";
 import crossSpawn from "cross-spawn";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -33,6 +34,27 @@ beforeAll(() => {
 
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
+test("PKG-008 installed task helper includes executable workflows and preserves existing setup", () => {
+  const project = path.join(scratch, "task planning ü");
+  mkdirSync(project);
+  const shim = path.join(installedPrefix, "node_modules/.bin", process.platform === "win32" ? "nodulus-task.cmd" : "nodulus-task");
+  expect(existsSync(shim), "archive must install nodulus-task executable").toBe(true);
+  const setup = crossSpawn.sync(shim, ["setup", project], { cwd: scratch, encoding: "utf8", timeout: 30000, windowsHide: true });
+  expect(setup.status, String(setup.stderr)).toBe(0);
+  expect(existsSync(path.join(project, ".nodulus/workflows/task-plan.json"))).toBe(true);
+  expect(existsSync(path.join(project, ".nodulus/task-tools/runtime.mjs"))).toBe(true);
+  for (const helper of ["io.mjs", "recovery.mjs", "recovery-state.mjs", "rework.mjs", "loop-state.mjs"]) {
+    expect(existsSync(path.join(project, ".nodulus/task-tools", helper)), `setup must install ${helper}`).toBe(true);
+  }
+  const recovery = crossSpawn.sync(process.execPath, [path.join(project, ".nodulus/task-tools/runtime.mjs"), "recover", project], { encoding: "utf8", timeout: 30000, windowsHide: true });
+  expect(recovery.status).toBe(1);
+  expect(JSON.parse(recovery.stderr).error).toBe("Task execution state not found");
+  expect(JSON.parse(readFileSync(path.join(project, "opencode.json"), "utf8")).enabled_providers).toEqual(["ollama"]);
+  const second = crossSpawn.sync(shim, ["setup", project], { cwd: scratch, encoding: "utf8", timeout: 30000, windowsHide: true });
+  expect(second.status, String(second.stderr)).toBe(0);
+  expect(JSON.parse(second.stdout).existingOpenCodeConfig).toBe(true);
+});
+
 test("PKG-001 installs and runs the actual archive CLI, initializer, and fixture workflow", () => {
   const help = runInstalled(installedPrefix, ["--help"], scratch);
   expect(help.status, `${String(help.stdout)}\n${String(help.stderr)}`).toBe(0);
@@ -51,7 +73,19 @@ test("PKG-001 installs and runs the actual archive CLI, initializer, and fixture
   configureExampleProvider(project, fixture.executable);
   const response = runInstalled(installedPrefix, ["run", "--project", project, "--request", "Packaged CLI fixture", "--json"], project);
   expect(response.status).toBe(0);
-  expect(JSON.parse(response.stdout)).toMatchObject({ schemaVersion: 1, status: "success", result: { artifacts: [{ name: "example", data: { message: "archive fixture" } }] } });
+  const parsedResponse = JSON.parse(response.stdout);
+  expect(parsedResponse).toMatchObject({ schemaVersion: 1, status: "success", result: { artifacts: [{ name: "example", data: { message: "archive fixture" } }] } });
+  const status = runInstalled(installedPrefix, ["status", parsedResponse.runId, "--project", project, "--json"], project);
+  expect(status.status, String(status.stderr)).toBe(0);
+  expect(JSON.parse(status.stdout)).toMatchObject({
+    schemaVersion: 1,
+    status: "success",
+    runId: parsedResponse.runId,
+    result: { metrics: { calls: [expect.objectContaining({ nodeId: "example", usage: null })] } },
+  });
+  const textStatus = runInstalled(installedPrefix, ["status", parsedResponse.runId, "--project", project], project);
+  expect(textStatus.status, String(textStatus.stderr)).toBe(0);
+  expect(textStatus.stdout).toContain("Input tokens: unknown");
   const invocation = JSON.parse(readFileSync(fixture.logPath, "utf8").trim());
   expect(invocation.argv).toContain("exec");
   expect(invocation.argv).toContain("--output-last-message");
@@ -60,6 +94,8 @@ test("PKG-001 installs and runs the actual archive CLI, initializer, and fixture
 test("PKG-002 includes the user guide and starter assets while excluding development files", () => {
   expect(archivedPaths).toContain("README.md");
   expect(archivedPaths).toContain("docs/user-guide.md");
+  expect(archivedPaths).toContain("docs/provider-usage.md");
+  expect(archivedPaths).toContain("docs/cost-estimates.md");
   expect(archivedPaths.some((filename) => filename.startsWith("tests/"))).toBe(false);
   expect(archivedPaths.some((filename) => filename.startsWith(".agents/"))).toBe(false);
   expect(archivedPaths.some((filename) => filename.startsWith(".codex/"))).toBe(false);
@@ -93,6 +129,25 @@ test("PKG-002 resolves every local link in the installed package Markdown", () =
   for (const target of localTargets) expect(existsSync(target), target).toBe(true);
 });
 
+test("PKG-002 installed cost guide examples pass real CLI intake", () => {
+  const installedRoot = installedPackageDirectory(installedPrefix);
+  const guide = readFileSync(path.join(installedRoot, "docs", "cost-estimates.md"), "utf8");
+  const examples = [...guide.matchAll(/```json\r?\n([\s\S]*?)```/g)].map((match) => match[1]!);
+  expect(examples).toHaveLength(3);
+
+  const project = path.join(scratch, "cost guide example");
+  const initialized = runInstalled(installedPrefix, ["init", "--project", project], scratch);
+  expect(initialized.status, String(initialized.stderr)).toBe(0);
+  writeFileSync(path.join(project, ".nodulus", "settings.json"), `${JSON.stringify(JSON.parse(examples[0]!), null, 2)}\n`, "utf8");
+  writeFileSync(path.join(project, ".nodulus", "pricing.json"), examples[1]!, "utf8");
+  const fixture = installFixtureProvider(project, "success");
+  configureExampleProvider(project, fixture.executable);
+
+  const response = runInstalled(installedPrefix, ["run", "--project", project, "--request", "Installed guide example", "--json"], project);
+  expect(response.status, `${String(response.stdout)}\n${String(response.stderr)}`).toBe(0);
+  expect(JSON.parse(response.stdout)).toMatchObject({ status: "success" });
+});
+
 test("PKG-004 imports the installed application API without CLI argv or stdout effects", () => {
   const consumer = path.join(installedPrefix, "api consumer");
   const project = path.join(scratch, "api project");
@@ -105,15 +160,31 @@ test("PKG-004 imports the installed application API without CLI argv or stdout e
   const scriptPath = path.join(consumer, "consumer.mjs");
   writeFileSync(scriptPath, [
     "import { writeFileSync } from 'node:fs';",
-    "import { runWorkflow } from '@rogeriohsjr/nodulus';",
-    `const result = await runWorkflow({ projectRoot: ${JSON.stringify(project)}, cwd: ${JSON.stringify(project)}, workflow: 'example', sources: [{ kind: 'inline', text: 'API boundary' }] }, { async invoke() { return JSON.stringify({ status: 'success', artifacts: [{ name: 'example', contract: 'example.v1', data: { message: 'api fixture' } }] }); } });`,
-    `writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify(result));`,
+    "import { getRunStatus, runWorkflow } from '@rogeriohsjr/nodulus';",
+    "const response = JSON.stringify({ status: 'success', artifacts: [{ name: 'example', contract: 'example.v1', data: { message: 'api fixture' } }] });",
+    "let invokeOnlyCalls = 0;",
+    `const request = { projectRoot: ${JSON.stringify(project)}, cwd: ${JSON.stringify(project)}, workflow: 'example', sources: [{ kind: 'inline', text: 'API boundary' }] };`,
+    "const result = await runWorkflow(request, { async invoke() { invokeOnlyCalls += 1; return response; } });",
+    `const status = await getRunStatus(${JSON.stringify(project)}, result.runId);`,
+    "let legacyCalls = 0;",
+    "const legacy = await runWorkflow(request, { async invoke() { legacyCalls += 1; return response; }, usageForLastCall() { return { inputTokens: 10, outputTokens: 2, cacheReadTokens: null, costUsd: 0 }; } });",
+    `const legacyStatus = await getRunStatus(${JSON.stringify(project)}, legacy.runId);`,
+    `writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify({ result, invokeOnlyCalls, status, legacyCalls, legacyStatus }));`,
   ].join("\n"), "utf8");
   const run = crossSpawn.sync(process.execPath, [scriptPath], { cwd: consumer, encoding: "utf8", timeout: 30_000, windowsHide: true });
   expect(run.status).toBe(0);
   expect(run.stdout).toBe("");
   expect(run.stderr).toBe("");
-  expect(JSON.parse(readFileSync(resultPath, "utf8"))).toMatchObject({ status: "success", result: { artifacts: [{ data: { message: "api fixture" } }] } });
+  const imported = JSON.parse(readFileSync(resultPath, "utf8"));
+  expect(imported.result).toMatchObject({ status: "success", result: { artifacts: [{ data: { message: "api fixture" } }] } });
+  expect(imported.invokeOnlyCalls).toBe(1);
+  expect(imported.status.metrics).toMatchObject({ origins: ["unavailable"], calls: [{ usage: null }] });
+  expect(imported.legacyCalls).toBe(1);
+  expect(imported.legacyStatus.metrics).toMatchObject({
+    origins: ["legacy_adapter"],
+    calls: [{ usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: null, costUsd: 0 } }],
+    totals: { inputTokens: 10, outputTokens: 2, cacheReadTokens: null, costUsd: 0 },
+  });
   expect(existsSync(fixture.logPath)).toBe(false);
 });
 
@@ -269,3 +340,5 @@ test("PKG-006 npm public-publish dry-run reports no corrected bin metadata", () 
 function installedPackageDirectory(prefix: string): string {
   return path.join(prefix, "node_modules", ...packageName.split("/"));
 }
+
+test("PKG-009 installed task loop revises and accepts through six real CLI runs", () => exerciseTaskLoop(path.join(installedPackageDirectory(installedPrefix), "scripts/task-workflow/cli.mjs")), 40000);

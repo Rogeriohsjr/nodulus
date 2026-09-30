@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "dev-document",
+  "providerProfile": "dev-builder",
+  "instructions": [
+    ".nodulus/instructions/dev-common.md",
+    ".agents/skills/nodulus-workflow-builder/SKILL.md",
+    ".nodulus/instructions/dev-document.md"
+  ],
+  "inputs": {
+    "request": {
+      "from": "request",
+      "contract": "request.v1"
+    },
+    "implementation": {
+      "from": "dev-implement.result",
+      "contract": "dev-work.v1"
+    }
+  },
+  "expectedOutputs": [
+    {
+      "name": "result",
+      "contract": "dev-work.v1",
+      "validator": ".nodulus/validators/dev-documentation.mjs"
+    }
+  ]
+}

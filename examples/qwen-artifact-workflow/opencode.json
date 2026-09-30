@@ -1,0 +1,57 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama (local)",
+      "options": {
+        "baseURL": "http://127.0.0.1:11434/v1"
+      },
+      "models": {
+        "qwen-nodulus-coder:latest": {
+          "name": "Local Qwen coder 14B, 16K context",
+          "options": {
+            "response_format": {
+              "type": "json_object"
+            }
+          }
+        }
+      }
+    }
+  },
+  "agent": {
+    "nodulus-response": {
+      "description": "Correct a Nodulus response envelope without taking actions",
+      "mode": "primary",
+      "prompt": "Serialize the supplied prior response as strict JSON. Remove Markdown fences. Escape every newline inside JSON strings as \\n and all inner quotes as \\\". Preserve file content exactly. Return the full JSON outcome only. No tools, no prose.",
+      "permission": {
+        "*": "deny"
+      },
+      "temperature": 0.1,
+      "response_format": {
+        "type": "json_object"
+      }
+    },
+    "build": {
+      "description": "Produce one structured file change artifact from supplied source context",
+      "mode": "primary",
+      "prompt": "Follow the bounded Nodulus node assignment. Generate or review only the requested artifact. All context is supplied. No tools. Return the complete JSON outcome matching the supplied contract; no Markdown or commentary.",
+      "temperature": 0.3,
+      "steps": 4,
+      "permission": {
+        "*": "deny"
+      },
+      "response_format": {
+        "type": "json_object"
+      }
+    }
+  },
+  "permission": {
+    "*": "deny"
+  },
+  "enabled_providers": [
+    "ollama"
+  ],
+  "model": "ollama/qwen-nodulus-coder:latest",
+  "small_model": "ollama/qwen-nodulus-coder:latest"
+}

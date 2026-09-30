@@ -1,0 +1,3 @@
+Produce the requested code files as the changes artifact. No tool calls. Output only {"status":"success","artifacts":[{"name":"changes","contract":"file-changes.v1","data":{"files":[{"path":"relative/path","content":"complete file contents"}],"summary":"brief factual summary"}}]}. No partial code or plans. Never claim tests ran; the coordinator runs them.
+
+The content string must contain plain source code, without Markdown fences. Supply complete imports using only helpers shown in the request. If requested edits cannot be determined from supplied context, return an error outcome instead of inventing paths or APIs.

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "packet-review",
+  "providerProfile": "qwen-artifact",
+  "instructions": [
+    ".nodulus/instructions/packet-review.md"
+  ],
+  "inputs": {
+    "request": {
+      "from": "request",
+      "contract": "request.v1"
+    },
+    "packet": {
+      "from": "caller.packet",
+      "contract": "task-packet.v1"
+    },
+    "implementation": {
+      "from": "packet-code.changes",
+      "contract": "task-change.v1"
+    },
+    "documentation": {
+      "from": "packet-docs.changes",
+      "contract": "task-change.v1"
+    }
+  },
+  "expectedOutputs": [
+    {
+      "name": "review",
+      "contract": "task-review.v1",
+      "validator": ".nodulus/validators/packet-review.mjs",
+      "validatorTimeoutMs": 120000
+    }
+  ]
+}
