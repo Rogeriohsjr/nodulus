@@ -17,6 +17,7 @@ test.skipIf(!enabled)("LIVE-OPENCODE-001 runs the installed archive through loca
     const project = path.join(scratch, "project");
     mkdirSync(packageDirectory, { recursive: true });
 
+    run("npm", ["run", "build"], repository, 120_000);
     const packed = run("npm", ["pack", "--json", "--pack-destination", packageDirectory], repository, 120_000);
     const metadata = JSON.parse(packed.stdout)[0] as { filename: string; version: string };
     const archivePath = path.join(packageDirectory, metadata.filename);

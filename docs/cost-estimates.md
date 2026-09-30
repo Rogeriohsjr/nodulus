@@ -25,11 +25,12 @@ The rate card uses USD per million tokens and matches the provider-reported mode
   "schemaVersion": 1,
   "rates": [
     {
+      "id": "example-opencode-model",
       "provider": "opencode",
-      "model": "example-model",
-      "inputUsdPerMillion": 2,
-      "cacheReadUsdPerMillion": 1,
-      "outputUsdPerMillion": 4
+      "reportedModel": "example-model",
+      "inputPerMillion": 2,
+      "cacheReadPerMillion": 1,
+      "outputPerMillion": 4
     }
   ]
 }

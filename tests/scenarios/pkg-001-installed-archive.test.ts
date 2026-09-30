@@ -129,6 +129,25 @@ test("PKG-002 resolves every local link in the installed package Markdown", () =
   for (const target of localTargets) expect(existsSync(target), target).toBe(true);
 });
 
+test("PKG-002 installed cost guide examples pass real CLI intake", () => {
+  const installedRoot = installedPackageDirectory(installedPrefix);
+  const guide = readFileSync(path.join(installedRoot, "docs", "cost-estimates.md"), "utf8");
+  const examples = [...guide.matchAll(/```json\r?\n([\s\S]*?)```/g)].map((match) => match[1]!);
+  expect(examples).toHaveLength(3);
+
+  const project = path.join(scratch, "cost guide example");
+  const initialized = runInstalled(installedPrefix, ["init", "--project", project], scratch);
+  expect(initialized.status, String(initialized.stderr)).toBe(0);
+  writeFileSync(path.join(project, ".nodulus", "settings.json"), `${JSON.stringify(JSON.parse(examples[0]!), null, 2)}\n`, "utf8");
+  writeFileSync(path.join(project, ".nodulus", "pricing.json"), examples[1]!, "utf8");
+  const fixture = installFixtureProvider(project, "success");
+  configureExampleProvider(project, fixture.executable);
+
+  const response = runInstalled(installedPrefix, ["run", "--project", project, "--request", "Installed guide example", "--json"], project);
+  expect(response.status, `${String(response.stdout)}\n${String(response.stderr)}`).toBe(0);
+  expect(JSON.parse(response.stdout)).toMatchObject({ status: "success" });
+});
+
 test("PKG-004 imports the installed application API without CLI argv or stdout effects", () => {
   const consumer = path.join(installedPrefix, "api consumer");
   const project = path.join(scratch, "api project");
