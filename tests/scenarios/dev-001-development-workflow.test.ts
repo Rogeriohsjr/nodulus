@@ -1,10 +1,10 @@
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { runWorkflow, type ProviderInvocation } from "../../src/application/run-workflow.js";
 
-test.each([{ rejectReview: false, failQuality: false }, { rejectReview: "dev-test-review", failQuality: false }, { rejectReview: "dev-qwen-review", failQuality: false }, { rejectReview: "dev-review", failQuality: false }, { rejectReview: false, failQuality: true }])("DEV-001 example sequences accepted checkpoints and stops on rejected review ($rejectReview/$failQuality)", async ({ rejectReview, failQuality }) => {
+test.each([{ invalidDocs: true, rejectReview: false, failQuality: false }, { rejectReview: false, failQuality: false }, { rejectReview: "dev-test-review", failQuality: false }, { rejectReview: "dev-document", failQuality: false }, { rejectReview: "dev-qwen-review", failQuality: false }, { rejectReview: "dev-review", failQuality: false }, { rejectReview: false, failQuality: true }].map(entry => ({ invalidDocs: false, ...entry })))("DEV-001 example sequences accepted checkpoints and stops on rejected review ($rejectReview/$failQuality)", async ({ rejectReview, failQuality, invalidDocs }) => {
   const openCodeConfig = JSON.parse(readFileSync(path.resolve("examples/development-workflow/opencode.json"), "utf8"));
   expect(openCodeConfig.agent?.["nodulus-response"]).toMatchObject({ mode: "primary", permission: { "*": "deny" } });
   expect(openCodeConfig.permission?.edit?.["result*"]).toBe("deny");
@@ -13,7 +13,7 @@ test.each([{ rejectReview: false, failQuality: false }, { rejectReview: "dev-tes
   writeFileSync(path.join(project, "package.json"), JSON.stringify({ scripts: { check: "node .nodulus/fixture-quality.cjs" } }));
   writeFileSync(path.join(project, ".nodulus/fixture-quality.cjs"), `require("node:fs").writeFileSync(".nodulus/quality-ran", "executed"); process.exit(${failQuality ? 7 : 0});`);
   cpSync(path.resolve(".agents/skills/nodulus-workflow-builder"), path.join(project, ".agents/skills/nodulus-workflow-builder"), { recursive: true });
-  const sequence = ["dev-tests", "dev-test-review", "dev-implement", "dev-qwen-review", "dev-review"];
+  const sequence = ["dev-tests", "dev-test-review", "dev-implement", "dev-document", "dev-qwen-review", "dev-review"];
   writeFileSync(path.join(project, ".nodulus/development-task.json"), JSON.stringify({ mode: "non-tdd", reason: "Orchestration fixture; no authored runtime change" }));
   const calls: ProviderInvocation[] = [];
   try {
@@ -22,25 +22,31 @@ test.each([{ rejectReview: false, failQuality: false }, { rejectReview: "dev-tes
         calls.push(invocation);
         if (invocation.nodeId === rejectReview) return JSON.stringify({ status: "error", error: { code: "REVIEW_CHANGES_REQUIRED", message: "Add boundary assertions" } });
         const review = invocation.nodeId.endsWith("review");
-        return JSON.stringify({ status: "success", artifacts: [{ name: "result", contract: review ? "dev-review.v1" : "dev-work.v1", data: review ? { decision: "ACCEPT", summary: "Fixture review", validation: "Fixture boundary only" } : { summary: invocation.nodeId, changedFiles: ["exercise.mjs"], validation: "Fixture boundary only" } }] });
+        if (invocation.nodeId === "dev-document") {
+          mkdirSync(path.join(project, "docs"), { recursive: true });
+          writeFileSync(path.join(project, "docs/change.md"), invalidDocs ? "" : "# Change\nFixture documentation with evidence.\n");
+        }
+        return JSON.stringify({ status: "success", artifacts: [{ name: "result", contract: review ? "dev-review.v1" : "dev-work.v1", data: review ? { decision: "ACCEPT", summary: "Fixture review", validation: "Fixture boundary only" } : { summary: invocation.nodeId, changedFiles: [invocation.nodeId === "dev-document" ? "docs/change.md" : "exercise.mjs"], validation: "Fixture boundary only" } }] });
       },
     });
-    expect(existsSync(path.join(project, ".nodulus/quality-ran"))).toBe(!rejectReview);
+    expect(existsSync(path.join(project, ".nodulus/quality-ran"))).toBe(!rejectReview && !invalidDocs);
     if (failQuality) expect(result.result).toMatchObject({ error: { code: "VALIDATOR_EXECUTION_FAILED" } });
-    expect(result.status).toBe(rejectReview || failQuality ? "error" : "success");
-    expect(calls.map((call) => call.nodeId)).toEqual(sequence.slice(0, rejectReview ? sequence.indexOf(rejectReview) + 1 : undefined));
+    expect(result.status).toBe(rejectReview || failQuality || invalidDocs ? "error" : "success");
+    expect(calls.map((call) => call.nodeId)).toEqual(sequence.slice(0, invalidDocs ? 4 : rejectReview ? sequence.indexOf(rejectReview) + 1 : undefined));
     expect(calls[0]!.providerProfile).toMatchObject({ kind: "opencode", model: "ollama/qwen3.5:9b", capabilities: ["responseRepair"] });
     expect(calls[1]!.providerProfile).toMatchObject({ kind: "opencode", model: "ollama/qwen3.5:9b" });
     expect(calls[1]!.inputs.tests).toMatchObject({ summary: "dev-tests" });
-    if (!rejectReview) {
+    if (!rejectReview && !invalidDocs) {
       expect(calls[2]!.providerProfile).toMatchObject({ kind: "opencode", model: "ollama/qwen3.5:9b", capabilities: ["responseRepair"] });
-      expect(calls[3]!.providerProfile).toMatchObject({ kind: "opencode", model: "ollama/qwen3.5:9b" });
-      expect(calls[4]!.inputs.localReview).toMatchObject({ decision: "ACCEPT" });
-      expect(calls[4]!.providerProfile).toMatchObject({ kind: "codex", model: "gpt-5.6-sol", sandbox: "workspace-write" });
+      expect(calls[4]!.providerProfile).toMatchObject({ kind: "opencode", model: "ollama/qwen3.5:9b" });
+      expect(calls[5]!.inputs.localReview).toMatchObject({ decision: "ACCEPT" });
+      expect(calls[5]!.providerProfile).toMatchObject({ kind: "codex", model: "gpt-5.6-sol", sandbox: "workspace-write" });
       expect(calls[2]!.inputs.testReview).toMatchObject({ decision: "ACCEPT" });
       expect(calls[3]!.inputs.implementation).toMatchObject({ summary: "dev-implement" });
+      expect(calls[4]!.inputs.documentation).toMatchObject({ summary: "dev-document" });
+      expect(calls[5]!.inputs.documentation).toMatchObject({ summary: "dev-document" });
     }
-    if (!failQuality) expect(readFileSync(path.join(project, ".nodulus/runs", result.runId!, "result.json"), "utf8")).toContain(rejectReview ? "REVIEW_CHANGES_REQUIRED" : "ACCEPT");
+    if (!failQuality && !invalidDocs) expect(readFileSync(path.join(project, ".nodulus/runs", result.runId!, "result.json"), "utf8")).toContain(rejectReview ? "REVIEW_CHANGES_REQUIRED" : "ACCEPT");
   } finally {
     rmSync(project, { recursive: true, force: true });
   }

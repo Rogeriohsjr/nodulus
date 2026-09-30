@@ -1,6 +1,6 @@
 # Implementation sequence and AI handoff
 
-**Checkpoint A is implemented under the user’s 2026-09-28 completion request.** Checkpoints B–F remain pending and require a scoped assignment. See [evidence](evidence.md) for tested behavior and the local Qwen/coordinator role split.
+**Checkpoints A–B are implemented under the user’s 2026-09-28 requests.** Checkpoints C–F remain pending and require a scoped assignment. See [evidence](evidence.md) for tested behavior and the local Qwen/coordinator role split.
 
 Read [architecture](../../architecture.md), [testing policy](../../testing.md), [code quality](../../code-quality.md), the [scenario TDD skill](../../../.agents/skills/nodulus-scenario-tdd/SKILL.md), and this folder's design/scenarios. Use the [delivery validation skill](../../../.agents/skills/nodulus-delivery-validation/SKILL.md) for the local archive handoff. No new skill is required: this checklist specializes the existing skills.
 
@@ -15,12 +15,12 @@ Read [architecture](../../architecture.md), [testing policy](../../testing.md), 
 
 ## B: Provider-specific measurement translation
 
-- [ ] Create versioned transcripts/manifests for OBS-003/004/005 with source/version and counter semantics clearly separated from fictional numeric values.
-- [ ] Observe concrete-adapter null usage as RED through the production run/status path.
-- [ ] Extract focused parsers beneath `src/adapters/providers/`; default-provider-port composes them. Core must not parse Codex/Cursor/OpenCode event names.
-- [ ] Add call-keyed telemetry plus a compatible legacy-hook bridge; never scrape user-wide session totals.
-- [ ] Prove deduplication, missing optional counters, mixed internal steps and unchanged artifact selection. Keep unknown semantic conversions null until supported by evidence.
-- [ ] Record GREEN and focused review before C.
+- [x] Create versioned transcripts/manifests for OBS-003/004/005 with source/version and counter semantics clearly separated from fictional numeric values.
+- [x] Observe concrete-adapter null usage as RED through the production run/status path.
+- [x] Extract focused parsers beneath `src/adapters/providers/`; default-provider-port composes them. Core must not parse Codex/Cursor/OpenCode event names.
+- [x] Add call-keyed telemetry plus a compatible legacy-hook bridge; never scrape user-wide session totals.
+- [x] Prove deduplication, missing optional counters, mixed internal steps and unchanged artifact selection. Keep unknown semantic conversions null until supported by evidence.
+- [x] Record GREEN and focused review before C.
 
 ## C: Failure handling and measurement validity
 

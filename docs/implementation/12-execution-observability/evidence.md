@@ -67,3 +67,26 @@ Remaining: OBS-003–012, automatic token/cost extraction, incomplete-call class
 
 
 Document verification: 13 changed/new Markdown files and 53 local links passed UTF-8/fence/link checks. Example JSON parsed and skill frontmatter passed direct validation. `git diff --check` passed.
+
+## Checkpoint B completion: 2026-09-28
+
+Base `9cca96b`, branch `codex/provider-usage-qwen`. User authorized OBS-003–005 with local Qwen, documentation-node work and the existing focused Sol review. See the [continuation report](qwen-execution-report.md), [hiccup history](qwen-hiccups.md), [B ledger](qwen-phase-b-ledger.json) and [fixture provenance](../../../tests/fixtures/observability/usage-provenance.v1.json).
+
+- OBS-003 behavioral RED at 11:09:10 EDT: no telemetry on a successful default-adapter call. OBS-004 RED at 11:10:27: no optional-usage telemetry. All five initial OBS-003/004/005 cases RED at 11:13:24. Wrong draft imports/helper calls were excluded from RED.
+- Five initial cases GREEN with lint/typecheck at 11:25:57; extended 16 cases GREEN at 11:27:28. Cases cover exact/unknown versions, nullable optional fields, duplicate/conflicting scoped identities, multi-turn/multi-step sums, missing completion, invalid string/fractional counters, overflow, preserved artifacts and single inference. A later seventeenth case verifies no inherited telemetry after readiness failure.
+- DEV-001 sequence RED at 11:32:07; seven cases GREEN at 11:34:47. Documentation is before both reviews, both receive its artifact, rejection/empty files block downstream work, and the fixed final check remains enforced. The full six-node workflow uses a fake external provider with real project/validator processes; it is not live autonomous proof.
+- Full suite initially caught two PROV-004 failures (usage:null compatibility). Fixed production projection, retained original assertions; twelve focused compatibility/Codex cases GREEN at 11:38:38.
+- `npm run check` runtime-checkpoint PASS (before final docs edits): lint, typecheck, **44 scenario files / 183 tests** at 11:40:18; **7 archive/install tests** at 11:40:34. Windows Node 24.15.0. Local log: `.nodulus/phase-b/check-final.log` (not committed).
+- GPT-5.6 Sol focused checkpoint B review ACCEPT, no blocker. Review was source/test inspection, not independent execution.
+- Live Windows OpenCode 1.18.32 / Ollama 0.32.15: documentation runs `0d671e32-f1b7-4d5a-b828-64666a367a81`, `2fced891-b350-4199-b41b-bcae01ef7dcc`, and review `40e8cb8e-9812-459a-819d-72ce5fcaef3e` ran on rebuilt telemetry code. Saved telemetry matches unique raw step parts, call IDs and transport refs. Documentation drafts required coordinator corrections; review accepted supplied code/evidence without running tests itself.
+- Documentation/skill edits and standalone example definitions follow the documented non-TDD exception: links/consistency/schema/application checks, not invented RED. The changed development sequence has behavioral RED/GREEN above.
+
+OBS-006–012 remain pending: full process-failure/crash/telemetry-write isolation, resume aggregation, rich coverage status, reproducible pricing and expanded live/installed acceptance. No release was published. Existing package tests pass, but do not substitute for those future scenarios. Raw local configurations/transcripts remain untracked.
+
+Final delta review: GPT-5.6 Sol ACCEPT for the legacy null projection, documentation sequencing/validator, review inputs and report attribution. No independent test execution by the reviewer. Standalone qwen-document definitions were exercised through the real application: allowed content succeeded, edits-only and out-of-scope paths failed, one boundary fixture call each. All three post-build live telemetry records matched their raw unique step parts and persisted call files.
+
+Document verification: 20 changed/new Markdown files, 77 local links, JSON parsing and skill frontmatter passed. `git diff --check` passed. Hosted CI evidence follows separately; this local acceptance does not authorize merging or publishing.
+
+Hosted packaging regression: [run 36446410656](https://github.com/Rogeriohsjr/nodulus/actions/runs/36446410656), revision `3ba7254`, passed all 183 runtime scenarios but failed PKG-002 on Windows/macOS/Linux: the new linked provider guide was excluded from package.json files. Local `npm run test:package` reproduced the same missing installed-file assertion at 11:51:05 EDT. Added that exact guide to the archive allowlist; no assertion was weakened. The earlier local package pass preceded the final documentation edits and was not final-artifact proof.
+
+After the archive fix, full `npm run check` passed again with lint/typecheck, 183 scenarios and 7 package tests (package phase 11:52:14 EDT). The final committed guide is included. Final hosted status and exact revision/run links are recorded on [PR #12](https://github.com/Rogeriohsjr/nodulus/pull/12); the CI run above deliberately records the initial failure.

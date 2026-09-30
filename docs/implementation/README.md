@@ -44,4 +44,4 @@ Foundation was implemented using $nodulus-delivery-validation and accepted local
 
 ## Follow-up: execution observability
 
-[12-execution-observability](12-execution-observability/README.md) contains research, the proposed log/usage/cost design, twelve scenarios and an ordered AI implementation checklist. **OBS-001/002 implemented and locally accepted** with effective request capture, call/validation links and timestamped events. Local Qwen/OpenCode exercised the new records. Provider usage/cost/status scenarios OBS-003–012 remain pending; see its evidence and execution report.
+[12-execution-observability](12-execution-observability/README.md) contains research, the proposed log/usage/cost design, twelve scenarios and an ordered AI implementation checklist. **OBS-001–005 implemented and locally accepted** with effective request capture, call/validation links, timestamped events and provider usage parsing. Local Qwen/OpenCode exercised the new records. Failure/cost/status scenarios OBS-006–012 remain pending; see its evidence and execution report.

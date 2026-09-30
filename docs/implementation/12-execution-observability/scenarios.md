@@ -1,6 +1,6 @@
 # Planned user scenarios and tests
 
-Status: **OBS-001 and OBS-002 implemented and accepted locally on Windows**; OBS-003 through OBS-012 remain pending. The OBS-001/002 test paths exist; later paths are proposed. See [evidence](evidence.md) for exact results. Every scenario uses the production application/CLI, real internal adapters, temporary project files, schemas and validator scripts. A real child-process fixture replaces only the external provider executable. Pure parser/math tests can supplement these scenarios, never replace them.
+Status: **OBS-001–005 implemented and accepted locally on Windows**; OBS-006–012 remain pending. The OBS-001–005 test paths exist; later paths are proposed. See [evidence](evidence.md) for exact results. Every scenario uses the production application/CLI, real internal adapters, temporary project files, schemas and validator scripts. A real child-process fixture replaces only the external provider executable. Pure parser/math tests can supplement these scenarios, never replace them.
 
 Use `tests/fixtures/observability/` for versioned transcripts, Node executable scripts, project templates and a provenance manifest. Scripts consume stdin, record safe argv/cwd and invocation count, emit configured protocol output and reject unexpected extra calls. Use real files to coordinate termination/failure; do not mock filesystem, process runner, storage or clocks. All data and model prices below are synthetic unless explicitly labelled as a sanitized historical protocol shape.
 
@@ -32,7 +32,7 @@ Use `tests/fixtures/observability/` for versioned transcripts, Node executable s
 
 **Then** reported counters are 1000/200/100/20, source references the terminal turn, the artifact is still accepted, and provider cost is null. A fixture manifest with verified inclusive semantics permits normalized totals 1000 and 100; removing that semantic evidence keeps the reported counters and leaves affected normalized totals unknown. Multiple supported turn records are accounted once each; item text that looks like usage is ignored. Optional missing fields remain null.
 
-**Relevant RED:** concrete Codex adapter returns null usage. Proposed test: `tests/scenarios/obs-003-codex-usage.test.ts`.
+**Observed RED:** status call had no telemetry after a successful real fixture invocation. Implemented test: `tests/scenarios/obs-003-codex-usage.test.ts`.
 
 ## OBS-004: Accept Cursor with or without optional usage
 
@@ -42,7 +42,7 @@ Use `tests/fixtures/observability/` for versioned transcripts, Node executable s
 
 **Then** both succeed. The first preserves those reported values with version-specific provenance and explicit unknown cache inclusion unless independently verified; the second reports unavailable metrics, never zeros. Missing reported model is null even when the profile requested one. Strings such as `"65"` are not silently coerced into counters.
 
-**Relevant RED:** optional concrete Cursor usage is currently discarded. Proposed test: `tests/scenarios/obs-004-cursor-optional-usage.test.ts`.
+**Observed RED:** all three optional-usage variants had no telemetry. Implemented test: `tests/scenarios/obs-004-cursor-optional-usage.test.ts`.
 
 ## OBS-005: Count OpenCode internal steps exactly once
 
@@ -52,7 +52,7 @@ Use `tests/fixtures/observability/` for versioned transcripts, Node executable s
 
 **Then** reported sums are input 300, output 60, cache-read 80, cache-write 12, reasoning 10, cost 0.003 (with numeric tolerance), and exactly two unique steps. The duplicate and assistant summary add nothing. Artifact selection remains based on the existing final stopped-message behavior. A semantic profile verified to exclude cache from input may normalize input to 392; without evidence that conversion stays null. Conflicting duplicate IDs and missing completion produce incomplete coverage, not a complete total.
 
-**Relevant RED:** OpenCode usage is currently null despite its captured events. Proposed test: `tests/scenarios/obs-005-opencode-step-usage.test.ts`.
+**Observed RED:** no OpenCode telemetry despite successful captured fixture events. Implemented test: `tests/scenarios/obs-005-opencode-step-usage.test.ts`. The verified OpenCode 1.18.32 semantics normalize input to 392 and output to 70; unknown versions keep both normalized totals null.
 
 ## OBS-006: Preserve partial evidence on provider failure
 

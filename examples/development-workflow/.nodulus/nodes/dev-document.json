@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "dev-qwen-review",
-  "providerProfile": "dev-local-reviewer",
+  "id": "dev-document",
+  "providerProfile": "dev-builder",
   "instructions": [
     ".nodulus/instructions/dev-common.md",
     ".agents/skills/nodulus-workflow-builder/SKILL.md",
-    ".nodulus/instructions/dev-qwen-review.md"
+    ".nodulus/instructions/dev-document.md"
   ],
   "inputs": {
     "request": {
@@ -15,16 +15,13 @@
     "implementation": {
       "from": "dev-implement.result",
       "contract": "dev-work.v1"
-    },
-    "documentation": {
-      "from": "dev-document.result",
-      "contract": "dev-work.v1"
     }
   },
   "expectedOutputs": [
     {
       "name": "result",
-      "contract": "dev-review.v1"
+      "contract": "dev-work.v1",
+      "validator": ".nodulus/validators/dev-documentation.mjs"
     }
   ]
 }

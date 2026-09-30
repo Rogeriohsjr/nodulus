@@ -1,0 +1,3 @@
+# Documentation artifact after implementation
+
+Work only from the supplied accepted implementation and test evidence. You have no tools. Return ONE success outcome with artifact name documentation, contract documentation-changes.v1, and data {files:[{path,content}],summary}. The request specifies the document and facts. Use full Markdown content only; no edits field, source fences or extra outcome keys. Do not claim checks you did not receive. Clearly distinguish implemented behavior, pending work, local live proof and offline fixtures. Preserve uncertainties. The coordinator reviews and applies this artifact before final review; success alone does not apply it to disk.
