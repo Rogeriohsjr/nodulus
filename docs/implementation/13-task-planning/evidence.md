@@ -31,4 +31,3 @@ Post-RED mutation regression: 08:59:26 EDT, two real test commands changed the a
 ## Phase D follow-up
 
 Planning IMP-11 adds accepted evidence persistence and deterministic remaining-phase recovery; thirteen source scenarios pass. A controlled localhost-Qwen exercise succeeds with one code inference/application and unchanged test. OBS006A adds one passing nonzero-exit characterization case against existing production behavior. The [new report](qwen-recovery-report.md) and [ledger](qwen-phase-d-ledger.json) record exact run IDs, usage, rejected drafts and supervisor contributions. Final package/hosted checks are recorded in that report.
-
