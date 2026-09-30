@@ -182,14 +182,40 @@ function parseTelemetry(value: unknown): ProviderCallMetric["telemetry"] | undef
   if (!isRecord(value)
     || value.schemaVersion !== 1
     || typeof value.provider !== "string" || value.provider.length === 0
+    || !(value.cliVersion === null || (typeof value.cliVersion === "string" && value.cliVersion.length > 0))
     || !(value.reportedModel === null || (typeof value.reportedModel === "string" && value.reportedModel.length > 0))
     || !isRecord(value.reported)
     || !isRecord(value.normalized)
     || !["complete", "partial", "unavailable"].includes(String(value.coverage))
+    || !Number.isSafeInteger(value.stepCount) || (value.stepCount as number) < 0
     || !isRecord(value.source)
     || !isRecord(value.semantics)
     || !Array.isArray(value.diagnostics) || !value.diagnostics.every((item) => typeof item === "string")) return undefined;
+  const reported = value.reported as Record<string, unknown>;
+  const normalized = value.normalized as Record<string, unknown>;
+  const source = value.source as Record<string, unknown>;
+  const semantics = value.semantics as Record<string, unknown>;
+  const reportedFields = ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "reasoningTokens"];
+  if (!reportedFields.every((field) => validNullableToken(reported[field]))
+    || !validNullableCost(reported.costUsd)
+    || !validNullableToken(normalized.inputTokens)
+    || !validNullableToken(normalized.outputTokens)
+    || typeof source.eventType !== "string" || source.eventType.length === 0
+    || !Array.isArray(source.recordIds) || !source.recordIds.every((item) => typeof item === "string" && item.length > 0)
+    || typeof source.transportRef !== "string" || source.transportRef.length === 0
+    || source.parserVersion !== 1
+    || !["included", "excluded", "unknown"].includes(String(semantics.inputCache))
+    || !["included", "excluded", "unknown"].includes(String(semantics.outputReasoning))
+    || !(semantics.evidence === null || (typeof semantics.evidence === "string" && semantics.evidence.length > 0))) return undefined;
   return value as ProviderCallMetric["telemetry"];
+}
+
+function validNullableToken(value: unknown): boolean {
+  return value === null || (typeof value === "number" && Number.isSafeInteger(value) && value >= 0);
+}
+
+function validNullableCost(value: unknown): boolean {
+  return value === null || (typeof value === "number" && Number.isFinite(value) && value >= 0);
 }
 
 function parseUsage(value: unknown, index: number, diagnostics: string[]): ProviderUsage | null {

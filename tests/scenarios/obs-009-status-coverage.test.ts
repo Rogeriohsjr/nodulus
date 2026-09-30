@@ -154,7 +154,24 @@ test("OBS-009G unmatched starts make every finalized group for that node incompl
 
 test("OBS-009H malformed telemetry cannot claim provider-event provenance", async () => {
   const run = saveRun(JSON.stringify([
-    { callId: randomUUID(), nodeId: "a", attempt: 1, elapsedMs: 1, telemetry: {}, usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, costUsd: 0.01 } },
+    {
+      callId: randomUUID(),
+      nodeId: "a",
+      attempt: 1,
+      elapsedMs: 1,
+      telemetry: {
+        schemaVersion: 1,
+        provider: "codex",
+        reportedModel: "fictional",
+        reported: {},
+        normalized: {},
+        coverage: "complete",
+        source: {},
+        semantics: {},
+        diagnostics: [],
+      },
+      usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, costUsd: 0.01 },
+    },
   ]));
   try {
     const status = JSON.parse(JSON.stringify(await getRunStatus(run.project, run.runId)));
