@@ -58,3 +58,5 @@ Packaging/install behavior and custom release-decision logic DO require test-fir
 ## Evidence and completion
 
 Each slice has evidence.md. For each scenario record test path/name, RED command and relevant assertion, GREEN command/outcome, revision, environment, and remaining live checks. Check boxes only when evidenced. Record setup failures separately and distinguish targeted reruns from full-suite results.
+
+The planned [execution observability slice](implementation/12-execution-observability/README.md) applies this policy to actual request capture, provider event fixtures, incomplete usage, cost provenance and fresh-process resume. Its scenario files and implementation remain uncreated until authorized. Offline fixtures are the required behavioral evidence; optional live-provider compatibility and actual billing are separate claims.
