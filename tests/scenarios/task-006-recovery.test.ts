@@ -1,12 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, test } from 'vitest';
 import { runWorkflow } from '../../src/application/run-workflow.js';
 import { fileHash } from '../../scripts/task-workflow/io.mjs';
 
-test.each(['valid', 'stale-test', 'stale-source', 'artifact-tamper', 'check-tamper', 'legacy', 'bound', 'review-only', 'docs-only', 'recheck-fails', 'recheck-mutates', 'bad-order'])(
+test.each(['valid', 'stale-test', 'stale-source', 'artifact-tamper', 'check-tamper', 'legacy', 'bound', 'review-only', 'docs-only', 'recheck-fails', 'recheck-mutates', 'bad-order', 'aliased-entry'])(
   'IMP-11 %s recovery preserves accepted work', async mode => {
     const project = mkdtempSync(path.join(tmpdir(), 'Nodulus recovery ü '));
     const read = (file: string) => JSON.parse(readFileSync(path.join(project, file), 'utf8'));
@@ -43,7 +43,9 @@ test.each(['valid', 'stale-test', 'stale-source', 'artifact-tamper', 'check-tamp
       if (mode === 'recheck-fails') writeFileSync(path.join(project, 'check.cjs'), 'process.exit(7);');
       if (mode === 'recheck-mutates') writeFileSync(path.join(project, 'check.cjs'), "require('node:fs').writeFileSync('test.ts','changed by check');");
       if (mode === 'bad-order') { state.completed = ['docs', 'code']; save('.nodulus/task-execution.json', state); }
-      const prepare = () => spawnSync(process.execPath, [path.join(project, '.nodulus/task-tools/runtime.mjs'), 'recover', project], { encoding: 'utf8', windowsHide: true, timeout: 10000 });
+      const entryRoot = mode === 'aliased-entry' ? path.join(project, 'entry-alias') : project;
+      if (mode === 'aliased-entry') symlinkSync(project, entryRoot, 'junction');
+      const prepare = () => spawnSync(process.execPath, [path.join(entryRoot, '.nodulus/task-tools/runtime.mjs'), 'recover', project], { encoding: 'utf8', windowsHide: true, timeout: 10000 });
       const prepared = prepare();
       const rejected = ['stale-test', 'stale-source', 'artifact-tamper', 'check-tamper', 'legacy', 'recheck-fails', 'recheck-mutates', 'bad-order'].includes(mode);
       expect(prepared.status, prepared.stderr).toBe(rejected ? 1 : 0);
@@ -59,7 +61,7 @@ test.each(['valid', 'stale-test', 'stale-source', 'artifact-tamper', 'check-tamp
         throw Error(`Unexpected recovery inference: ${invocation.nodeId}`);
       } });
       expect(recovered.status).toBe('success');
-      expect(calls.slice(beforeRecoveryCalls)).toEqual(mode === 'valid' ? ['recovery-docs', 'recovery-review'] : ['recovery-review']);
+      expect(calls.slice(beforeRecoveryCalls)).toEqual(['valid', 'aliased-entry'].includes(mode) ? ['recovery-docs', 'recovery-review'] : ['recovery-review']);
       expect(calls.filter(id => id === 'packet-code')).toHaveLength(docsOnly ? 0 : 1);
       expect(readFileSync(path.join(project, 'source.ts'), 'utf8')).toBe(docsOnly ? 'old' : 'new');
       expect(readFileSync(path.join(project, 'test.ts'), 'utf8')).toBe('frozen');

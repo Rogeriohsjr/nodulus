@@ -21,7 +21,7 @@ Exactly one preparation is allowed per selected execution. Stale files, altered/
 
 ## Evidence boundary
 
-- [x] Twelve scenarios use real workflows, files and subprocesses, replacing only external inference.
+- [x] Thirteen scenarios use real workflows, files and subprocesses, replacing only external inference. An aliased-entry regression covers symlink/junction paths used by macOS temporary directories.
 - [x] Controlled live localhost Qwen run: one code inference/application, then an injected invalid documentation result; generated recovery calls documentation and review only. Recovery succeeds, the frozen test is unchanged and its assertion passes.
 - [x] Installed-package regression observed missing helper files before the setup fix. Final package/hosted results are recorded in the [run report](qwen-recovery-report.md).
 - [ ] Unattended implementation: substantial supervisor test/code/docs corrections were required.

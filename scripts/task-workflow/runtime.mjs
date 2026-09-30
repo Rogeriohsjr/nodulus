@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { prepareRecovery } from './recovery.mjs';
@@ -6,7 +6,7 @@ import { applyFile, digest, confinedPath, fileHash, runCheck } from './io.mjs';
 
 export { prepareRecovery };
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (process.argv[1] && existsSync(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   try {
     if (process.argv[2] !== 'recover' || !process.argv[3] || process.argv.length !== 4) throw Error('Usage: node runtime.mjs recover <project>');
     console.log(JSON.stringify(prepareRecovery(path.resolve(process.argv[3]))));

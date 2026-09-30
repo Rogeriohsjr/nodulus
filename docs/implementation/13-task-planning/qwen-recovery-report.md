@@ -61,8 +61,14 @@ The earlier observability report used **IMP-11** for a packaging-gate lesson; th
 
 ## Acceptance and remaining work
 
-- Recovery: observed nine-case behavioral RED; initial GREEN nine, expanded GREEN twelve. Includes docs-only/review-only mappings, stale files, tampered artifacts/checks, legacy rejection, one-preparation bound, check failures/mutations and bad phase order.
+- Recovery: observed nine-case behavioral RED; initial GREEN nine, expanded GREEN twelve, then a thirteenth aliased-entry regression. Includes docs-only/review-only mappings, stale files, tampered artifacts/checks, legacy rejection, one-preparation bound, check failures/mutations and bad phase order.
 - Package: installed archive reproduced `setup must install recovery.mjs: expected false to be true` before the setup fix. Final full validation is recorded below.
 - OBS006A: one real process regression passes; no production modification or new RED claimed. Timeout, truncated output, output-limit, readiness/crash evidence and other parent requirements remain pending.
 - Limits: local trusted state, one execution per dedicated checkout, no crash-atomic multi-file generation, no automatic multi-packet scheduler, no whole-workflow token budget.
 - Final local gate: npm run check passed lint, strict typecheck, 235 runtime scenarios and all 8 installed-package tests on Windows (2026-09-29, package phase 21:17 EDT), after shipped documentation and setup changes. GPT-5.6 Sol final delta review: ACCEPT; the setup blocker is resolved. Qwen review: accept, advisory only. Hosted results are separate evidence on the delivery PR and are not inferred from local GREEN.
+
+### Hosted portability follow-up
+
+The first [PR #15 CI run](https://github.com/Rogeriohsjr/nodulus/actions/runs/36654529901) passed Ubuntu but exposed a coordinator-written entry-point bug on macOS: Node canonicalizes the symlinked temporary path, while the direct-invocation guard compared the unresolved argv path. Recovery silently exited without preparing files. A real Windows junction reproduced the same missing-input assertion before the fix. Comparing the real entry path now makes that scenario pass; confinement checks for task file targets remain unchanged. This is a portability correction, not a flaky-test rerun or relaxed assertion. The final current-head checks are attached to [PR #15](https://github.com/Rogeriohsjr/nodulus/pull/15); publication remains out of scope.
+
+Post-portability-fix local acceptance: npm run check passed lint/typecheck, 236 runtime scenarios and 8 installed-package tests (package phase 21:23 EDT). GPT-5.6 Sol accepted the canonical-entry-path delta. Windows and Ubuntu passed the initial hosted run; the follow-up current-head matrix remains the hosted delivery gate.
