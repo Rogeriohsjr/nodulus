@@ -30,7 +30,7 @@ export type ProviderUsage = {
   cacheReadTokens: number | null;
   costUsd: number | null;
 };
-export type ProviderCallMetric = { nodeId: string; attempt: number; usage: ProviderUsage | null; elapsedMs: number; callId?: string; operation?: "invoke" | "repair_response"; telemetry?: ProviderTelemetry };
+export type ProviderCallMetric = { nodeId: string; attempt: number; usage: ProviderUsage | null; elapsedMs: number; callId?: string; operation?: "invoke" | "repair_response"; telemetry?: ProviderTelemetry; launched?: boolean | null };
 
 /** External provider boundary; implementations return untrusted raw response text. */
 export interface ProviderPort {
@@ -45,5 +45,7 @@ export interface ProviderPort {
   usageForLastCall?(): ProviderUsage | null;
   /** Measurements scoped to one invocation, never a user-wide session total. */
   telemetryForCall?(callId: string): ProviderTelemetry | null;
+  /** True only with completed process capture; null means launch is uncertain. */
+  launchForCall?(callId: string): boolean | null;
   isAvailable?(profile: Record<string, unknown>): Promise<boolean> | boolean;
 }
