@@ -67,12 +67,14 @@ export async function getRunStatus(
     readRunEvents(projectRoot, runId, storage),
     readOptionalRunFile(projectRoot, runId, "metrics.json", storage),
   ]);
-  const startedCallIds = eventResult.events.flatMap((event) => {
+  const startedCalls = eventResult.events.flatMap((event) => {
     if (typeof event !== "object" || event === null || Array.isArray(event)) return [];
     const record = event as Record<string, unknown>;
-    return record.event === "provider.call.started" && typeof record.callId === "string" ? [record.callId] : [];
+    return record.event === "provider.call.started" && typeof record.callId === "string" && typeof record.nodeId === "string"
+      ? [{ callId: record.callId, nodeId: record.nodeId }]
+      : [];
   });
-  const { metrics, diagnostics: metricDiagnostics } = summarizeRunMetrics(rawMetrics, startedCallIds);
+  const { metrics, diagnostics: metricDiagnostics } = summarizeRunMetrics(rawMetrics, startedCalls);
   let pendingRequest: unknown;
   if (checkpoint.status === "needs_input") {
     try {

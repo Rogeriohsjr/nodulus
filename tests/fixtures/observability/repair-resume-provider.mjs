@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, appendFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, appendFileSync, mkdirSync, realpathSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 
 const args = process.argv.slice(2);
@@ -47,7 +47,7 @@ if (index === 2 || index === 3) {
     process.stderr.write('expected --session obs-session\n');
     process.exit(1);
   }
-  if (!dirVal || resolve(dirVal) !== process.cwd()) {
+  if (!dirVal || realpathSync(resolve(dirVal)) !== realpathSync(process.cwd())) {
     process.stderr.write('expected --dir resolving to cwd\n');
     process.exit(1);
   }

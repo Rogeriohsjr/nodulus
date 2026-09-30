@@ -23,12 +23,13 @@ export type RunMetricGroup = {
   totals: ProviderUsage;
   coverage: Record<MetricField, MetricCoverage>;
 };
+export type StartedProviderCall = { callId: string; nodeId: string };
 
 const fields: MetricField[] = ["inputTokens", "outputTokens", "cacheReadTokens", "costUsd"];
 
 export function summarizeRunMetrics(
   raw: string | null,
-  startedCallIds: string[],
+  startedCalls: StartedProviderCall[],
 ): { metrics: RunMetrics; diagnostics: string[] } {
   const diagnostics: string[] = [];
   let rows: unknown[] = [];
@@ -46,23 +47,35 @@ export function summarizeRunMetrics(
   const calls: ProviderCallMetric[] = [];
   const origins: MetricOrigin[] = [];
   const callIds = new Set<string>();
+  const callIndexes = new Map<string, number>();
   for (const [index, row] of rows.entries()) {
     const parsed = parseMetricRow(row, index, diagnostics);
     if (!parsed) continue;
     if (parsed.call.callId) {
       if (callIds.has(parsed.call.callId)) {
-        diagnostics.push(`metrics.json has duplicate callId '${parsed.call.callId}'`);
+        const retainedIndex = callIndexes.get(parsed.call.callId)!;
+        if (JSON.stringify(calls[retainedIndex]) !== JSON.stringify(parsed.call)) {
+          const retained = calls[retainedIndex]!;
+          delete retained.telemetry;
+          retained.usage = null;
+          origins[retainedIndex] = "unavailable";
+          diagnostics.push(`metrics.json has conflicting duplicate callId '${parsed.call.callId}'`);
+        } else diagnostics.push(`metrics.json has duplicate callId '${parsed.call.callId}'`);
         continue;
       }
       callIds.add(parsed.call.callId);
+      callIndexes.set(parsed.call.callId, calls.length);
     }
     calls.push(parsed.call);
     origins.push(parsed.origin);
   }
 
-  const unmatchedStarted = new Set(
-    startedCallIds.filter((callId) => callId.length > 0 && !callIds.has(callId)),
-  );
+  const unmatchedStarted = new Map<string, StartedProviderCall>();
+  for (const started of startedCalls) {
+    if (started.callId.length > 0 && started.nodeId.length > 0 && !callIds.has(started.callId)) {
+      unmatchedStarted.set(started.callId, started);
+    }
+  }
   const totalCalls = calls.length + unmatchedStarted.size;
   const { coverage, totals } = aggregateCoverage(calls, origins, totalCalls, diagnostics, "metrics.json");
   const grouped = new Map<string, { calls: ProviderCallMetric[]; origins: MetricOrigin[] }>();
@@ -75,9 +88,15 @@ export function summarizeRunMetrics(
     group.origins.push(origins[index]!);
     grouped.set(key, group);
   }
+  for (const started of unmatchedStarted.values()) {
+    if (![...grouped.keys()].some((key) => (JSON.parse(key) as [string])[0] === started.nodeId)) {
+      grouped.set(JSON.stringify([started.nodeId, null, null]), { calls: [], origins: [] });
+    }
+  }
   const groups = [...grouped.entries()].map(([key, group]) => {
     const [nodeId, provider, reportedModel] = JSON.parse(key) as [string, string | null, string | null];
-    const aggregate = aggregateCoverage(group.calls, group.origins, group.calls.length, diagnostics, `group ${key}`);
+    const unmatchedForNode = [...unmatchedStarted.values()].filter((started) => started.nodeId === nodeId).length;
+    const aggregate = aggregateCoverage(group.calls, group.origins, group.calls.length + unmatchedForNode, diagnostics, `group ${key}`);
     return { nodeId, provider, reportedModel, callCount: group.calls.length, ...aggregate };
   });
   return { metrics: { calls, totals, coverage, origins, groups }, diagnostics };
@@ -133,9 +152,7 @@ function parseMetricRow(
   }
 
   const usage = parseUsage(value.usage, index, diagnostics);
-  const telemetry = isRecord(value.telemetry)
-    ? value.telemetry as ProviderCallMetric["telemetry"]
-    : undefined;
+  const telemetry = parseTelemetry(value.telemetry);
   if (value.telemetry !== undefined && telemetry === undefined) {
     diagnostics.push(`metrics.json row ${index} has invalid telemetry`);
   }
@@ -159,6 +176,20 @@ function parseMetricRow(
     call,
     origin: telemetry ? "provider_event" : usage ? "legacy_adapter" : "unavailable",
   };
+}
+
+function parseTelemetry(value: unknown): ProviderCallMetric["telemetry"] | undefined {
+  if (!isRecord(value)
+    || value.schemaVersion !== 1
+    || typeof value.provider !== "string" || value.provider.length === 0
+    || !(value.reportedModel === null || (typeof value.reportedModel === "string" && value.reportedModel.length > 0))
+    || !isRecord(value.reported)
+    || !isRecord(value.normalized)
+    || !["complete", "partial", "unavailable"].includes(String(value.coverage))
+    || !isRecord(value.source)
+    || !isRecord(value.semantics)
+    || !Array.isArray(value.diagnostics) || !value.diagnostics.every((item) => typeof item === "string")) return undefined;
+  return value as ProviderCallMetric["telemetry"];
 }
 
 function parseUsage(value: unknown, index: number, diagnostics: string[]): ProviderUsage | null {

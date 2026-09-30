@@ -114,6 +114,60 @@ test("OBS-009E isolates malformed rows and invalid fields", async () => {
   }
 });
 
+test("OBS-009F conflicting duplicate call IDs invalidate the call's aggregate", async () => {
+  const callId = randomUUID();
+  const base = { callId, nodeId: "a", attempt: 1, elapsedMs: 1 };
+  const run = saveRun(JSON.stringify([
+    { ...base, usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, costUsd: 0.01 } },
+    { ...base, usage: { inputTokens: 200, outputTokens: 20, cacheReadTokens: 0, costUsd: 0.01 } },
+  ]));
+  try {
+    const status = JSON.parse(JSON.stringify(await getRunStatus(run.project, run.runId)));
+    expect(status.metrics.calls).toHaveLength(1);
+    expect(status.metrics.coverage.inputTokens).toEqual({ knownCalls: 0, totalCalls: 1, knownSubtotal: 0, total: null });
+    expect(status.diagnostics.messages.join(" ")).toContain("conflicting duplicate callId");
+  } finally {
+    rmSync(run.project, { recursive: true, force: true });
+  }
+});
+
+test("OBS-009G unmatched starts make every finalized group for that node incomplete", async () => {
+  const finalized = randomUUID();
+  const pending = randomUUID();
+  const metric = { callId: finalized, nodeId: "a", attempt: 1, elapsedMs: 1, usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, costUsd: 0.01 } };
+  const events = [finalized, pending].map((callId) => JSON.stringify({ event: "provider.call.started", callId, nodeId: "a" })).join("\n") + "\n";
+  const run = saveRun(JSON.stringify([metric]), events);
+  try {
+    const status = JSON.parse(JSON.stringify(await getRunStatus(run.project, run.runId)));
+    expect(status.metrics.groups).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        nodeId: "a",
+        coverage: expect.objectContaining({
+          inputTokens: { knownCalls: 1, totalCalls: 2, knownSubtotal: 100, total: null },
+        }),
+      }),
+    ]));
+  } finally {
+    rmSync(run.project, { recursive: true, force: true });
+  }
+});
+
+test("OBS-009H malformed telemetry cannot claim provider-event provenance", async () => {
+  const run = saveRun(JSON.stringify([
+    { callId: randomUUID(), nodeId: "a", attempt: 1, elapsedMs: 1, telemetry: {}, usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, costUsd: 0.01 } },
+  ]));
+  try {
+    const status = JSON.parse(JSON.stringify(await getRunStatus(run.project, run.runId)));
+    expect(status.metrics.origins).toEqual(["legacy_adapter"]);
+    expect(status.metrics.groups).toEqual([
+      expect.objectContaining({ nodeId: "a", provider: null, reportedModel: null }),
+    ]);
+    expect(status.diagnostics.messages.join(" ")).toContain("invalid telemetry");
+  } finally {
+    rmSync(run.project, { recursive: true, force: true });
+  }
+});
+
 test("OBS-009B reports corrupt metrics and event rows while keeping status readable", async () => {
   const events = `${JSON.stringify({ event: "node.started", nodeId: "a" })}\nnot-json\n{partial`;
   const run = saveRun("{broken", events);
