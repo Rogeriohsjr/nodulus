@@ -1,6 +1,6 @@
 # Implementation sequence and AI handoff
 
-**Checkpoints A–C are locally accepted as of 2026-09-30.** Checkpoints D–F remain pending under the current completion request. See [evidence](evidence.md) for tested behavior and the local Qwen/coordinator role split.
+**Checkpoints A–D are locally accepted as of 2026-09-30.** Checkpoints E–F remain pending under the current completion request. See [evidence](evidence.md) and [checkpoint D evidence](obs-008-009.md) for tested behavior and the local Qwen/coordinator role split.
 
 Read [architecture](../../architecture.md), [testing policy](../../testing.md), [code quality](../../code-quality.md), the [scenario TDD skill](../../../.agents/skills/nodulus-scenario-tdd/SKILL.md), and this folder's design/scenarios. Use the [delivery validation skill](../../../.agents/skills/nodulus-delivery-validation/SKILL.md) for the local archive handoff. No new skill is required: this checklist specializes the existing skills.
 
@@ -32,11 +32,11 @@ Read [architecture](../../architecture.md), [testing policy](../../testing.md), 
 
 ## D: Repair/resume totals and read compatibility
 
-- [ ] Add OBS-008/009 with a fresh-process resume and actual persisted legacy/corrupt files; observe missing identity/coverage as RED.
-- [ ] Add idempotent metrics finalization by call ID; retain the legacy array and optional public port methods.
-- [ ] Implement field-level coverage and compatible status aggregation in focused core/application modules, composed by `src/application/resume-workflow.ts`.
-- [ ] Update `src/cli.ts` text/JSON projections without contaminating core with formatting. Distinguish reported versus requested model, and incomplete evidence versus a failed workflow.
-- [ ] Verify no duplicate measurements, no completed-node replay and no read-time migration. Record GREEN before E.
+- [x] Add OBS-008/009 with a fresh-process resume and actual persisted legacy/corrupt files; OBS-008 was characterization GREEN and OBS-009 observed missing coverage/diagnostics as RED.
+- [x] Add idempotent metrics finalization by call ID; retain the legacy array and optional public port methods.
+- [x] Implement field-level coverage and compatible status aggregation in focused application modules, composed by `src/application/resume-workflow.ts`.
+- [x] Update `src/cli.ts` text/JSON projections without contaminating core with formatting. Distinguish reported model identity, including unknown, from requested model labels.
+- [x] Verify no duplicate measurements, no completed-node replay and no read-time migration. Record GREEN before E.
 
 ## E: Optional estimates with frozen provenance
 

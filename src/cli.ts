@@ -184,7 +184,15 @@ export async function runCli(
       if (!projectRoot) throw new NodulusError("PROJECT_NOT_FOUND", "No Nodulus project found. Pass --project <path>.");
       const status = await getRunStatus(projectRoot, runId);
       if (options.json) writeEnvelope(output.writeOut, { schemaVersion: 1, status: "success", runId, result: status });
-      else output.writeOut(`Run ${runId}: ${status.status}\n`);
+      else {
+        output.writeOut(`Run ${runId}: ${status.status}\n`);
+        if (status.metrics) {
+          output.writeOut(`${formatMetricCoverage("Input tokens", status.metrics.coverage.inputTokens)}\n`);
+          output.writeOut(`${formatMetricCoverage("Output tokens", status.metrics.coverage.outputTokens)}\n`);
+          output.writeOut(`${formatMetricCoverage("Cache-read tokens", status.metrics.coverage.cacheReadTokens)}\n`);
+          output.writeOut(`${formatMetricCoverage("Reported cost USD", status.metrics.coverage.costUsd)}\n`);
+        }
+      }
     });
 
   program
@@ -228,6 +236,15 @@ export async function runCli(
     }
     return 1;
   }
+}
+
+function formatMetricCoverage(
+  label: string,
+  coverage: { knownCalls: number; totalCalls: number; knownSubtotal: number; total: number | null },
+): string {
+  return coverage.total === null
+    ? `${label}: unknown (known ${coverage.knownCalls}/${coverage.totalCalls}; subtotal ${coverage.knownSubtotal})`
+    : `${label}: ${coverage.total}`;
 }
 
 async function installedPackageVersion(): Promise<string> {

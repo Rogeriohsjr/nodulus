@@ -1,6 +1,6 @@
 # 12: Inspect execution traces, provider usage, and cost
 
-Status on 2026-09-30: **checkpoints A–C (OBS-001–007) implemented and locally accepted**. Qwen generated drafts through Nodulus/OpenCode on localhost Ollama; coordinator integration and GPT-5.6 Sol review completed the slice. See [evidence](evidence.md) and the [execution/improvements report](qwen-execution-report.md). Checkpoints D–F remain pending. See the [completion report](qwen-completion-report.md) for checkpoint C and its supervised role split. The [hiccup history](qwen-hiccups.md) records model experiments, rejected drafts and corrective actions. Publishing remains outside this scope.
+Status on 2026-09-30: **checkpoints A–D (OBS-001–009) implemented and locally accepted**. Qwen generated drafts through Nodulus/OpenCode on localhost Ollama; coordinator integration and GPT-5.6 Sol review completed A–C. See [evidence](evidence.md), the [execution/improvements report](qwen-execution-report.md), and the [checkpoint D evidence](obs-008-009.md). Checkpoints E–F remain pending. See the [completion report](qwen-completion-report.md) for the supervised role split. The [hiccup history](qwen-hiccups.md) records model experiments, rejected drafts and corrective actions. Publishing remains outside this scope.
 
 As a user, I want to inspect each workflow step, see the instructions Nodulus sent and the response it received, understand validation and repairs, and compare available token usage and cost without confusing estimates with charges.
 
@@ -26,7 +26,7 @@ This slice extends the existing local run store, provider adapters, and status c
 | [x] | A: Correlated boundary records and timestamps | OBS-001, OBS-002 | Prerequisites above |
 | [x] | B: Codex, Cursor, and OpenCode usage | OBS-003, OBS-004, OBS-005 | A |
 | [x] | C: Partial evidence and telemetry failures | OBS-006, OBS-007 | B |
-| [ ] | D: Repair/resume accounting and status | OBS-008, OBS-009 | C |
+| [x] | D: Repair/resume accounting and status | OBS-008, OBS-009 | C |
 | [ ] | E: Optional reproducible cost estimates | OBS-010 | D |
 | [ ] | F: Portable acceptance and developer handoff | OBS-011, OBS-012 | E |
 

@@ -1,6 +1,6 @@
 # Planned user scenarios and tests
 
-Status: **OBS-001–005 implemented and accepted locally on Windows**; OBS-006–012 remain pending. The OBS-001–005 test paths exist; later paths are proposed. See [evidence](evidence.md) for exact results. Every scenario uses the production application/CLI, real internal adapters, temporary project files, schemas and validator scripts. A real child-process fixture replaces only the external provider executable. Pure parser/math tests can supplement these scenarios, never replace them.
+Status: **OBS-001–009 implemented and accepted locally on Windows**; OBS-010–012 remain pending. See [evidence](evidence.md) and [checkpoint D evidence](obs-008-009.md) for exact results. Every scenario uses the production application/CLI, real internal adapters, temporary project files, schemas and validator scripts. A real child-process fixture replaces only the external provider executable. Pure parser/math tests can supplement these scenarios, never replace them.
 
 Use `tests/fixtures/observability/` for versioned transcripts, Node executable scripts, project templates and a provenance manifest. Scripts consume stdin, record safe argv/cwd and invocation count, emit configured protocol output and reject unexpected extra calls. Use real files to coordinate termination/failure; do not mock filesystem, process runner, storage or clocks. All data and model prices below are synthetic unless explicitly labelled as a sanitized historical protocol shape.
 
@@ -82,7 +82,7 @@ Use `tests/fixtures/observability/` for versioned transcripts, Node executable s
 
 **Then** exactly five call IDs exist, operations distinguish two repairs, input total is 60 and output total 12 under verified semantics, and A's fixture count remains one. Each repair's actual stdin contains the appropriate prior response and exact validation errors. No third repair or automatic tool/action replay occurs. A resumed completed run creates no sixth call. Keep provider repair capability restrictions unchanged.
 
-**Relevant RED:** call identity/effective repair prompts and concrete usage accounting are missing. Proposed test: `tests/scenarios/obs-008-repair-resume-accounting.test.ts`.
+**Observed result:** existing checkpoint C behavior passed the new characterization without fabricated RED. Implemented test: `tests/scenarios/obs-008-repair-resume-accounting.test.ts`.
 
 ## OBS-009: Report incomplete and legacy histories honestly
 
@@ -92,7 +92,7 @@ Use `tests/fixtures/observability/` for versioned transcripts, Node executable s
 
 **Then** input total is null/subtotal 100/knownCalls 1/totalCalls 2; output total is 25; cost total is null/subtotal 0.01. Legacy rows and untimestamped events remain readable, labelled legacy; missing metrics are unavailable; corrupt metrics and invalid complete JSONL lines have explicit diagnostics. A trailing partial line is diagnosed separately. No provider calls, migrations or fabricated zero totals occur; checkpoint determines run status.
 
-**Relevant RED:** status lacks coverage/subtotals and hides corrupt metrics as an empty list. Proposed test: `tests/scenarios/obs-009-status-coverage-and-legacy.test.ts`.
+**Observed RED:** status lacked coverage/subtotals and hid corrupt metrics as an empty list. Implemented test: `tests/scenarios/obs-009-status-coverage.test.ts`.
 
 ## OBS-010: Estimate cost reproducibly without claiming a charge
 

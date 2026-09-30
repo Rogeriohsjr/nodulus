@@ -21,7 +21,7 @@
 | A / OBS-001,002 | Missing calls directory; undefined event timestamp; missing accepted result ref; non-string boundary marked successful; resume missing time/sequence | 164 scenario + 7 package tests, lint/typecheck; focused 29 tests | GPT-5.6 Sol ACCEPT after corrections; local Qwen helper review accepted | Locally accepted 2026-09-28 |
 | B / OBS-003,004,005 | Pending | Pending | Pending | Not started |
 | C / OBS-006,007 | Pending | Pending | Pending | Not started |
-| D / OBS-008,009 | Pending | Pending | Pending | Not started |
+| D / OBS-008,009 | OBS-008 characterization GREEN; OBS-009 coverage/diagnostic assertions failed | 30 focused OBS-003–009 tests pass | Local Windows | [Checkpoint D evidence](obs-008-009.md) |
 | E / OBS-010 | Pending | Pending | Pending | Not started |
 | F / OBS-011 | Pending | Pending | Pending | Not started |
 
