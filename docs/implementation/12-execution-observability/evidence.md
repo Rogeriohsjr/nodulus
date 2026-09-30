@@ -19,11 +19,11 @@
 | Checkpoint | Relevant RED | GREEN / regression evidence | Review | Status |
 | --- | --- | --- | --- | --- |
 | A / OBS-001,002 | Missing calls directory; undefined event timestamp; missing accepted result ref; non-string boundary marked successful; resume missing time/sequence | 164 scenario + 7 package tests, lint/typecheck; focused 29 tests | GPT-5.6 Sol ACCEPT after corrections; local Qwen helper review accepted | Locally accepted 2026-09-28 |
-| B / OBS-003,004,005 | Pending | Pending | Pending | Not started |
-| C / OBS-006,007 | Pending | Pending | Pending | Not started |
-| D / OBS-008,009 | Pending | Pending | Pending | Not started |
-| E / OBS-010 | Pending | Pending | Pending | Not started |
-| F / OBS-011 | Pending | Pending | Pending | Not started |
+| B / OBS-003,004,005 | Missing call-level telemetry and version-aware normalization | 183 scenarios + 7 package tests after archive correction | GPT-5.6 Sol ACCEPT | Locally accepted; hosted evidence recorded on PR #12 |
+| C / OBS-006,007 | Missing launch classification and interrupted-call status | 260 scenarios + 9 package tests | GPT-5.6 Sol ACCEPT after documentation correction | Locally accepted |
+| D / OBS-008,009 | OBS-008 characterization GREEN; OBS-009 coverage/diagnostic assertions failed | 33 focused OBS-003–009 tests pass; hosted run 36672162478 passed Windows/macOS/Linux, publish skipped | GPT-5.6 Sol ACCEPT at e3ee261 | [Checkpoint D evidence](obs-008-009.md) |
+| E / OBS-010 | Exact calculator, captured snapshot and invalid-before-inference assertions failed; review counterexamples then exposed real evidence, cache-bucket and valid-tamper gaps | Sequential build; 2 focused files / 10 tests pass; lint/typecheck | Local Qwen source ACCEPT missed adapter/integrity cases; independent Sol ACCEPT at `b57f441` after exact counterexamples | Locally accepted |
+| F / OBS-011 | Existing installed/public acceptance omitted status and invoke-only/legacy telemetry compatibility | Full gate: lint, typecheck, 67 files / 281 scenarios, installed archive 9/9; post-review lint + installed archive 10/10; live 1/1; hosted run `36679523915` passed Windows/macOS/Linux | Local Qwen drafts rejected for invented APIs; supervisor roadblock integration; independent Sol ACCEPT at `0a97d60` after installed-guide and build-freshness corrections | Accepted; publish skipped |
 
 For every row record actual test names, exact commands, the meaningful failing assertion, passing result, source revision, OS/Node version and unresolved limitations. Record lint/typecheck/full check at the appropriate checkpoints. Never replace a pending entry with an expected result from scenarios.md.
 
@@ -33,9 +33,15 @@ For every row record actual test names, exact commands, the meaningful failing a
 | --- | --- | --- | --- |
 | Codex | Pending | Pending | Pending |
 | Cursor | Pending | Pending | Pending |
-| OpenCode/Ollama | Pending | Pending | Pending |
+| OpenCode/Ollama | PASS: installed archive 1.0.0, OpenCode 1.18.32, local Qwen2 14.8B Q4_K_M | Pending | Pending |
 
 Prior provider invocation proof in folders 10/11 does not establish this slice's telemetry, cost or exact-input capture. For each future cell, record explicit authorization, CLI/model/Nodulus versions, fixture-GREEN prerequisite, command/result, sanitized evidence references and observed completeness. Unsupported usage remains an accepted limitation, not a fabricated measurement. Actual billing reconciliation remains out of scope.
+
+The final Windows OpenCode/Ollama cell used a freshly built, packed and isolated installation, not the older global builder CLI. Package 1.0.0 archive SHA-256 `405e93a533142542f3f069201534886cf3d4b7ed87aa6d883f50b74c84af0662` was packed from the dirty post-review checkpoint-F tree based on `133c56d`. Installed Nodulus invoked OpenCode 1.18.32 against `http://127.0.0.1:11434` with `ollama/qwen-nodulus-coder:latest` (Qwen2 14.8B Q4_K_M). Run `28e2158d-adbc-48ea-8808-a033ecc133a6`, call `3e768629-770c-47e5-9ee0-f46aec05b32e`, reported complete input 357, output 56, cache read 113, cache write/reasoning 0, provider-reported cost 0, and normalized input/output 470/56. The sanitized local evidence omits prompt and transcript. Every other matrix cell remains pending.
+
+The opt-in test builds before packing, so its standalone command cannot reuse stale `dist`: `$env:NODULUS_LIVE_OPENCODE='1'; $env:NODULUS_LIVE_OPENCODE_CONFIG=(Resolve-Path 'opencode.json'); $env:NODULUS_LIVE_OPENCODE_MODEL='ollama/qwen-nodulus-coder:latest'; npx vitest run tests/live/opencode-observability.live.test.ts`. The local config must resolve to a loopback Ollama endpoint; the harness rejects any other provider/model boundary before inference.
+
+Final hosted fixture run [36679523915](https://github.com/Rogeriohsjr/nodulus/actions/runs/36679523915) validated source head `42842fa` on Windows, macOS, and Ubuntu. All three jobs passed and the publish job was skipped. Hosted jobs use fixtures; they do not add live-provider matrix cells.
 
 
 
@@ -94,3 +100,11 @@ After the archive fix, full `npm run check` passed again with lint/typecheck, 18
 ## 2026-09-29 OBS006A characterization
 
 The obs-006-partial-provider-evidence.test.ts scenario now exercises a real OpenCode fixture emitting known usage then exiting 23. Reported counters and transport evidence survive with partial coverage; normalized totals and aggregate usage remain unknown, and two status reads do not infer again. This passes existing production code: no new RED or production implementation is claimed. See the [phase D report](../13-task-planning/qwen-recovery-report.md) for Qwen drafts, supervisor corrections and final validation. Parent OBS-006 remains unchecked; this does not cover timeout, truncation, output limits, readiness or killed-process status.
+
+## Checkpoint C completion: 2026-09-30
+
+On base `1f5ddba`, branch `codex/observability-completion`, missing launch classification and interrupted-call status assertions failed before implementation (`.nodulus/phase-f/lifecycle-red.txt` and `lifecycle-scaffold-red.txt`). Existing transport limits and counter validation passed characterization; no new RED is claimed for those behaviors.
+
+`npm run check` passed on Windows Node 24.15.0: lint, typecheck, **260 scenarios and 9 installed-package tests** (`.nodulus/phase-f/obs-c-check.txt`). Real fixture processes cover timeout, truncation, output cap, prelaunch failure and killed-process read-only status. Invalid usage never retries a valid artifact. GPT-5.6 Sol accepted after a documentation-only scope correction. Hosted acceptance is separate and pending for this revision.
+
+The [completion report](qwen-completion-report.md) records exact Qwen runs, supervisor fixes, tuning, failed attempts and improvement scenarios. The [lifecycle guide](obs-006-lifecycle.md) describes nullable launch evidence. OBS008–012 remain pending; no release or merge was performed.

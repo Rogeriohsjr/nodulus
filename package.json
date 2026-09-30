@@ -15,6 +15,7 @@
     "dist/**",
     "docs/user-guide.md",
     "docs/provider-usage.md",
+    "docs/cost-estimates.md",
     "README.md",
     "LICENSE",
     "NOTICE",

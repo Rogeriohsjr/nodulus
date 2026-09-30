@@ -1,4 +1,5 @@
 import { NodulusError } from "./shared/nodulus-error.js";
+import { parsePricingPolicy, type PricingPolicy } from "./pricing-snapshot.js";
 
 export type ProviderProfile = {
   enabled: boolean;
@@ -10,6 +11,7 @@ export type ProjectSettings = {
   schemaVersion: 1;
   defaultWorkflow: string;
   providerProfiles: Record<string, ProviderProfile>;
+  observability?: { pricing?: PricingPolicy; [setting: string]: unknown };
   [setting: string]: unknown;
 };
 
@@ -49,7 +51,23 @@ export function parseProjectSettings(contents: string): ProjectSettings {
     providerProfiles[name] = candidate as ProviderProfile;
   }
 
-  return { ...value, providerProfiles } as ProjectSettings;
+  let observability: ProjectSettings["observability"];
+  if (value.observability !== undefined) {
+    if (!isRecord(value.observability)) {
+      throw new NodulusError("INVALID_SETTINGS", ".nodulus/settings.json observability must be an object.");
+    }
+    const pricing = parsePricingPolicy(value.observability.pricing);
+    observability = {
+      ...value.observability,
+      ...(pricing === null ? {} : { pricing }),
+    };
+  }
+
+  return {
+    ...value,
+    providerProfiles,
+    ...(observability === undefined ? {} : { observability }),
+  } as ProjectSettings;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

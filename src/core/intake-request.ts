@@ -6,6 +6,8 @@ import { parseProjectSettings, type ProjectSettings } from "./project-settings.j
 import { resolveOutputReference } from "./workflow-mapping.js";
 import type { IntakeStorage, RunFiles } from "./ports/intake-storage.js";
 import { NodulusError } from "./shared/nodulus-error.js";
+import { createPricingSnapshot } from "./pricing-snapshot.js";
+import type { PricingSnapshot } from "./cost-estimate.js";
 
 export type RequestSource =
   | { kind: "inline"; text: string }
@@ -102,6 +104,7 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
   if (!isSafeId(request.workflow)) configError(`Workflow ID '${String(request.workflow)}' is invalid.`);
   const text = await normalizeRequest(request.sources, cwd, storage);
   const settings = await readSettings(projectRoot, storage);
+  const pricingSnapshot = await readPricingSnapshot(projectRoot, settings, storage);
   const workflow = await readWorkflow(projectRoot, request.workflow, storage);
   const nodes: NodeDefinition[] = [];
   const contracts: Record<string, unknown> = {};
@@ -166,6 +169,7 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
     "context/definitions.json": json({ schemaVersion: 1, engineVersion: "1.0.0", workflow, nodes, contracts, providerProfiles }),
     "run.json": json({ schemaVersion: 1, runId, phase: "intake", workflow: workflow.id }),
     "events.jsonl": `${JSON.stringify({ event: "run.intake.completed", runId, workflow: workflow.id, timestamp: new Date().toISOString(), sequence: 1 })}\n`,
+    ...(pricingSnapshot === null ? {} : { "pricing.json": json(pricingSnapshot) }),
   };
 
   let runDirectory: string;
@@ -175,6 +179,23 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
     throw new NodulusError("RUN_STORAGE_FAILED", `Could not persist the intake run: ${messageOf(error)}`);
   }
   return { runId, runDirectory };
+}
+
+async function readPricingSnapshot(
+  projectRoot: string,
+  settings: ProjectSettings,
+  storage: IntakeStorage,
+): Promise<PricingSnapshot | null> {
+  const policy = settings.observability?.pricing;
+  if (policy === undefined) return null;
+  const rateCardPath = resolveProjectFile(projectRoot, policy.rateCard, "Pricing rate card");
+  const contents = await readUtf8(
+    storage,
+    rateCardPath,
+    "CONFIGURATION_INVALID",
+    `Could not read pricing rate card '${policy.rateCard}'.`,
+  );
+  return createPricingSnapshot(policy, contents);
 }
 
 async function normalizeRequest(sources: RequestSource[], cwd: string, storage: IntakeStorage): Promise<string> {
