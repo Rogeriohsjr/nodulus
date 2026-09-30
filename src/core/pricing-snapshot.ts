@@ -63,9 +63,11 @@ export function parsePricingPolicy(value: unknown): PricingPolicy | null {
 export function createPricingSnapshot(policy: PricingPolicy, rawRateCard: string): PricingSnapshot {
   return {
     schemaVersion: 1,
-    hash: createHash("sha256").update(rawRateCard, "utf8").digest("hex"),
+    hash: snapshotHash(policy.mode, policy.rateCard, policy.hypotheticalApiEquivalent, rawRateCard),
+    rateCardHash: createHash("sha256").update(rawRateCard, "utf8").digest("hex"),
     rawRateCard,
     mode: policy.mode,
+    rateCard: policy.rateCard,
     hypotheticalApiEquivalent: policy.hypotheticalApiEquivalent,
     rates: parseRateCard(rawRateCard),
   };
@@ -75,11 +77,16 @@ export function parsePricingSnapshot(contents: string): PricingSnapshot {
   const parsed = parseJson(contents, "pricing snapshot");
   if (!isRecord(parsed) || parsed.schemaVersion !== 1) throw invalid("pricing snapshot must be a schemaVersion 1 object.");
   if (typeof parsed.hash !== "string" || !/^[0-9a-f]{64}$/.test(parsed.hash)) throw invalid("pricing snapshot hash must be 64 lowercase hexadecimal characters.");
+  if (typeof parsed.rateCardHash !== "string" || !/^[0-9a-f]{64}$/.test(parsed.rateCardHash)) throw invalid("pricing snapshot rateCardHash must be 64 lowercase hexadecimal characters.");
   if (typeof parsed.rawRateCard !== "string") throw invalid("pricing snapshot rawRateCard must be a string.");
-  const recomputedHash = createHash("sha256").update(parsed.rawRateCard, "utf8").digest("hex");
-  if (recomputedHash !== parsed.hash) throw invalid("pricing snapshot hash does not match its captured rate card.");
   if (!isValidMode(parsed.mode)) throw invalid("pricing snapshot mode must be api, local, or subscription.");
+  if (typeof parsed.rateCard !== "string" || parsed.rateCard.trim() === "") throw invalid("pricing snapshot rateCard must be a nonempty string.");
   if (typeof parsed.hypotheticalApiEquivalent !== "boolean") throw invalid("pricing snapshot hypotheticalApiEquivalent must be a boolean.");
+  const recomputedRateCardHash = createHash("sha256").update(parsed.rawRateCard, "utf8").digest("hex");
+  if (recomputedRateCardHash !== parsed.rateCardHash) throw invalid("pricing snapshot rate-card hash does not match its captured content.");
+  if (snapshotHash(parsed.mode, parsed.rateCard, parsed.hypotheticalApiEquivalent, parsed.rawRateCard) !== parsed.hash) {
+    throw invalid("pricing snapshot hash does not match its captured policy and rate card.");
+  }
   const rates = parseRates(parsed.rates);
   if (JSON.stringify(rates) !== JSON.stringify(parseRateCard(parsed.rawRateCard))) {
     throw invalid("pricing snapshot rates do not match its captured rate card.");
@@ -87,11 +94,18 @@ export function parsePricingSnapshot(contents: string): PricingSnapshot {
   return {
     schemaVersion: 1,
     hash: parsed.hash,
+    rateCardHash: parsed.rateCardHash,
     rawRateCard: parsed.rawRateCard,
     mode: parsed.mode,
+    rateCard: parsed.rateCard,
     hypotheticalApiEquivalent: parsed.hypotheticalApiEquivalent,
     rates,
   };
+}
+
+function snapshotHash(mode: PricingPolicy["mode"], rateCard: string, hypotheticalApiEquivalent: boolean, rawRateCard: string): string {
+  const captured = JSON.stringify({ schemaVersion: 1, mode, rateCard, hypotheticalApiEquivalent, rawRateCard });
+  return createHash("sha256").update(captured, "utf8").digest("hex");
 }
 
 function parseRateCard(contents: string): PricingRate[] {

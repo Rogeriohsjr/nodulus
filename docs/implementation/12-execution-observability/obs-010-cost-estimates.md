@@ -20,7 +20,7 @@ The external rate card has `schemaVersion: 1` and a nonempty `rates` array. Each
 
 ## Snapshot and resume
 
-Nodulus validates pricing before inference. It hashes the exact UTF-8 rate-card text with SHA-256 and writes the captured text, validated rates, policy, and hash to the run's immutable `pricing.json`. Resume and status use that captured file. On read, Nodulus recomputes the hash and validates that the stored rates equal the captured text. Changing or deleting the external rate card after intake does not change the run's estimates; changing valid-looking stored rates without updating the captured text is rejected.
+Nodulus validates pricing before inference. It records a SHA-256 of the exact UTF-8 rate-card text and a second SHA-256 over the captured schema version, policy fields, rate-card path, and raw content. The run's `pricing.json` contains those digests, the captured text, validated rates, and policy. Resume and status use that file. On read, Nodulus recomputes both digests and validates that the stored rates equal the captured text. Changing or deleting the external rate card after intake does not change the run's estimates; changing valid-looking stored rates or policy without updating the captured content is rejected.
 
 ## Status interpretation
 
@@ -34,10 +34,10 @@ API mode produces an estimate, not an invoice. Local and subscription modes rema
 
 ## Validation evidence
 
-The initial implementation was `274d68b`. After independent-review counterexamples, a sequential build followed by two focused scenario files passed nine tests on Windows Node 24.15.0. The scenarios cover:
+The initial implementation was `274d68b`. After independent-review counterexamples, a sequential build followed by two focused scenario files passed ten tests on Windows Node 24.15.0. The scenarios cover:
 
 - the exact USD 0.0022 result for 1,000 input, 200 inclusive cache, and 100 output tokens at rates of 2/1/4 per million;
-- real Codex/OpenCode normalized telemetry and source-reference evidence, reasoning no-double-counting, unknown inputs, cache writes without a rate, duplicate matches, and numeric overflow;
+- real Codex/OpenCode normalized telemetry and source-reference evidence, reasoning no-double-counting, unknown inputs, included/excluded cache writes without a rate, duplicate matches, and numeric overflow;
 - a frozen snapshot across fresh-process resume after the external rate card changes;
 - invalid policy and negative rates rejected before inference;
 - absent pricing compatibility, valid-shape snapshot tampering, corrupt snapshot diagnostics, JSON and text status, and separate provider-reported zero cost.
@@ -47,3 +47,5 @@ Local Qwen generated the pricing snapshot/parser and summary drafts. The calcula
 ## Limitations
 
 Estimates do not include electricity, subscription allocation, discounts, tiers, taxes, or invoice reconciliation. No hosted or live billing proof, release, merge, or publish is claimed.
+
+The hashes are internal consistency checks, not signatures or proof against an attacker who can rewrite the complete run directory.

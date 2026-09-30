@@ -11,8 +11,10 @@ export type PricingRate = {
 export type PricingSnapshot = {
   schemaVersion: 1;
   hash: string;
+  rateCardHash: string;
   rawRateCard: string;
   mode: "api" | "local" | "subscription";
+  rateCard: string;
   hypotheticalApiEquivalent: boolean;
   rates: PricingRate[];
 };
@@ -62,10 +64,13 @@ export function estimateProviderCost(
   if (inputTokens === null || !Number.isFinite(inputTokens) || inputTokens < 0) return unknown("Normalized input tokens are unavailable or invalid.");
   if (outputTokens === null || !Number.isFinite(outputTokens) || outputTokens < 0) return unknown("Normalized output tokens are unavailable or invalid.");
   if (cacheTokens === null || !Number.isFinite(cacheTokens) || cacheTokens < 0) return unknown("Reported cache-read tokens are unavailable or invalid.");
+  if (cacheWriteTokens !== null && (!Number.isFinite(cacheWriteTokens) || cacheWriteTokens < 0)) {
+    return unknown("Reported cache-write tokens are invalid.");
+  }
   if (telemetry.semantics.inputCache === "excluded" && (cacheWriteTokens === null || !Number.isFinite(cacheWriteTokens) || cacheWriteTokens < 0)) {
     return unknown("Reported cache-write tokens are unavailable or invalid for excluded-cache semantics.");
   }
-  if (telemetry.semantics.inputCache === "excluded" && cacheWriteTokens !== null && cacheWriteTokens > 0) {
+  if (cacheWriteTokens !== null && cacheWriteTokens > 0) {
     return unknown("Reported cache-write tokens have no configured cache-write rate.");
   }
   if (!Number.isFinite(rate.inputPerMillion) || rate.inputPerMillion < 0) return unknown("The input pricing rate is invalid.");

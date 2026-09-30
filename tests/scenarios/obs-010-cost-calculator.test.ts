@@ -25,8 +25,10 @@ function snapshot(overrides: Partial<PricingSnapshot> = {}): PricingSnapshot {
   return {
     schemaVersion: 1,
     hash: "abc",
+    rateCardHash: "def",
     rawRateCard: JSON.stringify({ schemaVersion: 1, rates: [{ id: "fictional-v1", provider: "codex", reportedModel: "fictional-verified", inputPerMillion: 2, cacheReadPerMillion: 1, outputPerMillion: 4 }] }),
     mode: "api",
+    rateCard: ".nodulus/fixtures/rates.json",
     hypotheticalApiEquivalent: false,
     rates: [{ id: "fictional-v1", provider: "codex", reportedModel: "fictional-verified", inputPerMillion: 2, cacheReadPerMillion: 1, outputPerMillion: 4 }],
     ...overrides,
@@ -97,6 +99,14 @@ test("OBS-010 leaves excluded-cache telemetry unknown when cache writes have no 
     counters: { inputTokens: 750, cacheReadTokens: 200, cacheWriteTokens: 50, outputTokens: 80, reasoningTokens: 20, costUsd: 0 },
   }], [], true, "fictional-verified");
   const estimate = estimateProviderCost(opencode, snapshot({ rates: [{ ...snapshot().rates[0]!, provider: "opencode" }] }));
+  expect(estimate.usd).toBeNull();
+  expect(estimate.diagnostics.join(" ")).toContain("cache-write");
+});
+
+test("OBS-010 leaves included-cache telemetry unknown when cache writes have no rate", () => {
+  const estimate = estimateProviderCost(telemetry({
+    reported: { ...telemetry().reported, cacheWriteTokens: 50 },
+  }), snapshot());
   expect(estimate.usd).toBeNull();
   expect(estimate.diagnostics.join(" ")).toContain("cache-write");
 });

@@ -64,7 +64,8 @@ test("OBS-010 snapshots pricing before inference and reuses it after fresh-proce
     const runDirectory = path.join(project, ".nodulus", "runs", runId);
     const pending = JSON.parse(readFileSync(path.join(runDirectory, "pending", "request.json"), "utf8"));
     const captured = JSON.parse(readFileSync(path.join(runDirectory, "pricing.json"), "utf8"));
-    expect(captured.hash).toBe(createHash("sha256").update(originalRates, "utf8").digest("hex"));
+    expect(captured.rateCardHash).toBe(createHash("sha256").update(originalRates, "utf8").digest("hex"));
+    expect(captured.hash).toBe(createHash("sha256").update(JSON.stringify({ schemaVersion: 1, mode: "api", rateCard: ".nodulus/fixtures/rates.json", hypotheticalApiEquivalent: false, rawRateCard: originalRates }), "utf8").digest("hex"));
 
     writeFileSync(ratePath, JSON.stringify({ schemaVersion: 1, rates: [{ ...captured.rates[0], inputPerMillion: 999 }] }), "utf8");
     const resumed = runDriver(["resume", project, pending.id], project);
@@ -90,6 +91,12 @@ test("OBS-010 snapshots pricing before inference and reuses it after fresh-proce
     const tamperedStatus = JSON.parse(JSON.stringify(await getRunStatus(project, runId)));
     expect(tamperedStatus.metrics.estimates).toBeUndefined();
     expect(tamperedStatus.diagnostics.messages).toEqual(expect.arrayContaining([expect.stringContaining("pricing.json is invalid")]));
+
+    const policyTampered = { ...captured, mode: "subscription", hypotheticalApiEquivalent: true };
+    writeFileSync(path.join(runDirectory, "pricing.json"), JSON.stringify(policyTampered), "utf8");
+    const policyTamperedStatus = JSON.parse(JSON.stringify(await getRunStatus(project, runId)));
+    expect(policyTamperedStatus.metrics.estimates).toBeUndefined();
+    expect(policyTamperedStatus.diagnostics.messages).toEqual(expect.arrayContaining([expect.stringContaining("pricing.json is invalid")]));
 
     writeFileSync(path.join(runDirectory, "pricing.json"), "{}", "utf8");
     const corruptStatus = JSON.parse(JSON.stringify(await getRunStatus(project, runId)));
