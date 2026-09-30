@@ -20,13 +20,13 @@ The external rate card has `schemaVersion: 1` and a nonempty `rates` array. Each
 
 ## Snapshot and resume
 
-Nodulus validates pricing before inference. It hashes the exact UTF-8 rate-card text with SHA-256 and writes the validated rates, policy, and hash to the run's immutable `pricing.json`. Resume and status use that captured file. Changing or deleting the external rate card after intake does not change the run's estimates.
+Nodulus validates pricing before inference. It hashes the exact UTF-8 rate-card text with SHA-256 and writes the captured text, validated rates, policy, and hash to the run's immutable `pricing.json`. Resume and status use that captured file. On read, Nodulus recomputes the hash and validates that the stored rates equal the captured text. Changing or deleting the external rate card after intake does not change the run's estimates; changing valid-looking stored rates without updating the captured text is rejected.
 
 ## Status interpretation
 
-A rate matches only verified, complete telemetry with the exact provider and provider-reported model. Nodulus never substitutes the requested model. Missing or incompatible models, counters, semantics, evidence, rates, or cache prices produce `null` estimates with diagnostics.
+A rate matches only complete telemetry with nonempty adapter evidence and the exact provider and provider-reported model. Adapter evidence is the versioned source reference saved by the normalizer; Nodulus never substitutes the requested model. Missing or incompatible models, counters, semantics, evidence, rates, or cache prices produce `null` estimates with diagnostics.
 
-With inclusive-cache semantics, cache-read tokens are subtracted from normalized input and billed at the cache rate. Normalized output is billed once; reasoning is not added again. Provider-reported cost and Nodulus estimates remain separate.
+Normalized input/output counts are inclusive. Cache-read tokens are subtracted from normalized input and billed at the cache rate, independent of whether the provider's raw input counter included them before normalization. Normalized output is billed once; reasoning is not added again. A positive cache-write bucket stays unknown because this policy has no cache-write rate. Provider-reported cost and Nodulus estimates remain separate.
 
 JSON status exposes `metrics.estimates` and `metrics.estimateCoverage`. Text status prints `Reported cost USD` and `Estimated cost USD` separately. A missing pricing policy preserves the existing status shape. A corrupt captured snapshot adds diagnostics without hiding reported usage.
 
@@ -34,13 +34,13 @@ API mode produces an estimate, not an invoice. Local and subscription modes rema
 
 ## Validation evidence
 
-At commit `274d68b`, a sequential build followed by two focused scenario files passed seven tests on Windows Node 24.15.0. The scenarios cover:
+The initial implementation was `274d68b`. After independent-review counterexamples, a sequential build followed by two focused scenario files passed nine tests on Windows Node 24.15.0. The scenarios cover:
 
 - the exact USD 0.0022 result for 1,000 input, 200 inclusive cache, and 100 output tokens at rates of 2/1/4 per million;
-- reasoning no-double-counting, unknown inputs, duplicate matches, and numeric overflow;
+- real Codex/OpenCode normalized telemetry and source-reference evidence, reasoning no-double-counting, unknown inputs, cache writes without a rate, duplicate matches, and numeric overflow;
 - a frozen snapshot across fresh-process resume after the external rate card changes;
 - invalid policy and negative rates rejected before inference;
-- absent pricing compatibility, corrupt snapshot diagnostics, JSON and text status, and separate provider-reported zero cost.
+- absent pricing compatibility, valid-shape snapshot tampering, corrupt snapshot diagnostics, JSON and text status, and separate provider-reported zero cost.
 
 Local Qwen generated the pricing snapshot/parser and summary drafts. The calculator needed a bounded supervisor roadblock repair after both Qwen attempts changed or misread the frozen telemetry types. The supervisor wrote coordinator wiring and corrected type narrowing. Local Qwen evidence review `aa88fed4-e28c-4fbf-a6f3-55836136cb92` returned `ACCEPT` from the supplied contract and results. A separate bounded source review of the actual calculator and snapshot modules, `c4bd0ac6-2051-4f62-8c1e-9aa28f301119`, also returned `ACCEPT`. Neither review executed tests; coordinator wiring remained outside the bounded Qwen source review and goes to independent Sol review.
 

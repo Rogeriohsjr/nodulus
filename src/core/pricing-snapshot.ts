@@ -61,14 +61,13 @@ export function parsePricingPolicy(value: unknown): PricingPolicy | null {
 }
 
 export function createPricingSnapshot(policy: PricingPolicy, rawRateCard: string): PricingSnapshot {
-  const parsed = parseJson(rawRateCard, "pricing rate card");
-  if (!isRecord(parsed) || parsed.schemaVersion !== 1) throw invalid("pricing rate card must be a schemaVersion 1 object.");
   return {
     schemaVersion: 1,
     hash: createHash("sha256").update(rawRateCard, "utf8").digest("hex"),
+    rawRateCard,
     mode: policy.mode,
     hypotheticalApiEquivalent: policy.hypotheticalApiEquivalent,
-    rates: parseRates(parsed.rates),
+    rates: parseRateCard(rawRateCard),
   };
 }
 
@@ -76,15 +75,29 @@ export function parsePricingSnapshot(contents: string): PricingSnapshot {
   const parsed = parseJson(contents, "pricing snapshot");
   if (!isRecord(parsed) || parsed.schemaVersion !== 1) throw invalid("pricing snapshot must be a schemaVersion 1 object.");
   if (typeof parsed.hash !== "string" || !/^[0-9a-f]{64}$/.test(parsed.hash)) throw invalid("pricing snapshot hash must be 64 lowercase hexadecimal characters.");
+  if (typeof parsed.rawRateCard !== "string") throw invalid("pricing snapshot rawRateCard must be a string.");
+  const recomputedHash = createHash("sha256").update(parsed.rawRateCard, "utf8").digest("hex");
+  if (recomputedHash !== parsed.hash) throw invalid("pricing snapshot hash does not match its captured rate card.");
   if (!isValidMode(parsed.mode)) throw invalid("pricing snapshot mode must be api, local, or subscription.");
   if (typeof parsed.hypotheticalApiEquivalent !== "boolean") throw invalid("pricing snapshot hypotheticalApiEquivalent must be a boolean.");
+  const rates = parseRates(parsed.rates);
+  if (JSON.stringify(rates) !== JSON.stringify(parseRateCard(parsed.rawRateCard))) {
+    throw invalid("pricing snapshot rates do not match its captured rate card.");
+  }
   return {
     schemaVersion: 1,
     hash: parsed.hash,
+    rawRateCard: parsed.rawRateCard,
     mode: parsed.mode,
     hypotheticalApiEquivalent: parsed.hypotheticalApiEquivalent,
-    rates: parseRates(parsed.rates),
+    rates,
   };
+}
+
+function parseRateCard(contents: string): PricingRate[] {
+  const parsed = parseJson(contents, "pricing rate card");
+  if (!isRecord(parsed) || parsed.schemaVersion !== 1) throw invalid("pricing rate card must be a schemaVersion 1 object.");
+  return parseRates(parsed.rates);
 }
 
 function parseJson(contents: string, description: string): unknown {

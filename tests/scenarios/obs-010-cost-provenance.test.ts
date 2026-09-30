@@ -85,6 +85,12 @@ test("OBS-010 snapshots pricing before inference and reuses it after fresh-proce
     expect(textStatus.stdout).toContain("Reported cost USD: 0");
     expect(textStatus.stdout).toContain("Estimated cost USD: 0.0044");
 
+    const tampered = { ...captured, rates: [{ ...captured.rates[0], inputPerMillion: 999 }] };
+    writeFileSync(path.join(runDirectory, "pricing.json"), JSON.stringify(tampered), "utf8");
+    const tamperedStatus = JSON.parse(JSON.stringify(await getRunStatus(project, runId)));
+    expect(tamperedStatus.metrics.estimates).toBeUndefined();
+    expect(tamperedStatus.diagnostics.messages).toEqual(expect.arrayContaining([expect.stringContaining("pricing.json is invalid")]));
+
     writeFileSync(path.join(runDirectory, "pricing.json"), "{}", "utf8");
     const corruptStatus = JSON.parse(JSON.stringify(await getRunStatus(project, runId)));
     expect(corruptStatus.metrics.totals.costUsd).toBe(0);

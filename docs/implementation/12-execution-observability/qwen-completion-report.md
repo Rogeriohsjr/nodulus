@@ -93,3 +93,9 @@ The first post-wiring provenance command ran beside typecheck without rebuilding
 - Size packets from observed throughput and the hard invocation clamp. An output ceiling that cannot complete before the effective timeout is a configuration error, not an unqualified model failure.
 - Build before any child fixture that imports `dist`, in the same sequential check command. A source-only typecheck does not refresh the installed/runtime artifact.
 - Supply the original request, rejected draft, exact interface, and executable error in every correction. The earlier fixture correction omitted prior context and failed for that reason; later self-contained corrections were inspectable even when their source was rejected.
+
+### Checkpoint E independent-review correction
+
+Independent review of `e3ee261..922c736` supplied three counterexamples that the local-Qwen source review and synthetic calculator tests missed. Production adapter evidence is a versioned source URL, not the fixture string `verified`; OpenCode's normalizer makes input/output inclusive even though its raw counters exclude cache/reasoning; and a syntactically valid persisted snapshot could change rates while retaining the hash of discarded external text.
+
+The corrected calculator accepts nonempty adapter evidence, prices disjoint buckets from normalized inclusive totals, and returns unknown when excluded-cache telemetry reports cache writes without a supported write rate. Exact Codex/OpenCode normalizer regressions protect those contracts. Pricing snapshots now retain the exact raw rate card, recompute its SHA-256 on read, and require the stored normalized rates to equal that captured content. A valid-shape rate mutation with the old hash is rejected. These are scenario improvements: future source review packets must include actual adapter-produced objects and valid adversarial persistence examples, not only hand-built nominal objects and broken JSON.
