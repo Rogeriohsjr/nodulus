@@ -1,6 +1,6 @@
 # Implementation sequence and AI handoff
 
-**Checkpoints A–E are locally and independently accepted as of 2026-09-30.** Checkpoint F has focused package/API validation and one authorized Windows OpenCode/Ollama live result; final review, full gate, and hosted fixture proof remain pending. See [evidence](evidence.md) and [checkpoint D evidence](obs-008-009.md) for tested behavior and the local Qwen/coordinator role split.
+**Checkpoints A–F are locally and independently accepted as of 2026-09-30.** OBS-012 has one authorized Windows OpenCode/Ollama live result; every other live matrix cell and final hosted fixture proof remain pending. See [evidence](evidence.md) and [checkpoint D evidence](obs-008-009.md) for tested behavior and the local Qwen/coordinator role split.
 
 Read [architecture](../../architecture.md), [testing policy](../../testing.md), [code quality](../../code-quality.md), the [scenario TDD skill](../../../.agents/skills/nodulus-scenario-tdd/SKILL.md), and this folder's design/scenarios. Use the [delivery validation skill](../../../.agents/skills/nodulus-delivery-validation/SKILL.md) for the local archive handoff. No new skill is required: this checklist specializes the existing skills.
 
@@ -50,10 +50,10 @@ Read [architecture](../../architecture.md), [testing policy](../../testing.md), 
 
 - [x] Implement OBS-011 through existing exported API and local archive test harness. Preserve invoke-only and legacy custom provider compatibility.
 - [x] Update the user/provider guides, scenario index and evidence files to describe behavior actually implemented; ship linked public documentation in the archive.
-- [ ] Run the complete local quality gate; inspect the diff for scope and unintended recorded transcripts/secrets.
+- [x] Run the complete local quality gate; inspect the diff for scope and unintended recorded transcripts/secrets.
 - [ ] Obtain hosted fixture results for Windows/macOS/Linux through the existing CI. Any required Actions configuration changes are an item-specific non-TDD exception and need static/hosted evidence, not invented RED.
 - [x] After explicit live authorization, execute the Windows OpenCode/Ollama cell through a freshly packed and installed archive. Keep every untested provider/platform cell pending.
-- [ ] Record reviewed revision, commits/PR and limitations. Mark implementation acceptance independently from optional live-provider acceptance.
+- [x] Record reviewed revision and limitations at `0a97d60`. Mark implementation acceptance independently from optional live-provider acceptance; PR/hosted results follow after push.
 
 ## Test commands
 

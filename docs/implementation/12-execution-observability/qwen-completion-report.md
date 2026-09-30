@@ -29,7 +29,7 @@ For the status-reader packet, 12K context gives room for the actual frozen proce
 
 ## Delivery status
 
-Checkpoint D (OBS008/009) and checkpoint E (OBS010) are locally and independently accepted. OBS011 has focused public API and installed-archive GREEN. OBS012 has one authorized Windows OpenCode/Ollama live result; all other provider/platform cells remain pending. No release or registry publish. Exact local-model worker run IDs/raw transcripts remain under the local .nodulus/phase-f experiment ledger.
+Checkpoints D–F (OBS008–012) are locally and independently accepted. OBS012 acceptance has one authorized Windows OpenCode/Ollama live result; all other provider/platform cells remain pending. The final local gate passed lint, typecheck, 67 scenario files / 281 tests, and nine installed-package tests. After review added the installed-guide regression, lint and all ten package tests passed; no runtime source changed, so the 281 scenarios were not repeated. No release or registry publish. Exact local-model worker run IDs/raw transcripts remain under the local .nodulus/phase-f experiment ledger.
 
 ## Checkpoint C accepted results
 

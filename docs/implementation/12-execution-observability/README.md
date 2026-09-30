@@ -1,6 +1,6 @@
 # 12: Inspect execution traces, provider usage, and cost
 
-Status on 2026-09-30: **checkpoints A–E (OBS-001–010) are locally and independently accepted; checkpoint F (OBS-011/012) has focused package/API validation and one authorized Windows OpenCode/Ollama live cell, with final review and full gate pending**. Qwen generated drafts through Nodulus/OpenCode on localhost Ollama; supervisor integration and factual review remain explicit. See [evidence](evidence.md), the [execution/improvements report](qwen-execution-report.md), [checkpoint D evidence](obs-008-009.md), and the [OBS-010 cost guide](obs-010-cost-estimates.md). Publishing remains outside this scope.
+Status on 2026-09-30: **checkpoints A–F (OBS-001–012) are locally and independently accepted**. OBS-012 acceptance includes only the authorized Windows OpenCode/Ollama live cell; every other live provider/platform cell remains pending. Qwen generated drafts through Nodulus/OpenCode on localhost Ollama; supervisor integration and factual review remain explicit. See [evidence](evidence.md), the [execution/improvements report](qwen-execution-report.md), [checkpoint D evidence](obs-008-009.md), and the [OBS-010 cost guide](obs-010-cost-estimates.md). Final hosted fixture proof is pending; publishing remains outside this scope.
 
 As a user, I want to inspect each workflow step, see the instructions Nodulus sent and the response it received, understand validation and repairs, and compare available token usage and cost without confusing estimates with charges.
 
@@ -28,7 +28,7 @@ This slice extends the existing local run store, provider adapters, and status c
 | [x] | C: Partial evidence and telemetry failures | OBS-006, OBS-007 | B |
 | [x] | D: Repair/resume accounting and status | OBS-008, OBS-009 | C |
 | [x] | E: Optional reproducible cost estimates | OBS-010 | D; focused checks and independent review accepted at `b57f441` |
-| [ ] | F: Portable acceptance and developer handoff | OBS-011, OBS-012 | E; focused acceptance complete, final gate/review pending |
+| [x] | F: Portable acceptance and developer handoff | OBS-011, OBS-012 | E; local gate and independent review accepted at `0a97d60`; optional live cells remain pending |
 
 Implementation boxes are checked only with recorded evidence. Fixture GREEN is required for local acceptance; live compatibility has its own matrix and requires later authorization. An unavailable optional live CLI must not block the normal offline test suite.
 
