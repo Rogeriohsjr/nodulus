@@ -10,6 +10,9 @@ import { appendRunEvent } from "../core/execution-events.js";
 import type { ApplicationRunResult, ProviderPort } from "./run-workflow.js";
 import { readCallEvidence, type CallEvidence } from './call-evidence.js';
 import { summarizeRunMetrics, type RunMetrics } from "./summarize-run-metrics.js";
+import { summarizeCostEstimates } from "./summarize-cost-estimates.js";
+import { parsePricingSnapshot } from "../core/pricing-snapshot.js";
+import type { PricingSnapshot } from "../core/cost-estimate.js";
 
 export type ResumeWorkflowRequest = {
   projectRoot: string;
@@ -63,9 +66,10 @@ export async function getRunStatus(
   storage: IntakeStorage = new LocalIntakeStorage(),
 ): Promise<RunStatusResult> {
   const checkpoint = await readCheckpoint(projectRoot, runId, storage);
-  const [eventResult, rawMetrics] = await Promise.all([
+  const [eventResult, rawMetrics, rawPricing] = await Promise.all([
     readRunEvents(projectRoot, runId, storage),
     readOptionalRunFile(projectRoot, runId, "metrics.json", storage),
+    readOptionalRunFile(projectRoot, runId, "pricing.json", storage),
   ]);
   const startedCalls = eventResult.events.flatMap((event) => {
     if (typeof event !== "object" || event === null || Array.isArray(event)) return [];
@@ -75,6 +79,19 @@ export async function getRunStatus(
       : [];
   });
   const { metrics, diagnostics: metricDiagnostics } = summarizeRunMetrics(rawMetrics, startedCalls);
+  const pricingDiagnostics: string[] = [];
+  let pricingSnapshot: PricingSnapshot | null = null;
+  if (rawPricing !== null) {
+    try { pricingSnapshot = parsePricingSnapshot(rawPricing); }
+    catch (error) { pricingDiagnostics.push(`pricing.json is invalid: ${messageOf(error)}`); }
+  }
+  const estimates = summarizeCostEstimates(
+    metrics.calls,
+    metrics.coverage.inputTokens.totalCalls,
+    pricingSnapshot,
+  );
+  if (estimates.estimates !== undefined) metrics.estimates = estimates.estimates;
+  if (estimates.coverage !== undefined) metrics.estimateCoverage = estimates.coverage;
   let pendingRequest: unknown;
   if (checkpoint.status === "needs_input") {
     try {
@@ -92,7 +109,7 @@ export async function getRunStatus(
     metrics,
     diagnostics: {
       incompleteTrailingEvent: eventResult.incompleteTrailingEvent,
-      messages: [...eventResult.diagnostics, ...metricDiagnostics],
+      messages: [...eventResult.diagnostics, ...metricDiagnostics, ...pricingDiagnostics, ...estimates.diagnostics],
     },
     ...(pendingRequest === undefined ? {} : { pendingRequest }),
   };

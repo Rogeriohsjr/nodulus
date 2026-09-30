@@ -191,6 +191,9 @@ export async function runCli(
           output.writeOut(`${formatMetricCoverage("Output tokens", status.metrics.coverage.outputTokens)}\n`);
           output.writeOut(`${formatMetricCoverage("Cache-read tokens", status.metrics.coverage.cacheReadTokens)}\n`);
           output.writeOut(`${formatMetricCoverage("Reported cost USD", status.metrics.coverage.costUsd)}\n`);
+          if (status.metrics.estimateCoverage) {
+            output.writeOut(`${formatMetricCoverage("Estimated cost USD", status.metrics.estimateCoverage)}\n`);
+          }
         }
       }
     });

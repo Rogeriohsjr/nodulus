@@ -1,4 +1,5 @@
 import type { ProviderCallMetric, ProviderUsage } from "../core/ports/provider.js";
+import type { CostEstimateCoverage, CostEstimateRecord } from "./summarize-cost-estimates.js";
 
 export type MetricField = keyof ProviderUsage;
 export type MetricCoverage = {
@@ -14,6 +15,8 @@ export type RunMetrics = {
   coverage: Record<MetricField, MetricCoverage>;
   origins: MetricOrigin[];
   groups: RunMetricGroup[];
+  estimates?: CostEstimateRecord[];
+  estimateCoverage?: CostEstimateCoverage;
 };
 export type RunMetricGroup = {
   nodeId: string;
