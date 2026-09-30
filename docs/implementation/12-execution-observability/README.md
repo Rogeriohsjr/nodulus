@@ -1,6 +1,6 @@
 # 12: Inspect execution traces, provider usage, and cost
 
-Status on 2026-09-30: **checkpoints A–F (OBS-001–012) are locally and independently accepted**. OBS-012 acceptance includes only the authorized Windows OpenCode/Ollama live cell; every other live provider/platform cell remains pending. Qwen generated drafts through Nodulus/OpenCode on localhost Ollama; supervisor integration and factual review remain explicit. See [evidence](evidence.md), the [execution/improvements report](qwen-execution-report.md), [checkpoint D evidence](obs-008-009.md), and the [OBS-010 cost guide](obs-010-cost-estimates.md). Final hosted fixture proof is pending; publishing remains outside this scope.
+Status on 2026-09-30: **checkpoints A–F (OBS-001–012) are locally, independently, and hosted-fixture accepted**. OBS-012 acceptance includes only the authorized Windows OpenCode/Ollama live cell; every other live provider/platform cell remains pending. Qwen generated drafts through Nodulus/OpenCode on localhost Ollama; supervisor integration and factual review remain explicit. See [evidence](evidence.md), the [execution/improvements report](qwen-execution-report.md), [checkpoint D evidence](obs-008-009.md), and the [OBS-010 cost guide](obs-010-cost-estimates.md). Publishing remains outside this scope.
 
 As a user, I want to inspect each workflow step, see the instructions Nodulus sent and the response it received, understand validation and repairs, and compare available token usage and cost without confusing estimates with charges.
 

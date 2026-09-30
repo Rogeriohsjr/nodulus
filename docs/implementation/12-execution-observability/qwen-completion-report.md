@@ -31,6 +31,8 @@ For the status-reader packet, 12K context gives room for the actual frozen proce
 
 Checkpoints D–F (OBS008–012) are locally and independently accepted. OBS012 acceptance has one authorized Windows OpenCode/Ollama live result; all other provider/platform cells remain pending. The final local gate passed lint, typecheck, 67 scenario files / 281 tests, and nine installed-package tests. After review added the installed-guide regression, lint and all ten package tests passed; no runtime source changed, so the 281 scenarios were not repeated. No release or registry publish. Exact local-model worker run IDs/raw transcripts remain under the local .nodulus/phase-f experiment ledger.
 
+Hosted fixture run `36679523915` passed Windows, macOS, and Ubuntu at source head `42842fa`; the publish job was skipped. This hosted result does not expand the one-cell live-provider matrix.
+
 ## Checkpoint C accepted results
 
 Full checkpoint C `npm run check` passed on Windows: lint, typecheck, 260 scenario tests and 9 installed-package tests. OBS006 covers nonzero exit, timeout, truncated terminal JSON, 2 MiB output cap, readiness not-launched evidence and a controlled killed workflow inspected from a fresh process. OBS007 covers six malformed token cases, valid zero/fractional and invalid cost values, prior-call isolation, prelaunch persistence failure and optional telemetry-write isolation. Later D/E evidence is recorded below.

@@ -51,7 +51,7 @@ Read [architecture](../../architecture.md), [testing policy](../../testing.md), 
 - [x] Implement OBS-011 through existing exported API and local archive test harness. Preserve invoke-only and legacy custom provider compatibility.
 - [x] Update the user/provider guides, scenario index and evidence files to describe behavior actually implemented; ship linked public documentation in the archive.
 - [x] Run the complete local quality gate; inspect the diff for scope and unintended recorded transcripts/secrets.
-- [ ] Obtain hosted fixture results for Windows/macOS/Linux through the existing CI. Any required Actions configuration changes are an item-specific non-TDD exception and need static/hosted evidence, not invented RED.
+- [x] Obtain hosted fixture results for Windows/macOS/Linux through the existing CI. Run `36679523915` passed all three validation jobs at source head `42842fa`; publish was skipped.
 - [x] After explicit live authorization, execute the Windows OpenCode/Ollama cell through a freshly packed and installed archive. Keep every untested provider/platform cell pending.
 - [x] Record reviewed revision and limitations at `0a97d60`. Mark implementation acceptance independently from optional live-provider acceptance; PR/hosted results follow after push.
 
