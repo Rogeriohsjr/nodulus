@@ -17,3 +17,7 @@ Scope for this run: reusable planning workflow, template/context preparation, de
 Use actual application workflows, files and processes; fake only external inference for offline scenarios. Templates/docs are the documented non-TDD exception; changed validation/application behavior requires observed RED. The final package check follows documentation changes.
 
 Acceptance evidence: [recorded checks](evidence.md), [new run report](qwen-planning-pilot-report.md), and [usage ledger](qwen-phase-c-ledger.json). These checks establish the bounded supervised slice, not autonomous multi-packet delivery.
+
+## Phase D: bounded remaining-phase recovery
+
+The follow-up implements the planning report's IMP-11 in the packaged helpers. Read the [recovery behavior](phase-recovery.md), [new execution report](qwen-recovery-report.md) and [D usage ledger](qwen-phase-d-ledger.json). A live localhost-Qwen demonstration recovered documentation/review with one code call/application overall. The builder still needed substantial supervisor corrections. OBS006A adds a characterization test for existing nonzero-exit usage retention; parent OBS-006 remains open.

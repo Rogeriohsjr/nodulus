@@ -11,6 +11,7 @@ import { assertReadyDependencies } from './runtime.mjs';
 
 const read = file => JSON.parse(readFileSync(file, 'utf8'));
 const save = (file, value) => writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
+const runtimeHelpers = ['io.mjs', 'runtime.mjs', 'recovery.mjs', 'recovery-state.mjs'];
 const [command, first, second, third, approvedTestHash] = process.argv.slice(2);
 try {
   if (command === 'setup') {
@@ -24,7 +25,7 @@ try {
       const destination = path.join(target, relative);
       if (existsSync(destination) && readFileSync(destination, 'utf8') !== readFileSync(path.join(source, relative), 'utf8')) throw Error(`Existing definition differs: ${relative}`);
     }
-    for (const name of ['io.mjs', 'runtime.mjs']) {
+    for (const name of runtimeHelpers) {
       const original = fileURLToPath(new URL(name, import.meta.url));
       const destination = path.join(target, 'task-tools', name);
       if (existsSync(destination) && readFileSync(destination, 'utf8') !== readFileSync(original, 'utf8')) throw Error(`Existing task helper differs: ${name}`);
@@ -39,7 +40,7 @@ try {
       if (!existsSync(destination)) cpSync(path.join(source, relative), destination);
     }
     const tools = path.join(target, 'task-tools'); mkdirSync(tools, { recursive: true });
-    for (const name of ['io.mjs', 'runtime.mjs']) {
+    for (const name of runtimeHelpers) {
       const original = fileURLToPath(new URL(name, import.meta.url));
       const destination = path.join(tools, name);
       if (existsSync(destination) && readFileSync(destination, 'utf8') !== readFileSync(original, 'utf8')) throw Error(`Existing task helper differs: ${name}`);

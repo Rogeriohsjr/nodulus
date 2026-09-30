@@ -56,3 +56,7 @@ Product proposals should remain provider-neutral. Qwen aliases, manifest paths, 
 ## Verification
 
 See [evidence](evidence.md) for precise RED/GREEN, package and review results. Hosted checks are separate from Windows live-local-provider proof. Qwen review consumed supplied artifacts/check evidence and did not execute checks itself.
+
+### Phase D follow-up
+
+The [recovery experiment](qwen-recovery-report.md) now implements this report's IMP-11 at helper level and measures a live recovery with no repeated accepted-code call/application. The generator replaces the manually constructed remaining-phase definition above. It does not establish autonomous building or total token savings: Qwen required substantial supervisor fixes. OBS006A now characterizes existing nonzero-exit usage retention, while parent OBS-006 remains pending. The new report qualifies IMP-11 to distinguish it from the older observability report's packaging lesson with the same identifier.

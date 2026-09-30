@@ -27,3 +27,7 @@ Post-RED mutation regression: 08:59:26 EDT, two real test commands changed the a
 - `npm run check`: PASS on the final code/packaged-doc state, 2026-09-29 09:01 EDT: lint, typecheck, 222 scenario tests in 51 files, then 8 actual archive/installation/upgrade tests. PKG-008 verifies the installed shim, bundled hidden workflow assets, helper modules, local provider config and idempotent setup.
 - First full attempt: one pre-existing NODE-003 timeout fixture saw its delayed marker despite timeout under concurrent load. The isolated five-case file passed; the unchanged full command then passed. No timeout assertion or production termination logic was weakened. This is an observed intermittent failure, not a proven root cause.
 - No public npm release or merge performed. Hosted CI evidence remains separate: see [PR #13 checks](https://github.com/Rogeriohsjr/nodulus/pull/13/checks) for the exact head revision. The PR is stacked on #12.
+
+## Phase D follow-up
+
+Planning IMP-11 adds accepted evidence persistence and deterministic remaining-phase recovery; twelve source scenarios pass. A controlled localhost-Qwen exercise succeeds with one code inference/application and unchanged test. OBS006A adds one passing nonzero-exit characterization case against existing production behavior. The [new report](qwen-recovery-report.md) and [ledger](qwen-phase-d-ledger.json) record exact run IDs, usage, rejected drafts and supervisor contributions. Final package/hosted checks are recorded in that report.

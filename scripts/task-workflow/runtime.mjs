@@ -1,6 +1,20 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { prepareRecovery } from './recovery.mjs';
 import { applyFile, digest, confinedPath, fileHash, runCheck } from './io.mjs';
+
+export { prepareRecovery };
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  try {
+    if (process.argv[2] !== 'recover' || !process.argv[3] || process.argv.length !== 4) throw Error('Usage: node runtime.mjs recover <project>');
+    console.log(JSON.stringify(prepareRecovery(path.resolve(process.argv[3]))));
+  } catch (error) {
+    console.error(JSON.stringify({ error: error.message }));
+    process.exitCode = 1;
+  }
+}
 
 export function runPhase(project, phase, artifact) {
   const statePath = path.join(project, '.nodulus/task-execution.json');
@@ -33,6 +47,15 @@ export function runPhase(project, phase, artifact) {
   }
   for (const [relative, hash] of Object.entries(state.hashes)) if (fileHash(confinedPath(state.repo.root, relative)) !== hash) errors.push(`Check changed a frozen file: ${relative}`);
   if (!errors.length) {
+    state.accepted ??= {};
+    state.accepted[phase] = {
+      artifact,
+      artifactHash: digest(JSON.stringify(artifact)),
+      checks: phase === 'review' ? [] : state.task.testing.checkIds.map(id => {
+        const relative = path.posix.join('.nodulus/task-receipts', state.executionId, `${phase}-${id}.json`);
+        return { path: relative, sha256: fileHash(path.join(project, relative)) };
+      }),
+    };
     state.completed.push(phase);
     writeFileSync(statePath, JSON.stringify(state, null, 2));
     if (phase === 'review') {

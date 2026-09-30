@@ -42,6 +42,12 @@ test("PKG-008 installed task helper includes executable workflows and preserves 
   expect(setup.status, String(setup.stderr)).toBe(0);
   expect(existsSync(path.join(project, ".nodulus/workflows/task-plan.json"))).toBe(true);
   expect(existsSync(path.join(project, ".nodulus/task-tools/runtime.mjs"))).toBe(true);
+  for (const helper of ["io.mjs", "recovery.mjs", "recovery-state.mjs"]) {
+    expect(existsSync(path.join(project, ".nodulus/task-tools", helper)), `setup must install ${helper}`).toBe(true);
+  }
+  const recovery = crossSpawn.sync(process.execPath, [path.join(project, ".nodulus/task-tools/runtime.mjs"), "recover", project], { encoding: "utf8", timeout: 30000, windowsHide: true });
+  expect(recovery.status).toBe(1);
+  expect(JSON.parse(recovery.stderr).error).toBe("Task execution state not found");
   expect(JSON.parse(readFileSync(path.join(project, "opencode.json"), "utf8")).enabled_providers).toEqual(["ollama"]);
   const second = crossSpawn.sync(shim, ["setup", project], { cwd: scratch, encoding: "utf8", timeout: 30000, windowsHide: true });
   expect(second.status, String(second.stderr)).toBe(0);

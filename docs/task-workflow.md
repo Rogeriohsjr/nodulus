@@ -90,6 +90,19 @@ All exceptions need trusted replacement check IDs. A generic command such as `no
 - `.nodulus/task-receipts/<executionId>/`: RED, apply attempts and check stdout/stderr/exit status.
 - `.nodulus/task-completed/<contextHash>/<taskId>.json`: accepted review, exact task hash and final captured file hashes.
 
-Keep these local files out of commits; publish sanitized reports separately. The current workflow stops on a rejected artifact and does not automatically rerun a completed code phase. Failed checks can leave the proposed file in the worktree for inspection. Preserve receipts and diagnose the exact phase; a supervisor must prepare a bounded correction or remaining-phase workflow. Do not delete state and blindly replay implementation. There is no multi-file rollback, whole-workflow token budget, concurrency lock or automatic multi-packet scheduler. Use one execution at a time in a dedicated checkout, preserve unfinished work, and obtain strong review at a stable checkpoint.
+Keep these local files out of commits; publish sanitized reports separately. The workflow stops on a rejected artifact and does not automatically rerun a completed code phase. Failed checks can leave the proposed file in the worktree for inspection.
+
+After accepted code or documentation, prepare one bounded recovery using the installed helper:
+
+```sh
+node .nodulus/task-tools/runtime.mjs recover .
+nodulus run --workflow task-recover --inputs-file .nodulus/task-recover-inputs.json --request-file correction.md --json
+```
+
+Write `correction.md` with the exact rejected phase's error and required correction. Preparation verifies accepted artifact/check digests and frozen files, reruns the trusted checks, refreshes captured source, then generates only the remaining nodes. Accepted code resumes at documentation; accepted code and documentation resume at review. A documentation-only task resumes at review. The generated workflow never includes the accepted code node.
+
+Only one recovery preparation is allowed per selected execution. Missing legacy evidence, changed files/receipts, failing checks, completed executions and unsupported phase order are rejected. This requires the updated helper set from setup: `io.mjs`, `runtime.mjs`, `recovery.mjs` and `recovery-state.mjs`. Setup refuses differing existing helpers; preserve old executions and use a fresh worktree for the updated setup. It does not reconstruct evidence for older executions or silently overwrite helpers.
+
+Do not delete state and blindly replay implementation. The preparation bound is not an inference budget: manually relaunching a generated workflow is still operator-controlled, and completed-phase validators reject replay. There is no multi-file rollback, whole-workflow token budget, concurrency lock or automatic multi-packet scheduler. Use one execution at a time in a dedicated checkout, preserve unfinished work, and obtain strong review at a stable checkpoint.
 
 The planning pilot report in the repository records both successes and coordinator interventions. A local provider's reported zero dollar cost excludes electricity and separate coordinator/reviewer account usage.

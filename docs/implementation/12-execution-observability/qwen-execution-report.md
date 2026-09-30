@@ -128,3 +128,7 @@ After the packaging correction, full local `npm run check` passed again (183 sce
 ## Checkpoint C: reusable planning pilot (2026-09-29)
 
 See the [separate run report](../13-task-planning/qwen-planning-pilot-report.md), [C ledger](../13-task-planning/qwen-phase-c-ledger.json) and [evidence](../13-task-planning/evidence.md). Reusable planning, one-file apply/check gates and explicit test-hash approval are now implemented as packaged workflow helpers. IMP-04/05/07 are partially delivered, not fully completed product proposals. Local Qwen implemented OBS007A; parent OBS-007 stays pending. The new report explains each improvement with its motivating scenario and acceptance limit, and records substantial coordinator intervention. No unattended-development claim is made.
+
+## Phase D follow-up
+
+[Recovery report](../13-task-planning/qwen-recovery-report.md): the planning report's IMP-11 now generates remaining documentation/review nodes from verified accepted evidence. This is distinct from this report's earlier packaging IMP-11. A live localhost-Qwen exercise succeeded with one code inference/application, but building the change still required substantial supervisor corrections. OBS006A adds a real-process characterization test for already-working nonzero-exit partial usage. Parent OBS-006 remains open.

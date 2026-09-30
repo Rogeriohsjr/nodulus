@@ -1,0 +1,622 @@
+{
+  "date": "2026-09-29",
+  "base": "e3441c7d7aa5a4d6782c473a043b8e21909c001e",
+  "endpoint": "http://127.0.0.1:11434/v1",
+  "model": "ollama/qwen-nodulus-coder:latest",
+  "versions": {
+    "node": "24.15.0",
+    "opencode": "1.18.32",
+    "ollama": "0.35.0",
+    "ollamaPrior": "0.32.15"
+  },
+  "summary": {
+    "runs": 18,
+    "recordedCalls": 20,
+    "actualLocalInferenceCalls": 19,
+    "controlledInjectedCalls": 1,
+    "responseRepairCalls": 0,
+    "reportedInputTokens": 59925,
+    "reportedOutputTokens": 15187,
+    "normalizedInputTokens": 67155,
+    "normalizedOutputTokens": 15187,
+    "elapsedSeconds": 430.198,
+    "providerReportedCostUsd": 0,
+    "allRawStepCountersMatch": true
+  },
+  "liveProof": {
+    "initialRun": "08215bd3-80f8-42aa-82cf-57c7c49db067",
+    "recoveryRun": "c4434ecf-e0bc-4a2d-a67f-344dd1b17e02",
+    "actualProviderNodes": [
+      "packet-code",
+      "recovery-docs",
+      "recovery-review"
+    ],
+    "injectedNodes": [
+      "packet-docs"
+    ],
+    "sourceApplications": 1,
+    "testUnchanged": true,
+    "redExit": 1,
+    "greenExit": 0
+  },
+  "notes": [
+    "Elapsed is summed captured provider-call time, not total human/coordinator elapsed.",
+    "Provider-reported zero excludes electricity and coordinator/Sol usage.",
+    "Rejected drafts and coordinator corrections are described in qwen-recovery-report.md.",
+    "Raw transport step_finish counters independently deduplicated by session/part id."
+  ],
+  "runs": [
+    {
+      "packet": "01-plan",
+      "runId": "45c1e256-5882-426c-a457-f20e186bf848",
+      "status": "error",
+      "error": "RESPONSE_REPAIR_UNAVAILABLE",
+      "requestCharacters": 1548,
+      "calls": [
+        {
+          "callId": "ca0976bf-3fc3-449c-9aaf-5eca918cc667",
+          "nodeId": "task-plan",
+          "operation": "invoke",
+          "elapsedMs": 49795.653399999996,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 5447,
+            "outputTokens": 452,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 5447,
+            "outputTokens": 452
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    },
+    {
+      "packet": "01b-plan",
+      "runId": "194add19-5c5d-4a7d-9634-21f50ca9b253",
+      "status": "error",
+      "error": "RESPONSE_REPAIR_UNAVAILABLE",
+      "requestCharacters": 3778,
+      "calls": [
+        {
+          "callId": "a9be3a90-da15-475a-830a-811339195f4e",
+          "nodeId": "task-plan",
+          "operation": "invoke",
+          "elapsedMs": 20858.171,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 6026,
+            "outputTokens": 474,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 6029,
+            "outputTokens": 474
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    },
+    {
+      "packet": "02-tests",
+      "runId": "969e2aa7-85f7-4e97-98a3-33063cc679c9",
+      "status": "error",
+      "error": "RESPONSE_REPAIR_UNAVAILABLE",
+      "requestCharacters": 10614,
+      "calls": [
+        {
+          "callId": "1d2983d7-cac1-479f-bac1-5f39cc57cdc6",
+          "nodeId": "qwen-artifact",
+          "operation": "invoke",
+          "elapsedMs": 9066.3259,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 3973,
+            "outputTokens": 25,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 3976,
+            "outputTokens": 25
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    },
+    {
+      "packet": "02b-tests",
+      "runId": "6a50b2d4-e4a0-4b72-8aa0-15c1e87a4ebe",
+      "status": "success",
+      "error": null,
+      "requestCharacters": 9505,
+      "calls": [
+        {
+          "callId": "92caa02e-63c7-459f-865c-e34d764b3553",
+          "nodeId": "qwen-artifact",
+          "operation": "invoke",
+          "elapsedMs": 25594.7029,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 3775,
+            "outputTokens": 1187,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 3778,
+            "outputTokens": 1187
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    },
+    {
+      "packet": "03-implement",
+      "runId": "03ac1809-3bde-432e-a8f9-31e073079004",
+      "status": "error",
+      "error": "RESPONSE_REPAIR_UNAVAILABLE",
+      "requestCharacters": 3333,
+      "calls": [
+        {
+          "callId": "bb065bad-cbcf-46fa-83a7-1bface40c92f",
+          "nodeId": "packet-code",
+          "operation": "invoke",
+          "elapsedMs": 46066.2454,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 6807,
+            "outputTokens": 2313,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 6810,
+            "outputTokens": 2313
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    },
+    {
+      "packet": "03b-implement",
+      "runId": "1f6d108e-3b89-46f1-8cf1-424cac75c2ba",
+      "status": "error",
+      "error": "RESPONSE_REPAIR_UNAVAILABLE",
+      "requestCharacters": 5427,
+      "calls": [
+        {
+          "callId": "642a75f4-5f10-4e9d-884d-585002b2fbec",
+          "nodeId": "packet-code",
+          "operation": "invoke",
+          "elapsedMs": 47377.108400000005,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 8719,
+            "outputTokens": 2219,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 8722,
+            "outputTokens": 2219
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    },
+    {
+      "packet": "04-persist",
+      "runId": "8ec9a4c4-81d0-4614-b95b-1d8186d1c3f7",
+      "status": "error",
+      "error": "RESPONSE_REPAIR_UNAVAILABLE",
+      "requestCharacters": 5200,
+      "calls": [
+        {
+          "callId": "3e6f4c0d-d373-4f59-aba0-1725073544e9",
+          "nodeId": "qwen-artifact",
+          "operation": "invoke",
+          "elapsedMs": 25458.1109,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 2463,
+            "outputTokens": 1246,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 2466,
+            "outputTokens": 1246
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    },
+    {
+      "packet": "05-guards",
+      "runId": "b0c6516f-9ac1-4ede-8d13-d4f81c6f5ed1",
+      "status": "success",
+      "error": null,
+      "requestCharacters": 2278,
+      "calls": [
+        {
+          "callId": "6e3a9f2d-e9ef-4eef-b89a-83e3e98d11a2",
+          "nodeId": "qwen-artifact",
+          "operation": "invoke",
+          "elapsedMs": 16653.279000000002,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 1748,
+            "outputTokens": 868,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 1751,
+            "outputTokens": 868
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    },
+    {
+      "packet": "05b-guards",
+      "runId": "4155f521-333b-4687-a9aa-903cfb9061a1",
+      "status": "success",
+      "error": null,
+      "requestCharacters": 4745,
+      "calls": [
+        {
+          "callId": "aa30a702-9b55-466b-85e7-3df9fd6d11d0",
+          "nodeId": "qwen-artifact",
+          "operation": "invoke",
+          "elapsedMs": 21507.8353,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 1458,
+            "outputTokens": 910,
+            "cacheReadTokens": 856,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 2314,
+            "outputTokens": 910
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    },
+    {
+      "packet": "06-emitter",
+      "runId": "449a4aca-7545-409b-9980-481625fce8c5",
+      "status": "success",
+      "error": null,
+      "requestCharacters": 2690,
+      "calls": [
+        {
+          "callId": "87388f72-2fad-4cc5-9a48-957725343da9",
+          "nodeId": "qwen-artifact",
+          "operation": "invoke",
+          "elapsedMs": 20940.8138,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 944,
+            "outputTokens": 989,
+            "cacheReadTokens": 863,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 1807,
+            "outputTokens": 989
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    },
+    {
+      "packet": "06b-emitter",
+      "runId": "3bb7fa8e-227d-4c47-9613-cd6bf6c9f2f6",
+      "status": "success",
+      "error": null,
+      "requestCharacters": 4502,
+      "calls": [
+        {
+          "callId": "f4dbfd15-ae2a-47a4-8e47-855b0772cfc8",
+          "nodeId": "qwen-artifact",
+          "operation": "invoke",
+          "elapsedMs": 21869.9235,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 1516,
+            "outputTokens": 1050,
+            "cacheReadTokens": 860,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 2376,
+            "outputTokens": 1050
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    },
+    {
+      "packet": "07-obs006-test",
+      "runId": "49d01cc4-a9ce-4217-ab96-2fccff8396fe",
+      "status": "success",
+      "error": null,
+      "requestCharacters": 5152,
+      "calls": [
+        {
+          "callId": "b26730d5-dcc4-4432-9db0-e363a6e251f0",
+          "nodeId": "qwen-artifact",
+          "operation": "invoke",
+          "elapsedMs": 24285.312400000003,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 2563,
+            "outputTokens": 870,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 2566,
+            "outputTokens": 870
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    },
+    {
+      "packet": "07b-obs006-test",
+      "runId": "eb22a33d-9411-43b1-94a1-9ee5511fb80e",
+      "status": "success",
+      "error": null,
+      "requestCharacters": 4136,
+      "calls": [
+        {
+          "callId": "fe6ccbd5-4d87-480e-9ed4-789b6cc87155",
+          "nodeId": "qwen-artifact",
+          "operation": "invoke",
+          "elapsedMs": 30885.8194,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 1539,
+            "outputTokens": 896,
+            "cacheReadTokens": 861,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 2400,
+            "outputTokens": 896
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    },
+    {
+      "packet": "08-docs",
+      "runId": "637b1af6-b7ce-4778-bcf4-e53c02a87c5f",
+      "status": "success",
+      "error": null,
+      "requestCharacters": 2597,
+      "calls": [
+        {
+          "callId": "7d427cda-4edc-475b-87f0-380c1a02be62",
+          "nodeId": "qwen-artifact",
+          "operation": "invoke",
+          "elapsedMs": 18144.756699999998,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 874,
+            "outputTokens": 618,
+            "cacheReadTokens": 856,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 1730,
+            "outputTokens": 618
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    },
+    {
+      "packet": "08b-docs",
+      "runId": "a82c6dd6-4e02-4b11-956a-662c4b1514ce",
+      "status": "error",
+      "error": "RESPONSE_REPAIR_UNAVAILABLE",
+      "requestCharacters": 4090,
+      "calls": [
+        {
+          "callId": "22175442-0c48-498f-9922-667f34790b55",
+          "nodeId": "qwen-artifact",
+          "operation": "invoke",
+          "elapsedMs": 17584.0628,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 1154,
+            "outputTokens": 633,
+            "cacheReadTokens": 856,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 2010,
+            "outputTokens": 633
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    },
+    {
+      "packet": "09-review",
+      "runId": "93d0100a-9f0b-44a9-b316-18b61269a89f",
+      "status": "success",
+      "error": null,
+      "requestCharacters": 24667,
+      "calls": [
+        {
+          "callId": "2cb12aaf-24ba-4b95-9e5f-a3aa731dd647",
+          "nodeId": "qwen-review",
+          "operation": "invoke",
+          "elapsedMs": 12137.7584,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 6911,
+            "outputTokens": 90,
+            "cacheReadTokens": 677,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 7588,
+            "outputTokens": 90
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    },
+    {
+      "packet": "live-initial-injected-docs-failure",
+      "runId": "08215bd3-80f8-42aa-82cf-57c7c49db067",
+      "status": "error",
+      "error": "RESPONSE_REPAIR_UNAVAILABLE",
+      "requestCharacters": null,
+      "calls": [
+        {
+          "callId": "7139ec45-decf-4271-8fca-25cf840736d7",
+          "nodeId": "packet-code",
+          "operation": "invoke",
+          "elapsedMs": 9388.3679,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 1742,
+            "outputTokens": 104,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 1745,
+            "outputTokens": 104
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        },
+        {
+          "callId": "9f7dea66-0130-470e-b87a-e1790a1161c8",
+          "nodeId": "packet-docs",
+          "operation": "invoke",
+          "elapsedMs": 3.9988999999986845,
+          "requestedModel": null,
+          "reported": null,
+          "normalized": null,
+          "coverage": null,
+          "rawStepCountersMatch": null
+        }
+      ]
+    },
+    {
+      "packet": "live-generated-recovery",
+      "runId": "c4434ecf-e0bc-4a2d-a67f-344dd1b17e02",
+      "status": "success",
+      "error": null,
+      "requestCharacters": null,
+      "calls": [
+        {
+          "callId": "06e3175d-846b-454f-a737-b3ad4df84bc0",
+          "nodeId": "recovery-docs",
+          "operation": "invoke",
+          "elapsedMs": 6423.656000000001,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 1149,
+            "outputTokens": 124,
+            "cacheReadTokens": 684,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 1833,
+            "outputTokens": 124
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        },
+        {
+          "callId": "b78a8d24-b456-4bad-8b61-a68cec2cafdb",
+          "nodeId": "recovery-review",
+          "operation": "invoke",
+          "elapsedMs": 6159.678499999998,
+          "requestedModel": "ollama/qwen-nodulus-coder:latest",
+          "reported": {
+            "inputTokens": 1117,
+            "outputTokens": 119,
+            "cacheReadTokens": 690,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 0,
+            "costUsd": 0
+          },
+          "normalized": {
+            "inputTokens": 1807,
+            "outputTokens": 119
+          },
+          "coverage": "complete",
+          "rawStepCountersMatch": true
+        }
+      ]
+    }
+  ]
+}
