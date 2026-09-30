@@ -134,6 +134,20 @@ test("PROV-007 retains separate response-only transports across two repairs with
     expect(initialTransport.stdout).toContain('"messageID":"fixture-final-assistant"');
     expect(firstRepair.stdout).toContain('"messageID":"fixture-repair-final-1"');
     expect(secondRepair.stdout).toContain('"messageID":"fixture-repair-final-2"');
+    const runRoot = path.join(project, '.nodulus', 'runs', result.envelope.runId);
+    const events = readFileSync(path.join(runRoot, 'events.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    const started = events.filter(event => event.event === 'provider.call.started');
+    expect(started).toHaveLength(3);
+    expect(new Set(started.map(event => event.callId)).size).toBe(3);
+    for (const [index, event] of started.entries()) {
+      const request = JSON.parse(readFileSync(path.join(runRoot, 'calls', event.callId, 'request.json'), 'utf8'));
+      expect(request).toMatchObject({ callId: event.callId, attempt: index + 1, operation: index ? 'repair_response' : 'invoke' });
+      expect(request.parentCallId).toBe(index ? started[index - 1].callId : null);
+      expect(readFileSync(path.join(runRoot, request.refs.stdin), 'utf8')).toBe(calls[index].stdin);
+      expect(request.refs.response).toContain(`attempt-00${index + 1}`);
+      expect(JSON.parse(readFileSync(path.join(runRoot, request.refs.validation), 'utf8')).valid).toBe(index === 2);
+    }
+
   } finally {
     cleanupProviderProject(project);
   }

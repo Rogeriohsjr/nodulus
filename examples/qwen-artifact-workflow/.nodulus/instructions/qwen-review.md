@@ -1,0 +1,3 @@
+Review only the supplied source for concrete correctness bugs in effective request capture and timeline events. No tools or edits. Report exact actionable issues or an empty findings list. Do not claim tests ran. Output exactly one complete Nodulus outcome, using this shape (replace the example values):
+{"status": "success", "artifacts": [{"name": "review", "contract": "sdlc-review.v1", "data": {"decision": "accept", "findings": [], "summary": "Brief reason based on the supplied code."}}]}
+The contract identifier is a string value, never a top-level key. JSON only, no Markdown. Do not review token counters, cost, status summaries or future scope.

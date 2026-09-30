@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "providerProfiles": {
+    "qwen-artifact": {
+      "kind": "opencode",
+      "enabled": true,
+      "executable": "opencode",
+      "model": "ollama/qwen-nodulus-coder:latest",
+      "capabilities": [
+        "responseRepair"
+      ],
+      "timeoutMs": 300000
+    }
+  },
+  "defaultWorkflow": "qwen-artifact"
+}

@@ -1,6 +1,6 @@
 # 12: Inspect execution traces, provider usage, and cost
 
-Status at the planning handoff: **researched and planned; implementation had not started**. On 2026-09-26 the user authorized the installed Qwen builder/reviewer workflow with a final GPT-5.6 Sol review. The first live assignment is OBS-001 within checkpoint A; later scenarios remain pending. See [workflow execution evidence](../11-opencode-workflow/qwen-review-evidence.md). Publishing remains outside this scope.
+Status on 2026-09-28: **checkpoint A (OBS-001 and OBS-002) implemented and locally accepted**. Qwen generated drafts through Nodulus/OpenCode on localhost Ollama; coordinator integration and GPT-5.6 Sol review completed the slice. See [evidence](evidence.md) and the [execution/improvements report](qwen-execution-report.md). Checkpoints B–F remain pending. Publishing remains outside this scope.
 
 As a user, I want to inspect each workflow step, see the instructions Nodulus sent and the response it received, understand validation and repairs, and compare available token usage and cost without confusing estimates with charges.
 
@@ -11,7 +11,7 @@ As a user, I want to inspect each workflow step, see the instructions Nodulus se
 3. [User scenarios and test assertions](scenarios.md): production-entry-point tests with real local files/processes.
 4. [Implementation sequence and AI handoff](implementation.md): checkpoints and scoped assignments.
 5. [Evidence](evidence.md): document checks now; future RED/GREEN and live proof separately.
-6. [Local Qwen packet experiment](packets/report.md): decomposition skill, two rejected attempts, usage and next SDLC improvements. OBS-001 remains unimplemented.
+6. [Local Qwen packet experiment](packets/report.md): decomposition skill, two rejected attempts, usage and initial SDLC improvements. This is historical evidence; the later completion is recorded in the execution report.
 
 ## Prerequisites and scope
 
@@ -23,17 +23,17 @@ This slice extends the existing local run store, provider adapters, and status c
 
 | Done | Checkpoint | Scenarios | Depends on |
 | --- | --- | --- | --- |
-| [ ] | A: Correlated boundary records and timestamps | OBS-001, OBS-002 | Prerequisites above |
+| [x] | A: Correlated boundary records and timestamps | OBS-001, OBS-002 | Prerequisites above |
 | [ ] | B: Codex, Cursor, and OpenCode usage | OBS-003, OBS-004, OBS-005 | A |
 | [ ] | C: Partial evidence and telemetry failures | OBS-006, OBS-007 | B |
 | [ ] | D: Repair/resume accounting and status | OBS-008, OBS-009 | C |
 | [ ] | E: Optional reproducible cost estimates | OBS-010 | D |
 | [ ] | F: Portable acceptance and developer handoff | OBS-011, OBS-012 | E |
 
-All implementation boxes stay unchecked until exact evidence is recorded. Fixture GREEN is required for local acceptance; live compatibility has its own matrix and requires later authorization. An unavailable optional live CLI must not block the normal offline test suite.
+Implementation boxes are checked only with recorded evidence. Fixture GREEN is required for local acceptance; live compatibility has its own matrix and requires later authorization. An unavailable optional live CLI must not block the normal offline test suite.
 
 ## Assignment template
 
 > Implement only checkpoint A in docs/implementation/12-execution-observability using the Nodulus scenario TDD skill. Verify prerequisites and read the design/scenarios first. Exercise real application entry points, storage, and child-process fixtures; replace only external inference. Observe a meaningful failing assertion, implement the smallest change, run focused checks, and record evidence. Do not start B, invoke live providers, publish, or mark future checkpoints complete.
 
-This template is for a later implementation request; it is not an instruction to execute during the documentation task.
+This historical assignment template describes the completed checkpoint A. Choose the next explicitly authorized checkpoint for future work.

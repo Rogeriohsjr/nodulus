@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "qwen-review",
+  "providerProfile": "qwen-artifact",
+  "instructions": [
+    ".nodulus/instructions/qwen-review.md"
+  ],
+  "inputs": {
+    "request": {
+      "from": "request",
+      "contract": "request.v1"
+    }
+  },
+  "expectedOutputs": [
+    {
+      "name": "review",
+      "contract": "sdlc-review.v1"
+    }
+  ]
+}

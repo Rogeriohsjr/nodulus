@@ -1,0 +1,27 @@
+{
+  "$id": "sdlc-review.v1",
+  "type": "object",
+  "properties": {
+    "decision": {
+      "enum": [
+        "accept",
+        "changes_required"
+      ]
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "decision",
+    "findings",
+    "summary"
+  ],
+  "additionalProperties": false
+}

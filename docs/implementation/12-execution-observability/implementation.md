@@ -1,17 +1,17 @@
-# Future implementation sequence and AI handoff
+# Implementation sequence and AI handoff
 
-**Do not execute this plan during the documentation task.** The user has requested research and a handoff only. Later authorization must select the checkpoint(s) to implement. All items below are pending.
+**Checkpoint A is implemented under the user’s 2026-09-28 completion request.** Checkpoints B–F remain pending and require a scoped assignment. See [evidence](evidence.md) for tested behavior and the local Qwen/coordinator role split.
 
 Read [architecture](../../architecture.md), [testing policy](../../testing.md), [code quality](../../code-quality.md), the [scenario TDD skill](../../../.agents/skills/nodulus-scenario-tdd/SKILL.md), and this folder's design/scenarios. Use the [delivery validation skill](../../../.agents/skills/nodulus-delivery-validation/SKILL.md) for the local archive handoff. No new skill is required: this checklist specializes the existing skills.
 
 ## A: Correlated requests and event timeline
 
-- [ ] Write OBS-001/002 with real provider scripts and files; observe missing request records/timestamps as RED.
-- [ ] Add optional call metadata contracts in `src/core/ports/provider.ts`. Put shared measurement/event types in focused core modules as needed.
-- [ ] Allocate correlation in `src/core/execute-workflow.ts`; adapt `src/adapters/providers/default-provider-port.ts` to persist effective stdin before launching each invoke/repair.
-- [ ] Extend existing storage/application event writers consistently, including initial intake and resume; do not timestamp only successful node events.
-- [ ] Implement the request/transport links, safe metadata, stable event sequence and coverage of prelaunch failures. Keep existing files and provider arguments compatible.
-- [ ] Run focused GREEN, lint/typecheck, and record evidence before B.
+- [x] Write OBS-001/002 with real provider scripts and files; observe missing request records/timestamps as RED.
+- [x] Add optional call metadata contracts in `src/core/ports/provider.ts`. Put shared measurement/event types in focused core modules as needed.
+- [x] Allocate correlation in `src/core/execute-workflow.ts`; adapt `src/adapters/providers/default-provider-port.ts` to persist effective stdin before launching each invoke/repair.
+- [x] Extend existing storage/application event writers consistently, including initial intake and resume; do not timestamp only successful node events.
+- [x] Implement the request/transport links, safe metadata, stable event sequence and coverage of prelaunch failures. Keep existing files and provider arguments compatible.
+- [x] Run focused GREEN, lint/typecheck, and record evidence before B.
 
 ## B: Provider-specific measurement translation
 

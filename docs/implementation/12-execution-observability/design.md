@@ -1,6 +1,6 @@
 # Proposed design and dependencies
 
-Everything below is planned, unless explicitly labelled existing. Read [research](research.md) before translating provider fields.
+Checkpoint A now implements effective request/transport records and timestamped correlation. The usage, coverage, pricing and status extensions below remain planned. Call records currently include the request fields and refs documented in the user guide; they do not yet include capture-status classifications, CLI-version metadata or telemetry.json. Read [research](research.md) before translating provider fields.
 
 ## Ownership and flow
 

@@ -165,7 +165,7 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
     "references.json": json(references),
     "context/definitions.json": json({ schemaVersion: 1, engineVersion: "1.0.0", workflow, nodes, contracts, providerProfiles }),
     "run.json": json({ schemaVersion: 1, runId, phase: "intake", workflow: workflow.id }),
-    "events.jsonl": `${JSON.stringify({ event: "run.intake.completed", runId, workflow: workflow.id })}\n`,
+    "events.jsonl": `${JSON.stringify({ event: "run.intake.completed", runId, workflow: workflow.id, timestamp: new Date().toISOString(), sequence: 1 })}\n`,
   };
 
   let runDirectory: string;

@@ -74,7 +74,11 @@ Version definitions under `.nodulus/{settings.json,workflows/,nodes/,instruction
 ```text
 .nodulus/runs/<run-id>/
   run.json
-  events.jsonl
+  events.jsonl                     # UTC timestamp and per-run sequence
+  calls/<call-id>/
+    request.json                  # allowlisted command/model metadata and refs
+    stdin.txt                     # exact effective request before inference
+    transport.json                # bounded stdout/stderr and timing
   request.md
   inputs.json
   references.json
@@ -98,7 +102,7 @@ Capture definitions, instructions, schema/engine versions, and resolved configur
 
 Record elapsed time, available usage/cache counts, and costs. Unknown metrics are null; estimates identify pricing provenance. Keep credentials out of captured configuration/logs. Diagnose an incomplete trailing JSONL line without treating it as checkpoint corruption.
 
-Current implementation saves elapsed metrics, but the concrete Codex/Cursor/OpenCode adapters return null usage. The saved prompt is the base node prompt and does not always include the adapter's final transport instructions. [Folder 12](implementation/12-execution-observability/README.md) plans effective-request capture, timestamped call correlation, provider measurements, coverage and optional cost estimates. Those additions are not implemented yet; see its verified baseline and scenario checklist before claiming support.
+The concrete Codex/Cursor/OpenCode adapters save exact effective stdin and allowlisted request metadata before inference, then bounded transport diagnostics under calls/<call-id>. Core allocates call IDs (including separate response-repair IDs/parents) and appends timestamped, sequenced events through the storage port. Intake starts sequence 1; resume continues the existing sequence. Call start/completion and validation events join through callId and attempt. Existing attempt/provider files remain compatible. Custom ProviderPort implementations receive optional call metadata; their private transports are not automatically captured. Concrete usage remains null. [Folder 12](implementation/12-execution-observability/README.md) records completed OBS-001/002 and still-planned usage, coverage and cost work.
 
 ## Platform and version compatibility
 

@@ -6,6 +6,7 @@ import { ProcessArtifactValidator } from "../adapters/validation/process-artifac
 import type { IntakeStorage } from "../core/ports/intake-storage.js";
 import { NodulusError } from "../core/shared/nodulus-error.js";
 import { executeWorkflow } from "../core/execute-workflow.js";
+import { appendRunEvent } from "../core/execution-events.js";
 import type { ApplicationRunResult, ProviderPort } from "./run-workflow.js";
 
 export type ResumeWorkflowRequest = {
@@ -220,7 +221,6 @@ async function resumeWorkflowLocked(
 
   const intake = { runId, runDirectory: "" };
   const answersRelativePath = `answers/${request.requestId}.json`;
-  const oldEvents = await storage.readRunFile(projectRoot, runId, "events.jsonl");
   await storage.writeRunFiles(projectRoot, runId, {
     [answersRelativePath]: json(request.answers),
     ...(nextInputs === inputs ? {} : { "inputs.json": json(nextInputs) }),
@@ -231,8 +231,8 @@ async function resumeWorkflowLocked(
       pendingKind: null,
       ...(pendingKind === "node" ? { answers: state.answers } : {}),
     }),
-    "events.jsonl": `${oldEvents}${JSON.stringify({ event: "run.resumed", runId, requestId: request.requestId })}\n`,
   });
+  await appendRunEvent(projectRoot, runId, storage, { event: "run.resumed", runId, requestId: request.requestId });
   return executeWorkflow({
     projectRoot,
     cwd: projectRoot,

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "qwen-artifact",
+  "providerProfile": "qwen-artifact",
+  "instructions": [
+    ".nodulus/instructions/qwen-artifact.md"
+  ],
+  "inputs": {
+    "request": {
+      "from": "request",
+      "contract": "request.v1"
+    }
+  },
+  "expectedOutputs": [
+    {
+      "name": "changes",
+      "contract": "file-changes.v1"
+    }
+  ]
+}
