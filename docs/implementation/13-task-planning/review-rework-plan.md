@@ -1,10 +1,10 @@
 # Planned: reviewer feedback returns to the developer
 
-Status: **design only, not implemented**. The user chose model benchmarking and documentation before implementation on 2026-09-29. Do not infer implementation authorization from this document.
+Status: **initial bounded review-revision slice implemented** on 2026-09-29 after explicit user authorization. See [execution evidence and remaining limits](qwen-review-loop-report.md). The design below includes later behavior that is still pending.
 
 ## What exists
 
-The development workflows are sequential. In the task helper, `runPhase` rejects a review whose decision is not `accept`. It does not route the findings back to the builder. A completed code phase cannot be replayed. Phase recovery in PR #15 verifies accepted evidence and generates documentation/review or review-only continuation; it does not reopen accepted code for rework. The globally installed CLI observed during the benchmark was 2.1.0-dev.5 and did not include the newer task helpers.
+The original development workflows are sequential. The new `nodulus-task loop` controller wraps separate Nodulus runs and routes valid review rejection back to code. In the task helper, `runPhase` rejects a review whose decision is not `accept`. It does not route the findings back to the builder. A completed code phase cannot be replayed. Phase recovery in PR #15 verifies accepted evidence and generates documentation/review or review-only continuation; it does not reopen accepted code for rework. The globally installed CLI observed during the benchmark was 2.1.0-dev.5 and did not include the newer task helpers.
 
 Schema/response repair is separate: it corrects an invalid response envelope when the provider supports safe response-only repair. It is not a developer revision prompted by a valid `changes_required` review.
 
@@ -25,7 +25,7 @@ flowchart TD
   B -->|No| S[Stop with findings and receipts]
 ```
 
-This is the desired flow, not a diagram of current behavior. An optional final stronger reviewer must follow the same explicit accept/rework/stop policy; its rejection cannot silently be ignored.
+This remains the desired full flow. The initial implementation routes review rejection; failed checks stop instead of revising, and interrupted runs require inspection instead of automatic continuation. An optional final stronger reviewer must follow the same explicit accept/rework/stop policy; its rejection cannot silently be ignored.
 
 ## Smallest useful design
 
@@ -60,7 +60,7 @@ Run fixed focused tests, lint/typecheck, full quality checks and real installed-
 ## Completion criteria
 
 - [ ] Runtime/controller and durable round records implemented through observed scenario RED/GREEN.
-- [ ] Review rejection automatically reaches a developer with the exact findings.
+- [x] Review rejection automatically reaches a developer with the exact findings (six-call fixture and controlled live local-Qwen proof).
 - [ ] Tests remain frozen; checks and documentation rerun for changed implementation.
 - [ ] Limits and resume prevent infinite work and duplicated actions.
 - [ ] One controlled live localhost run completes a review-requested revision without coordinator code edits.

@@ -30,6 +30,7 @@ export function runPhase(project, phase, artifact) {
   for (const [relative, hash] of Object.entries(state.hashes)) if (fileHash(confinedPath(state.repo.root, relative)) !== hash) throw Error(`File changed outside this execution: ${relative}`);
   if (phase === 'review') {
     if (artifact.decision !== 'accept') throw Error('Review requested changes');
+    if (existsSync(path.join(project, '.nodulus/task-completed', state.contextHash, `${state.task.id}.json`))) throw Error('Task completion already exists');
   } else {
     if (!Array.isArray(artifact.files) || artifact.files.length !== 1) throw Error('This executor accepts exactly one full file per phase');
     const allowed = phase === 'docs' ? state.task.documentation : state.task.files.map(file => file.path).filter(file => file !== state.task.testing.testFile && (state.task.testing.mode === 'non-tdd' || !state.task.documentation.includes(file)));
@@ -57,12 +58,12 @@ export function runPhase(project, phase, artifact) {
       }),
     };
     state.completed.push(phase);
-    writeFileSync(statePath, JSON.stringify(state, null, 2));
     if (phase === 'review') {
       const completed = path.join(project, '.nodulus/task-completed', state.contextHash);
       mkdirSync(completed, { recursive: true });
-      writeFileSync(path.join(completed, `${state.task.id}.json`), JSON.stringify({ taskId: state.task.id, taskHash: digest(JSON.stringify(state.task)), contextHash: state.contextHash, executionId: state.executionId, repoId: state.repo.id, hashes: state.hashes, status: 'accepted', review: artifact, acceptedAt: new Date().toISOString() }, null, 2));
+      writeFileSync(path.join(completed, `${state.task.id}.json`), JSON.stringify({ taskId: state.task.id, taskHash: digest(JSON.stringify(state.task)), contextHash: state.contextHash, executionId: state.executionId, repoId: state.repo.id, hashes: state.hashes, status: 'accepted', review: artifact, acceptedAt: new Date().toISOString() }, null, 2), { flag: 'wx' });
     }
+    writeFileSync(statePath, JSON.stringify(state, null, 2));
   }
   return { valid: errors.length === 0, errors };
 }

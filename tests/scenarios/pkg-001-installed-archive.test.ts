@@ -1,3 +1,4 @@
+import { exerciseTaskLoop } from '../support/task-loop-scenario.js';
 import { afterAll, beforeAll, expect, test } from "vitest";
 import crossSpawn from "cross-spawn";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -42,7 +43,7 @@ test("PKG-008 installed task helper includes executable workflows and preserves 
   expect(setup.status, String(setup.stderr)).toBe(0);
   expect(existsSync(path.join(project, ".nodulus/workflows/task-plan.json"))).toBe(true);
   expect(existsSync(path.join(project, ".nodulus/task-tools/runtime.mjs"))).toBe(true);
-  for (const helper of ["io.mjs", "recovery.mjs", "recovery-state.mjs"]) {
+  for (const helper of ["io.mjs", "recovery.mjs", "recovery-state.mjs", "rework.mjs", "loop-state.mjs"]) {
     expect(existsSync(path.join(project, ".nodulus/task-tools", helper)), `setup must install ${helper}`).toBe(true);
   }
   const recovery = crossSpawn.sync(process.execPath, [path.join(project, ".nodulus/task-tools/runtime.mjs"), "recover", project], { encoding: "utf8", timeout: 30000, windowsHide: true });
@@ -290,3 +291,5 @@ test("PKG-006 npm public-publish dry-run reports no corrected bin metadata", () 
 function installedPackageDirectory(prefix: string): string {
   return path.join(prefix, "node_modules", ...packageName.split("/"));
 }
+
+test("PKG-009 installed task loop revises and accepts through six real CLI runs", () => exerciseTaskLoop(path.join(installedPackageDirectory(installedPrefix), "scripts/task-workflow/cli.mjs")), 40000);

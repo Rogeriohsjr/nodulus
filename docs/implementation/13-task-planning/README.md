@@ -21,3 +21,5 @@ Acceptance evidence: [recorded checks](evidence.md), [new run report](qwen-plann
 ## Phase D: bounded remaining-phase recovery
 
 The follow-up implements the planning report's IMP-11 in the packaged helpers. Read the [recovery behavior](phase-recovery.md), [new execution report](qwen-recovery-report.md) and [D usage ledger](qwen-phase-d-ledger.json). A live localhost-Qwen demonstration recovered documentation/review with one code call/application overall. The builder still needed substantial supervisor corrections. OBS006A adds a characterization test for existing nonzero-exit usage retention; parent OBS-006 remains open.
+
+Phase F follow-up: [bounded review-loop evidence, configuration experiments and hiccup history](../13-task-planning/qwen-review-loop-report.md). The loop has controlled live local-Qwen proof; it does not complete remaining OBS scenarios.
