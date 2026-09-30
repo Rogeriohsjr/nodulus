@@ -1,6 +1,6 @@
 # Implementation sequence and AI handoff
 
-**Checkpoints A–D are locally accepted as of 2026-09-30.** Checkpoints E–F remain pending under the current completion request. See [evidence](evidence.md) and [checkpoint D evidence](obs-008-009.md) for tested behavior and the local Qwen/coordinator role split.
+**Checkpoints A–E are locally and independently accepted as of 2026-09-30.** Checkpoint F has focused package/API validation and one authorized Windows OpenCode/Ollama live result; final review, full gate, and hosted fixture proof remain pending. See [evidence](evidence.md) and [checkpoint D evidence](obs-008-009.md) for tested behavior and the local Qwen/coordinator role split.
 
 Read [architecture](../../architecture.md), [testing policy](../../testing.md), [code quality](../../code-quality.md), the [scenario TDD skill](../../../.agents/skills/nodulus-scenario-tdd/SKILL.md), and this folder's design/scenarios. Use the [delivery validation skill](../../../.agents/skills/nodulus-delivery-validation/SKILL.md) for the local archive handoff. No new skill is required: this checklist specializes the existing skills.
 
@@ -40,24 +40,24 @@ Read [architecture](../../architecture.md), [testing policy](../../testing.md), 
 
 ## E: Optional estimates with frozen provenance
 
-- [ ] Add OBS-010 synthetic rate-card scenarios; observe absent configuration/snapshot/estimate behavior as RED.
-- [ ] Extend typed settings loading and capture via existing settings/intake boundaries. Missing configuration preserves current behavior.
-- [ ] Implement a pure rate calculator in core, with explicit billing mode, verified token buckets and per-call snapshot references. Do not fetch pricing or account data at runtime.
-- [ ] Add status's separate estimate fields and coverage; keep legacy costUsd provider-reported only.
-- [ ] Verify snapshot reuse after pause and null diagnostics for unknown inputs. Record GREEN before F.
+- [x] Add OBS-010 synthetic rate-card scenarios; observe absent configuration/snapshot/estimate behavior as RED.
+- [x] Extend typed settings loading and capture via existing settings/intake boundaries. Missing configuration preserves current behavior.
+- [x] Implement a pure rate calculator in core, with explicit billing mode, verified token buckets and per-call snapshot references. Do not fetch pricing or account data at runtime.
+- [x] Add status's separate estimate fields and coverage; keep legacy costUsd provider-reported only.
+- [x] Verify snapshot reuse after pause and null diagnostics for unknown inputs. Independent review accepted the corrected implementation at `b57f441`.
 
 ## F: Delivery, docs and optional live verification
 
-- [ ] Implement OBS-011 through existing exported API and local archive test harness. Preserve custom provider compatibility.
-- [ ] Update `docs/user-guide.md`, relevant examples, architecture, scenario index and this evidence file only to describe behavior actually implemented.
+- [x] Implement OBS-011 through existing exported API and local archive test harness. Preserve invoke-only and legacy custom provider compatibility.
+- [x] Update the user/provider guides, scenario index and evidence files to describe behavior actually implemented; ship linked public documentation in the archive.
 - [ ] Run the complete local quality gate; inspect the diff for scope and unintended recorded transcripts/secrets.
 - [ ] Obtain hosted fixture results for Windows/macOS/Linux through the existing CI. Any required Actions configuration changes are an item-specific non-TDD exception and need static/hosted evidence, not invented RED.
-- [ ] Only after explicit live authorization, execute OBS-012 independently for each available provider/platform. Keep untested cells pending.
+- [x] After explicit live authorization, execute the Windows OpenCode/Ollama cell through a freshly packed and installed archive. Keep every untested provider/platform cell pending.
 - [ ] Record reviewed revision, commits/PR and limitations. Mark implementation acceptance independently from optional live-provider acceptance.
 
-## Test commands for a later developer
+## Test commands
 
-These are future commands, **not commands run as part of this plan**. Build before invoking a focused scenario because some tests exercise dist/CLI. For each selected file substitute its actual scenario path:
+Build before invoking a focused scenario because some tests exercise dist/CLI. The completion evidence records the commands actually run; future maintenance should keep the same sequence:
 
 ```text
 npm run build
@@ -68,7 +68,7 @@ npm run typecheck
 
 Record the first relevant assertion failure before production edits, then rerun the same test to obtain GREEN. Missing modules, runner setup and syntax failures are not valid behavioral RED. At final implementation handoff run `npm run check`; do not run a parallel build while package tests clean dist. Reuse existing regressions for SAFE/ASK/PROV alongside the focused scenarios.
 
-Documentation and source research use the existing docs non-TDD exception: link, consistency and scope review. This task creates no scenario test files and claims no runtime validation.
+Documentation and source research use the existing docs non-TDD exception: link, consistency and scope review. Runtime behavior is covered by the OBS scenario, installed-package, and opt-in live tests recorded in [evidence](evidence.md).
 
 ## Focused AI review checklist
 

@@ -22,8 +22,8 @@
 | B / OBS-003,004,005 | Missing call-level telemetry and version-aware normalization | 183 scenarios + 7 package tests after archive correction | GPT-5.6 Sol ACCEPT | Locally accepted; hosted evidence recorded on PR #12 |
 | C / OBS-006,007 | Missing launch classification and interrupted-call status | 260 scenarios + 9 package tests | GPT-5.6 Sol ACCEPT after documentation correction | Locally accepted |
 | D / OBS-008,009 | OBS-008 characterization GREEN; OBS-009 coverage/diagnostic assertions failed | 33 focused OBS-003–009 tests pass; hosted run 36672162478 passed Windows/macOS/Linux, publish skipped | GPT-5.6 Sol ACCEPT at e3ee261 | [Checkpoint D evidence](obs-008-009.md) |
-| E / OBS-010 | Exact calculator, captured snapshot and invalid-before-inference assertions failed; review counterexamples then exposed real evidence, cache-bucket and valid-tamper gaps | Sequential build; 2 focused files / 10 tests pass; lint/typecheck pending fixed commit | Local Qwen source ACCEPT missed the adapter/integrity cases; independent rereview pending | Corrected; acceptance pending rereview |
-| F / OBS-011 | Pending | Pending | Pending | Not started |
+| E / OBS-010 | Exact calculator, captured snapshot and invalid-before-inference assertions failed; review counterexamples then exposed real evidence, cache-bucket and valid-tamper gaps | Sequential build; 2 focused files / 10 tests pass; lint/typecheck | Local Qwen source ACCEPT missed adapter/integrity cases; independent Sol ACCEPT at `b57f441` after exact counterexamples | Locally accepted |
+| F / OBS-011 | Existing installed/public acceptance omitted status and invoke-only/legacy telemetry compatibility | Focused public API 2/2; freshly packed installed archive 9/9; lint | Local Qwen drafts rejected for invented APIs; supervisor roadblock integration; independent review pending | Focused GREEN; final gate pending |
 
 For every row record actual test names, exact commands, the meaningful failing assertion, passing result, source revision, OS/Node version and unresolved limitations. Record lint/typecheck/full check at the appropriate checkpoints. Never replace a pending entry with an expected result from scenarios.md.
 
@@ -33,9 +33,11 @@ For every row record actual test names, exact commands, the meaningful failing a
 | --- | --- | --- | --- |
 | Codex | Pending | Pending | Pending |
 | Cursor | Pending | Pending | Pending |
-| OpenCode/Ollama | Pending | Pending | Pending |
+| OpenCode/Ollama | PASS: installed archive 1.0.0, OpenCode 1.18.32, local Qwen2 14.8B Q4_K_M | Pending | Pending |
 
 Prior provider invocation proof in folders 10/11 does not establish this slice's telemetry, cost or exact-input capture. For each future cell, record explicit authorization, CLI/model/Nodulus versions, fixture-GREEN prerequisite, command/result, sanitized evidence references and observed completeness. Unsupported usage remains an accepted limitation, not a fabricated measurement. Actual billing reconciliation remains out of scope.
+
+The Windows OpenCode/Ollama cell used a freshly packed and isolated installation, not the older global builder CLI. Package 1.0.0 archive SHA-256 `f149977a98602e5047ff21f369db6658d0f3ed7a4272ddf6a54181c67b98ea8d` was packed from the dirty checkpoint-F tree based on `b57f441`. Installed Nodulus invoked OpenCode 1.18.32 against `http://127.0.0.1:11434` with `ollama/qwen-nodulus-coder:latest` (Qwen2 14.8B Q4_K_M). Run `cfd7bef1-15a0-4aab-acd8-3007b012c49a`, call `72223578-0ca2-4a1e-aa7f-92957b244bf8`, reported complete input 470, output 58, zero cache read/write and reasoning, provider-reported cost 0, and normalized input/output 470/58. The sanitized local evidence omits prompt and transcript. Every other matrix cell remains pending.
 
 
 

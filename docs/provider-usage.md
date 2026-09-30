@@ -18,7 +18,7 @@ Other CLI versions retain recognized reported counters but leave normalization u
 
 ## Limits
 
-OBS-006/007 failure-capture and validity cases and OBS-008/009 resume aggregation now have local fixture coverage. The optional OBS-010 rate-card path produces reproducible estimates from a captured run snapshot; see the [cost-estimate guide](implementation/12-execution-observability/obs-010-cost-estimates.md). OBS-011/012 packaging and the broader live matrix remain pending. Live usage proof here covers Windows OpenCode/Ollama; Codex/Cursor use offline process fixtures. Provider USD is not a verified invoice. Local Ollama zero does not mean hardware or electricity is free.
+OBS-006/007 failure-capture and validity cases and OBS-008/009 resume aggregation have local fixture coverage. The optional OBS-010 rate-card path produces reproducible estimates from a captured run snapshot; see the [cost-estimate guide](cost-estimates.md). OBS-011 covers installed-archive CLI/status and public invoke-only/legacy provider compatibility. OBS-012 has one authorized Windows OpenCode/Ollama result through a freshly installed local archive; all Codex/Cursor and non-Windows live cells remain pending. Provider USD is not a verified invoice. Local Ollama zero does not mean hardware or electricity is free.
 
 ## Optional reproducible estimates
 
