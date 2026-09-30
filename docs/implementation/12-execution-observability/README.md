@@ -11,6 +11,7 @@ As a user, I want to inspect each workflow step, see the instructions Nodulus se
 3. [User scenarios and test assertions](scenarios.md): production-entry-point tests with real local files/processes.
 4. [Implementation sequence and AI handoff](implementation.md): checkpoints and scoped assignments.
 5. [Evidence](evidence.md): document checks now; future RED/GREEN and live proof separately.
+6. [Local Qwen packet experiment](packets/report.md): decomposition skill, two rejected attempts, usage and next SDLC improvements. OBS-001 remains unimplemented.
 
 ## Prerequisites and scope
 
