@@ -1,0 +1,263 @@
+{
+  "date": "2026-09-29",
+  "installedNodulus": "2.1.0-dev.5",
+  "opencode": "1.18.32",
+  "ollama": "0.35.0",
+  "endpoint": "http://127.0.0.1:11434/v1",
+  "parameters": {
+    "num_ctx": 8192,
+    "num_predict": 4096,
+    "temperature": 0.1,
+    "seed": 42,
+    "openCodeSteps": 4,
+    "automaticResponseRepair": false,
+    "maxCorrectionsPerPacket": 1,
+    "modelThinking": "default, not forced off"
+  },
+  "models": [
+    {
+      "id": "baseline",
+      "alias": "nodulus-bench-qwen25-14b-8k",
+      "base": "qwen2.5-coder:14b"
+    },
+    {
+      "id": "candidate",
+      "alias": "nodulus-bench-qwen38-27b-8k",
+      "base": "qwen3.8:27b-q4_K_M"
+    }
+  ],
+  "productTrackedFilesChanged": [],
+  "packets": [
+    {
+      "model": "baseline",
+      "task": "sum",
+      "testHash": "c2dfa02b084c36db7d0a7410b203b2333d85f54a4d9998c5f7f49e4509644476",
+      "requestHash": "be9eb274cbb5d8865ff39999599b83d98c65215f9734bbc4130bd0002bf5c643",
+      "accepted": true,
+      "acceptedWithoutCorrection": true,
+      "sourceHash": "10b1ec0fdf72e1f49a823a2c0bd281cef69415ad078ad4465fa9a2c570e3371f",
+      "testUnchanged": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "runId": "479990ae-a655-4dbf-a754-640bfa5080c3",
+          "durationMs": 9527,
+          "status": "success",
+          "accepted": true,
+          "checkExit": 0,
+          "scopeUnchanged": true,
+          "uniqueStepParts": 1,
+          "reportedInputTokens": 1088,
+          "reportedOutputTokens": 232,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 0,
+          "providerReportedCostUsd": 0,
+          "testsPassed": 15,
+          "testsFailed": 0
+        }
+      ],
+      "finalSource": "export function sumKnown(values) {\n  if (!Array.isArray(values) || values.length === 0) {\n    return null;\n  }\n\n  let sum = 0;\n  for (const value of values) {\n    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {\n      return null;\n    }\n    if (sum > Number.MAX_SAFE_INTEGER - value) {\n      return null;\n    }\n    sum += value;\n  }\n\n  return sum;\n}"
+    },
+    {
+      "model": "baseline",
+      "task": "phases",
+      "testHash": "4363d241a67062fcc625674e14ba88f9f3baef40215b3576f2f808b1989f93a9",
+      "requestHash": "72a710609137c88c6fbf52853714ee48069d5dcbddf4b1e38dfa845c19562511",
+      "accepted": false,
+      "acceptedWithoutCorrection": false,
+      "sourceHash": "b7cfab9d20c91b6ed77ab1688a361d61345a40e93d3e5a81a45196b174c0f9a8",
+      "testUnchanged": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "runId": "5ff4ceb1-7455-4d5c-9419-e4986103b101",
+          "durationMs": 64957,
+          "status": "success",
+          "accepted": false,
+          "checkExit": 1,
+          "scopeUnchanged": true,
+          "uniqueStepParts": 1,
+          "reportedInputTokens": 1126,
+          "reportedOutputTokens": 222,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 3,
+          "providerReportedCostUsd": 0,
+          "testsPassed": 7,
+          "testsFailed": 7
+        },
+        {
+          "attempt": 2,
+          "runId": "94c52a9f-5e2a-4c89-b61e-8be15855a841",
+          "durationMs": 11785,
+          "status": "success",
+          "accepted": false,
+          "checkExit": 1,
+          "scopeUnchanged": true,
+          "uniqueStepParts": 1,
+          "reportedInputTokens": 2848,
+          "reportedOutputTokens": 241,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 805,
+          "providerReportedCostUsd": 0,
+          "testsPassed": 10,
+          "testsFailed": 4
+        }
+      ],
+      "finalSource": "export function remainingPhases(kind, completed) {\n  if (kind !== 'runtime' && kind !== 'documentation') {\n    throw new Error();\n  }\n  if (!Array.isArray(completed)) {\n    throw new Error();\n  }\n  const expected = kind === 'runtime' ? ['code', 'docs', 'review'] : ['docs', 'review'];\n  if (completed.some((item, index) => item !== expected[index])) {\n    throw new Error();\n  }\n  if (completed.length !== expected.length && kind === 'documentation') {\n    throw new Error();\n  }\n  return expected.filter(item => !completed.includes(item));\n}"
+    },
+    {
+      "model": "candidate",
+      "task": "sum",
+      "testHash": "c2dfa02b084c36db7d0a7410b203b2333d85f54a4d9998c5f7f49e4509644476",
+      "requestHash": "be9eb274cbb5d8865ff39999599b83d98c65215f9734bbc4130bd0002bf5c643",
+      "accepted": true,
+      "acceptedWithoutCorrection": true,
+      "sourceHash": "e3356dee58a6a766024d896650c15337a22b6009f6631f8fc9b6c5b279452b28",
+      "testUnchanged": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "runId": "3234e564-2a09-4ddc-8ba9-eee005e793a2",
+          "durationMs": 93252,
+          "status": "success",
+          "accepted": true,
+          "checkExit": 0,
+          "scopeUnchanged": true,
+          "uniqueStepParts": 1,
+          "reportedInputTokens": 1136,
+          "reportedOutputTokens": 1062,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 0,
+          "providerReportedCostUsd": 0,
+          "testsPassed": 15,
+          "testsFailed": 0
+        }
+      ],
+      "finalSource": "export function sumKnown(values) {\n  if (!Array.isArray(values) || values.length === 0) return null;\n  let sum = 0;\n  for (const v of values) {\n    if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) return null;\n    sum += v;\n    if (!Number.isSafeInteger(sum)) return null;\n  }\n  return sum;\n}"
+    },
+    {
+      "model": "candidate",
+      "task": "phases",
+      "testHash": "4363d241a67062fcc625674e14ba88f9f3baef40215b3576f2f808b1989f93a9",
+      "requestHash": "72a710609137c88c6fbf52853714ee48069d5dcbddf4b1e38dfa845c19562511",
+      "accepted": true,
+      "acceptedWithoutCorrection": true,
+      "sourceHash": "d891187387b1c22c3de668617786caa36f5ac47e706dad458be0d86032592de4",
+      "testUnchanged": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "runId": "08ef952b-f8c5-43a8-9844-9d88e25318c8",
+          "durationMs": 174816,
+          "status": "success",
+          "accepted": true,
+          "checkExit": 0,
+          "scopeUnchanged": true,
+          "uniqueStepParts": 1,
+          "reportedInputTokens": 1177,
+          "reportedOutputTokens": 1424,
+          "reasoningTokens": 0,
+          "cacheReadTokens": 0,
+          "providerReportedCostUsd": 0,
+          "testsPassed": 14,
+          "testsFailed": 0
+        }
+      ],
+      "finalSource": "export function remainingPhases(kind, completed) {\n  if (kind !== 'runtime' && kind !== 'documentation') {\n    throw new Error('Invalid kind');\n  }\n\n  if (!Array.isArray(completed)) {\n    throw new Error('Completed must be an array');\n  }\n\n  if (kind === 'runtime') {\n    if (completed.length === 1) {\n      if (completed[0] === 'code') {\n        return ['docs', 'review'];\n      }\n    } else if (completed.length === 2) {\n      if (completed[0] === 'code' && completed[1] === 'docs') {\n        return ['review'];\n      }\n    }\n\n    throw new Error('Invalid completed phases for runtime');\n  }\n\n  if (completed.length === 1 && completed[0] === 'docs') {\n    return ['review'];\n  }\n\n  throw new Error('Invalid completed phases for documentation');\n}\n"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "sum",
+      "request": "Disposable JavaScript exercise. Modify only source.mjs, return its complete plain source, and preserve its named export. Implement sumKnown(values). Return the sum only when values is a nonempty array of nonnegative safe integers AND the running sum remains a safe integer. Otherwise return null. Zero is valid; do not coerce null, strings or booleans. Do not mutate the input.\nNo tools; supplied source and executable assertions are complete. Never edit tests or claim you ran them. Return exactly {\"status\":\"success\",\"artifacts\":[{\"name\":\"changes\",\"contract\":\"file-changes.v1\",\"data\":{\"files\":[{\"path\":\"source.mjs\",\"content\":\"COMPLETE SOURCE\"}],\"summary\":\"actual change\"}}]}.\nSOURCE:\nexport function sumKnown(values) { return 0; }\n\nFROZEN TESTS:\nimport {test} from 'node:test';\nimport assert from 'node:assert/strict';\nimport {sumKnown} from './source.mjs';\nconst cases=[['known',[1,2,3],6],['zero',[0],0],['empty',[],null],['null item',[1,null],null],['string',[1,'2'],null],['negative',[1,-1],null],['fraction',[0.5],null],['infinity',[Infinity],null],['nan',[NaN],null],['unsafe',[Number.MAX_SAFE_INTEGER+1],null],['overflow',[Number.MAX_SAFE_INTEGER,1],null],['boolean',[true],null],['undefined',[undefined],null],['not array',null,null]];\nfor(const [name,input,expected] of cases)test(name,()=>assert.equal(sumKnown(input),expected));\ntest('does not mutate',()=>{const values=Object.freeze([2,4]);assert.equal(sumKnown(values),6);});\n",
+      "tests": "import {test} from 'node:test';\nimport assert from 'node:assert/strict';\nimport {sumKnown} from './source.mjs';\nconst cases=[['known',[1,2,3],6],['zero',[0],0],['empty',[],null],['null item',[1,null],null],['string',[1,'2'],null],['negative',[1,-1],null],['fraction',[0.5],null],['infinity',[Infinity],null],['nan',[NaN],null],['unsafe',[Number.MAX_SAFE_INTEGER+1],null],['overflow',[Number.MAX_SAFE_INTEGER,1],null],['boolean',[true],null],['undefined',[undefined],null],['not array',null,null]];\nfor(const [name,input,expected] of cases)test(name,()=>assert.equal(sumKnown(input),expected));\ntest('does not mutate',()=>{const values=Object.freeze([2,4]);assert.equal(sumKnown(values),6);});\n"
+    },
+    {
+      "id": "phases",
+      "request": "Disposable JavaScript exercise. Modify only source.mjs, return its complete plain source, and preserve its named export. Implement remainingPhases(kind, completed). kind must be exactly runtime or documentation. For runtime completed exactly [code] returns [docs,review], and exactly [code,docs] returns [review]. For documentation completed exactly [docs] returns [review]. Every other input throws Error. Compare ordered array contents, reject duplicate/extra/out-of-order/non-array input and never mutate input.\nNo tools; supplied source and executable assertions are complete. Never edit tests or claim you ran them. Return exactly {\"status\":\"success\",\"artifacts\":[{\"name\":\"changes\",\"contract\":\"file-changes.v1\",\"data\":{\"files\":[{\"path\":\"source.mjs\",\"content\":\"COMPLETE SOURCE\"}],\"summary\":\"actual change\"}}]}.\nSOURCE:\nexport function remainingPhases(kind, completed) { return []; }\n\nFROZEN TESTS:\nimport {test} from 'node:test';\nimport assert from 'node:assert/strict';\nimport {remainingPhases} from './source.mjs';\ntest('runtime code',()=>assert.deepEqual(remainingPhases('runtime',['code']),['docs','review']));\ntest('runtime docs',()=>assert.deepEqual(remainingPhases('runtime',['code','docs']),['review']));\ntest('documentation',()=>assert.deepEqual(remainingPhases('documentation',['docs']),['review']));\nfor(const [kind,done] of [['runtime',[]],['runtime',['docs']],['runtime',['docs','code']],['runtime',['code','code']],['runtime',['code','docs','review']],['runtime','code'],['runtime',null],['documentation',['code']],['documentation',['docs','review']],['unknown',['code']]])test('reject '+JSON.stringify([kind,done]),()=>assert.throws(()=>remainingPhases(kind,done)));\ntest('frozen input',()=>assert.deepEqual(remainingPhases('runtime',Object.freeze(['code'])),['docs','review']));\n",
+      "tests": "import {test} from 'node:test';\nimport assert from 'node:assert/strict';\nimport {remainingPhases} from './source.mjs';\ntest('runtime code',()=>assert.deepEqual(remainingPhases('runtime',['code']),['docs','review']));\ntest('runtime docs',()=>assert.deepEqual(remainingPhases('runtime',['code','docs']),['review']));\ntest('documentation',()=>assert.deepEqual(remainingPhases('documentation',['docs']),['review']));\nfor(const [kind,done] of [['runtime',[]],['runtime',['docs']],['runtime',['docs','code']],['runtime',['code','code']],['runtime',['code','docs','review']],['runtime','code'],['runtime',null],['documentation',['code']],['documentation',['docs','review']],['unknown',['code']]])test('reject '+JSON.stringify([kind,done]),()=>assert.throws(()=>remainingPhases(kind,done)));\ntest('frozen input',()=>assert.deepEqual(remainingPhases('runtime',Object.freeze(['code'])),['docs','review']));\n"
+    }
+  ],
+  "limitations": [
+    "Two tasks, one run per model; not a statistical benchmark or proof of autonomous development.",
+    "Duration is installed CLI wall time and includes startup/load effects; task order fixed, not randomized.",
+    "Counters come from deduplicated OpenCode step_finish records; hidden CLI metadata calls and interrupted inference may not be represented.",
+    "Initial step-limit-one pilot is excluded from the valid comparison, retained separately, and counts as experiment overhead.",
+    "Provider-reported reasoningTokens was zero; this is not proof that the thinking-capable model performed no reasoning.",
+    "No coordinator code repairs were made to benchmark artifacts. Only the invalid harness configuration was corrected."
+  ],
+  "discardedSetupTrial": {
+    "reason": "OpenCode steps=1 injected maximum-steps instructions; excluded from model-quality comparison. Coordinator stopped only own benchmark process tree and reran with steps=4.",
+    "completedCalls": [
+      {
+        "model": "baseline",
+        "task": "sum",
+        "runId": "d80bd2bf-8a6e-460d-898f-a65c2ef1fa6c",
+        "status": "error",
+        "accepted": false,
+        "durationMs": 17683,
+        "reportedInputTokens": 1245,
+        "reportedOutputTokens": 12,
+        "providerReportedCostUsd": 0
+      },
+      {
+        "model": "baseline",
+        "task": "sum",
+        "runId": "1f6e55ff-23f5-4cfc-8ac3-e49af32b4b58",
+        "status": "error",
+        "accepted": false,
+        "durationMs": 7583,
+        "reportedInputTokens": 2756,
+        "reportedOutputTokens": 32,
+        "providerReportedCostUsd": 0
+      },
+      {
+        "model": "baseline",
+        "task": "phases",
+        "runId": "372761ba-9bcb-4dbf-83d9-1f5dfe70da38",
+        "status": "error",
+        "accepted": false,
+        "durationMs": 8891,
+        "reportedInputTokens": 1286,
+        "reportedOutputTokens": 12,
+        "providerReportedCostUsd": 0
+      },
+      {
+        "model": "baseline",
+        "task": "phases",
+        "runId": "1eee38de-d264-4434-9a61-276e4995ac2e",
+        "status": "error",
+        "accepted": false,
+        "durationMs": 6995,
+        "reportedInputTokens": 2736,
+        "reportedOutputTokens": 33,
+        "providerReportedCostUsd": 0
+      },
+      {
+        "model": "candidate",
+        "task": "sum",
+        "runId": "7f85bbb3-7ec7-4168-892f-0c67c32c0c37",
+        "status": "success",
+        "accepted": true,
+        "durationMs": 54487,
+        "reportedInputTokens": 1302,
+        "reportedOutputTokens": 184,
+        "providerReportedCostUsd": 0
+      }
+    ],
+    "interruptedRunId": "250baf40-a502-4993-82d6-f1afbfdb53ac",
+    "interruptedUsage": null
+  },
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 5070 Ti, 16303 MiB",
+    "totalRamGiB": 61.6,
+    "candidateLoadedBytes": 17506930519,
+    "candidateVramBytes": 13767142275,
+    "candidateContext": 8192
+  },
+  "sources": [
+    "https://ollama.com/library/qwen3.8/tags",
+    "https://opencode.ai/docs/providers",
+    "https://docs.ollama.com/capabilities/thinking"
+  ]
+}
