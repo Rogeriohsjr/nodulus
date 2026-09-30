@@ -1,6 +1,20 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { prepareRecovery } from './recovery.mjs';
 import { applyFile, digest, confinedPath, fileHash, runCheck } from './io.mjs';
+
+export { prepareRecovery };
+
+if (process.argv[1] && existsSync(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+  try {
+    if (process.argv[2] !== 'recover' || !process.argv[3] || process.argv.length !== 4) throw Error('Usage: node runtime.mjs recover <project>');
+    console.log(JSON.stringify(prepareRecovery(path.resolve(process.argv[3]))));
+  } catch (error) {
+    console.error(JSON.stringify({ error: error.message }));
+    process.exitCode = 1;
+  }
+}
 
 export function runPhase(project, phase, artifact) {
   const statePath = path.join(project, '.nodulus/task-execution.json');
@@ -16,6 +30,7 @@ export function runPhase(project, phase, artifact) {
   for (const [relative, hash] of Object.entries(state.hashes)) if (fileHash(confinedPath(state.repo.root, relative)) !== hash) throw Error(`File changed outside this execution: ${relative}`);
   if (phase === 'review') {
     if (artifact.decision !== 'accept') throw Error('Review requested changes');
+    if (existsSync(path.join(project, '.nodulus/task-completed', state.contextHash, `${state.task.id}.json`))) throw Error('Task completion already exists');
   } else {
     if (!Array.isArray(artifact.files) || artifact.files.length !== 1) throw Error('This executor accepts exactly one full file per phase');
     const allowed = phase === 'docs' ? state.task.documentation : state.task.files.map(file => file.path).filter(file => file !== state.task.testing.testFile && (state.task.testing.mode === 'non-tdd' || !state.task.documentation.includes(file)));
@@ -33,13 +48,22 @@ export function runPhase(project, phase, artifact) {
   }
   for (const [relative, hash] of Object.entries(state.hashes)) if (fileHash(confinedPath(state.repo.root, relative)) !== hash) errors.push(`Check changed a frozen file: ${relative}`);
   if (!errors.length) {
+    state.accepted ??= {};
+    state.accepted[phase] = {
+      artifact,
+      artifactHash: digest(JSON.stringify(artifact)),
+      checks: phase === 'review' ? [] : state.task.testing.checkIds.map(id => {
+        const relative = path.posix.join('.nodulus/task-receipts', state.executionId, `${phase}-${id}.json`);
+        return { path: relative, sha256: fileHash(path.join(project, relative)) };
+      }),
+    };
     state.completed.push(phase);
-    writeFileSync(statePath, JSON.stringify(state, null, 2));
     if (phase === 'review') {
       const completed = path.join(project, '.nodulus/task-completed', state.contextHash);
       mkdirSync(completed, { recursive: true });
-      writeFileSync(path.join(completed, `${state.task.id}.json`), JSON.stringify({ taskId: state.task.id, taskHash: digest(JSON.stringify(state.task)), contextHash: state.contextHash, executionId: state.executionId, repoId: state.repo.id, hashes: state.hashes, status: 'accepted', review: artifact, acceptedAt: new Date().toISOString() }, null, 2));
+      writeFileSync(path.join(completed, `${state.task.id}.json`), JSON.stringify({ taskId: state.task.id, taskHash: digest(JSON.stringify(state.task)), contextHash: state.contextHash, executionId: state.executionId, repoId: state.repo.id, hashes: state.hashes, status: 'accepted', review: artifact, acceptedAt: new Date().toISOString() }, null, 2), { flag: 'wx' });
     }
+    writeFileSync(statePath, JSON.stringify(state, null, 2));
   }
   return { valid: errors.length === 0, errors };
 }

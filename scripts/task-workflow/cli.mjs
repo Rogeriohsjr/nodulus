@@ -8,9 +8,12 @@ import { fileURLToPath } from 'node:url';
 import { prepareContext } from './context.mjs';
 import { confinedPath, fileHash, runCheck } from './io.mjs';
 import { assertReadyDependencies } from './runtime.mjs';
+import { runConfiguredLoop } from './loop-provider.mjs';
+import { inspectLoop } from './loop-state.mjs';
 
 const read = file => JSON.parse(readFileSync(file, 'utf8'));
 const save = (file, value) => writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
+const runtimeHelpers = ['io.mjs', 'runtime.mjs', 'recovery.mjs', 'recovery-state.mjs', 'rework.mjs', 'loop-state.mjs'];
 const [command, first, second, third, approvedTestHash] = process.argv.slice(2);
 try {
   if (command === 'setup') {
@@ -24,7 +27,7 @@ try {
       const destination = path.join(target, relative);
       if (existsSync(destination) && readFileSync(destination, 'utf8') !== readFileSync(path.join(source, relative), 'utf8')) throw Error(`Existing definition differs: ${relative}`);
     }
-    for (const name of ['io.mjs', 'runtime.mjs']) {
+    for (const name of runtimeHelpers) {
       const original = fileURLToPath(new URL(name, import.meta.url));
       const destination = path.join(target, 'task-tools', name);
       if (existsSync(destination) && readFileSync(destination, 'utf8') !== readFileSync(original, 'utf8')) throw Error(`Existing task helper differs: ${name}`);
@@ -39,7 +42,7 @@ try {
       if (!existsSync(destination)) cpSync(path.join(source, relative), destination);
     }
     const tools = path.join(target, 'task-tools'); mkdirSync(tools, { recursive: true });
-    for (const name of ['io.mjs', 'runtime.mjs']) {
+    for (const name of runtimeHelpers) {
       const original = fileURLToPath(new URL(name, import.meta.url));
       const destination = path.join(tools, name);
       if (existsSync(destination) && readFileSync(destination, 'utf8') !== readFileSync(original, 'utf8')) throw Error(`Existing task helper differs: ${name}`);
@@ -104,7 +107,15 @@ try {
     save(statePath, state);
     save(path.join(project, '.nodulus/task-implement-inputs.json'), { packet: { task, repository: state.repo, contextHash: context.contextHash } });
     console.log(JSON.stringify({ status: 'success', executionId, taskId: task.id, workflow: task.kind === 'documentation' ? 'task-document' : 'task-implement', inputsFile: path.join(project, '.nodulus/task-implement-inputs.json') }));
+  } else if (command === 'loop') {
+    if (!first || second === undefined || third !== undefined) throw Error('Usage: nodulus-task loop <project> <max-corrections:0..2>');
+    const result = await runConfiguredLoop(path.resolve(first), Number(second));
+    console.log(JSON.stringify(result));
+    if (result.status !== 'accepted') process.exitCode = 1;
+  } else if (command === 'loop-status') {
+    if (!first || second !== undefined) throw Error('Usage: nodulus-task loop-status <project>');
+    console.log(JSON.stringify(inspectLoop(path.resolve(first))));
   } else {
-    throw Error('Usage: nodulus-task setup [project] | prepare <manifest.json> [project] | select <plan-result.json> <task-id> <project> [reviewed-test-sha256]');
+    throw Error('Usage: nodulus-task setup [project] | prepare <manifest.json> [project] | select <plan-result.json> <task-id> <project> [reviewed-test-sha256] | loop <project> <max-corrections:0..2> | loop-status <project>');
   }
 } catch (error) { console.error(JSON.stringify({ status: 'error', error: error.message })); process.exitCode = 1; }

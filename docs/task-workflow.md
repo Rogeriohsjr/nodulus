@@ -90,6 +90,36 @@ All exceptions need trusted replacement check IDs. A generic command such as `no
 - `.nodulus/task-receipts/<executionId>/`: RED, apply attempts and check stdout/stderr/exit status.
 - `.nodulus/task-completed/<contextHash>/<taskId>.json`: accepted review, exact task hash and final captured file hashes.
 
-Keep these local files out of commits; publish sanitized reports separately. The current workflow stops on a rejected artifact and does not automatically rerun a completed code phase. Failed checks can leave the proposed file in the worktree for inspection. Preserve receipts and diagnose the exact phase; a supervisor must prepare a bounded correction or remaining-phase workflow. Do not delete state and blindly replay implementation. There is no multi-file rollback, whole-workflow token budget, concurrency lock or automatic multi-packet scheduler. Use one execution at a time in a dedicated checkout, preserve unfinished work, and obtain strong review at a stable checkpoint.
+Keep these local files out of commits; publish sanitized reports separately. The workflow stops on a rejected artifact and does not automatically rerun a completed code phase. Failed checks can leave the proposed file in the worktree for inspection.
+
+After accepted code or documentation, prepare one bounded recovery using the installed helper:
+
+```sh
+node .nodulus/task-tools/runtime.mjs recover .
+nodulus run --workflow task-recover --inputs-file .nodulus/task-recover-inputs.json --request-file correction.md --json
+```
+
+Write `correction.md` with the exact rejected phase's error and required correction. Preparation verifies accepted artifact/check digests and frozen files, reruns the trusted checks, refreshes captured source, then generates only the remaining nodes. Accepted code resumes at documentation; accepted code and documentation resume at review. A documentation-only task resumes at review. The generated workflow never includes the accepted code node.
+
+Only one recovery preparation is allowed per selected execution. Missing legacy evidence, changed files/receipts, failing checks, completed executions and unsupported phase order are rejected. This requires the updated helper set from setup: `io.mjs`, `runtime.mjs`, `recovery.mjs` and `recovery-state.mjs`. Setup refuses differing existing helpers; preserve old executions and use a fresh worktree for the updated setup. It does not reconstruct evidence for older executions or silently overwrite helpers.
+
+Do not delete state and blindly replay implementation. The preparation bound is not an inference budget: manually relaunching a generated workflow is still operator-controlled, and completed-phase validators reject replay. There is no multi-file rollback, whole-workflow token budget, concurrency lock or automatic multi-packet scheduler. Use one execution at a time in a dedicated checkout, preserve unfinished work, and obtain strong review at a stable checkpoint.
 
 The planning pilot report in the repository records both successes and coordinator interventions. A local provider's reported zero dollar cost excludes electricity and separate coordinator/reviewer account usage.
+
+## Bounded review revisions
+
+After preparing a runtime packet, reviewing/freezing its scenario test, observing RED and selecting it, run:
+
+```sh
+nodulus-task loop /path/to/project 1
+nodulus-task loop-status /path/to/project
+```
+
+The final argument is the maximum corrections, 0–2, in addition to the initial iteration. Each iteration invokes configured packet-code, packet-docs and packet-review profiles through separate Nodulus runs. A valid changes_required review sends its exact summary and current source back to the developer. New code requires fresh executable checks, documentation and review. There is one code file and one document per iteration; tests and captured reference files remain frozen. Completion requires acceptance and cannot overwrite an existing task/context receipt. Exit 0 means accepted; exhaustion or error exits 1.
+
+Each phase has a regular .nodulus/runs/<runId> record. Controller requests/responses and transitions are in .nodulus/task-loops/<origin>, with run IDs linking the two. Rejected iterations keep their task-receipts directories. Generated single-node definitions remain available for inspection. Nodulus checks schemas; the controller owns application/checks exactly once. Model summaries are not executable proof.
+
+This initial loop supports fresh selected runtime TDD tasks. Failed checks, malformed responses and unsafe changes stop with evidence. Automatic failed-check revision and crash continuation are not implemented. loop-status is read-only and shows the journal and lock without inference. A lock may belong to a live or interrupted process; inspect the process, file hashes, checks and receipts before manual recovery. Never remove a live lock or reset execution state to force replay. Use an isolated checkout and one task executor. Terminal reentry does not schedule new inference.
+
+Provider choice remains in project configuration. Local Qwen is optional, and the product does not hard-code a model or require a proxy. Disabling title generation and automatic compaction helped the measured OpenCode artifact-only experiment, but may be inappropriate for long interactive sessions. A correction cap is not a hard token cap; provider-internal subcalls can add usage.

@@ -49,3 +49,32 @@ The [new report](../13-task-planning/qwen-planning-pilot-report.md) preserves co
 | H-C07: RED command could change frozen files | Sol noticed selection trusted the pre-command snapshot | Two real mutation scenarios failed as expected before a post-RED rehash was added; all eight selection cases then passed. |
 
 H-C08: the first full quality run hit the existing NODE-003 delayed-marker timeout assertion under concurrent load (221/222 passed). The isolated five cases and unchanged full check then passed (222 scenarios + 8 package tests). Scheduling contention is a hypothesis, not a demonstrated cause; no production timeout or assertion was changed. Track recurrence separately from the planning pilot.
+
+## Phase D recovery follow-up (2026-09-29)
+
+See the [new execution report](../13-task-planning/qwen-recovery-report.md) and [D ledger](../13-task-planning/qwen-phase-d-ledger.json). No model switch occurred; the existing Qwen2.5-Coder 14B alias remained in use.
+
+| Incident | Observed failure and action | Outcome and lesson |
+| --- | --- | --- |
+| H-D01: endpoint initially unavailable | Installed Ollama updater moved 0.32.15 to 0.35.0 before localhost became available; no coordinator install command | Locality was rechecked. Software-version drift confounds speed comparisons; it does not prove a model improvement. |
+| H-D02: planner punctuation repeated | Both plans used NEW function. instead of NEW: | Supervisor corrected the marker/check IDs in a separate reviewed plan. Raw output retained; schema punctuation still needed human intervention. |
+| H-D03: combined recovery packet too broad | Two implementation drafts failed all nine assertions and lint | Split persistence/verifier/generator. Smaller drafts were easier to inspect but still needed fixes; one file is not a sufficient complexity measure. |
+| H-D04: schema-valid wrong code | Verifier used array identity/wrong receipt owners; generator used file contents as paths and rewrote templates | Bounded corrections, then explicitly attributed supervisor fixes. Real workflow tests and scope checks remained the acceptance boundary. |
+| H-D05: local harness typo | Supervisor's disposable live driver had a wrong relative import before inference | Corrected the import; no inference launched on that attempt and it was not RED. The subsequent assertion RED and live recovery succeeded. |
+| H-D06: setup omitted imports | Sol found setup copied runtime without its two new dependencies | Installed-archive assertion reproduced missing recovery.mjs; both preflight/copy lists fixed. Source directory-copy tests alone missed distribution behavior. |
+| H-D07: invented telemetry/docs claims | OBS test correction introduced contradictory metric count; docs claimed source tests mocked, then used placeholder artifact names | Supervisor corrected test ownership/assertions and wrote factual docs. Qwen review alone was insufficient proof. |
+| H-D08: experiment exceeded default budget | Replanning plus bounded corrections required 19 actual local calls including live proof/review | No automatic repair loops or GPT builder fallback, but no builder-efficiency win established. Next compare bounded capability packets before expanding scope. |
+
+The controlled live documentation rejection was deliberately injected and is not classified as a spontaneous model failure. Generated recovery succeeded with one source application and no extra code inference. Historical packaging IMP-11 and planning recovery IMP-11 are distinct proposals whose original identifiers collided.
+
+H-D09: initial PR #15 macOS CI exposed the coordinator-written command guard comparing an unresolved temporary path with Node's resolved module URL. A real Windows junction reproduced exit 0 with no recovery input before the fix. The guard now resolves the entry path; the unchanged behavioral assertion passes. A thirteenth recovery scenario preserves this regression. No Qwen call or model switch was needed for this narrow integration correction. See the [run report](../13-task-planning/qwen-recovery-report.md) for the failed run and final delivery checks.
+
+Phase F follow-up: [bounded review-loop evidence, configuration experiments and hiccup history](../13-task-planning/qwen-review-loop-report.md). The loop has controlled live local-Qwen proof; it does not complete remaining OBS scenarios.
+
+## 2026-09-30 continuation
+
+The [completion report](qwen-completion-report.md) records checkpoint C acceptance, local Qwen model/configuration comparisons, failed drafts, supervisor interventions and scenario-based improvement proposals. Earlier conclusions above remain historical; they are not overwritten by this later run.
+
+Checkpoint D/E additions are recorded in the same [completion report](qwen-completion-report.md). The most consequential incidents were the 600-second product timeout clamp making an 8192-output local profile infeasible, the supervisor's `/var` versus `/private/var` fixture assumption, whole-file calculator packets mutating frozen public types, and a stale `dist` test caused by running build-dependent fixtures beside non-emitting typecheck. Raw attempts and rejected artifacts remain under ignored `.nodulus/phase-f`; none is counted as accepted production merely because its envelope succeeded.
+
+Checkpoint E/F continuation remains centralized in the [completion report](qwen-completion-report.md) to avoid duplicating the full ledger. It records the permissive small-value matcher that initially accepted a null price, the valid-shape rate/policy snapshot tampering missed by nominal tests, and the F drafts that invented public APIs despite supplied context. It also records two coordinator delivery mistakes: temporarily linking an installed guide to an unshipped target and relying on stale `dist` before a build-dependent check. Exact numeric assertions, adversarial valid-shape persistence cases, installed-archive link checks, and a build-then-run sequence are the measured acceptance boundaries; none of these incidents proves autonomous test-failure recovery.

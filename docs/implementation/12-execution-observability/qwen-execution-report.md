@@ -128,3 +128,17 @@ After the packaging correction, full local `npm run check` passed again (183 sce
 ## Checkpoint C: reusable planning pilot (2026-09-29)
 
 See the [separate run report](../13-task-planning/qwen-planning-pilot-report.md), [C ledger](../13-task-planning/qwen-phase-c-ledger.json) and [evidence](../13-task-planning/evidence.md). Reusable planning, one-file apply/check gates and explicit test-hash approval are now implemented as packaged workflow helpers. IMP-04/05/07 are partially delivered, not fully completed product proposals. Local Qwen implemented OBS007A; parent OBS-007 stays pending. The new report explains each improvement with its motivating scenario and acceptance limit, and records substantial coordinator intervention. No unattended-development claim is made.
+
+## Phase D follow-up
+
+[Recovery report](../13-task-planning/qwen-recovery-report.md): the planning report's IMP-11 now generates remaining documentation/review nodes from verified accepted evidence. This is distinct from this report's earlier packaging IMP-11. A live localhost-Qwen exercise succeeded with one code inference/application, but building the change still required substantial supervisor corrections. OBS006A adds a real-process characterization test for already-working nonzero-exit partial usage. Parent OBS-006 remains open.
+
+Phase F follow-up: [bounded review-loop evidence, configuration experiments and hiccup history](../13-task-planning/qwen-review-loop-report.md). The loop has controlled live local-Qwen proof; it does not complete remaining OBS scenarios.
+
+## 2026-09-30 continuation
+
+The [completion report](qwen-completion-report.md) records checkpoint C acceptance, local Qwen model/configuration comparisons, failed drafts, supervisor interventions and scenario-based improvement proposals. Earlier conclusions above remain historical; they are not overwritten by this later run.
+
+Checkpoint D/E continuation: [the completion report](qwen-completion-report.md) now records repair/resume aggregation, reproduced reviewer counterexamples, hosted three-OS evidence, reproducible pricing, exact local-Qwen run attribution, supervisor roadblock fixes, and the timeout/stale-build improvement scenarios. The [OBS-010 guide](obs-010-cost-estimates.md) describes the shipped settings and status semantics. No billing, merge, release, or publish proof is inferred from those local tests.
+
+Checkpoint F continuation is also recorded in the [completion report](qwen-completion-report.md): public invoke-only/legacy compatibility, fresh archive installation, the one authorized Windows OpenCode/Ollama telemetry cell, rejected Qwen harness drafts, and supervisor roadblock integration. That local live cell proves adapter execution and captured telemetry through an installed package. It is not autonomous coding proof, and the controlled reviewed-change loop still does not recover automatically from arbitrary failing tests.
