@@ -94,3 +94,11 @@ After the archive fix, full `npm run check` passed again with lint/typecheck, 18
 ## 2026-09-29 OBS006A characterization
 
 The obs-006-partial-provider-evidence.test.ts scenario now exercises a real OpenCode fixture emitting known usage then exiting 23. Reported counters and transport evidence survive with partial coverage; normalized totals and aggregate usage remain unknown, and two status reads do not infer again. This passes existing production code: no new RED or production implementation is claimed. See the [phase D report](../13-task-planning/qwen-recovery-report.md) for Qwen drafts, supervisor corrections and final validation. Parent OBS-006 remains unchecked; this does not cover timeout, truncation, output limits, readiness or killed-process status.
+
+## Checkpoint C completion: 2026-09-30
+
+On base `1f5ddba`, branch `codex/observability-completion`, missing launch classification and interrupted-call status assertions failed before implementation (`.nodulus/phase-f/lifecycle-red.txt` and `lifecycle-scaffold-red.txt`). Existing transport limits and counter validation passed characterization; no new RED is claimed for those behaviors.
+
+`npm run check` passed on Windows Node 24.15.0: lint, typecheck, **260 scenarios and 9 installed-package tests** (`.nodulus/phase-f/obs-c-check.txt`). Real fixture processes cover timeout, truncation, output cap, prelaunch failure and killed-process read-only status. Invalid usage never retries a valid artifact. GPT-5.6 Sol accepted after a documentation-only scope correction. Hosted acceptance is separate and pending for this revision.
+
+The [completion report](qwen-completion-report.md) records exact Qwen runs, supervisor fixes, tuning, failed attempts and improvement scenarios. The [lifecycle guide](obs-006-lifecycle.md) describes nullable launch evidence. OBS008–012 remain pending; no release or merge was performed.

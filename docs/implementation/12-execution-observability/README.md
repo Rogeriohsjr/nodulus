@@ -1,6 +1,6 @@
 # 12: Inspect execution traces, provider usage, and cost
 
-Status on 2026-09-28: **checkpoints A–B (OBS-001–005) implemented and locally accepted**. Qwen generated drafts through Nodulus/OpenCode on localhost Ollama; coordinator integration and GPT-5.6 Sol review completed the slice. See [evidence](evidence.md) and the [execution/improvements report](qwen-execution-report.md). Checkpoints C–F remain pending. The [hiccup history](qwen-hiccups.md) records model experiments, rejected drafts and corrective actions. Publishing remains outside this scope.
+Status on 2026-09-30: **checkpoints A–C (OBS-001–007) implemented and locally accepted**. Qwen generated drafts through Nodulus/OpenCode on localhost Ollama; coordinator integration and GPT-5.6 Sol review completed the slice. See [evidence](evidence.md) and the [execution/improvements report](qwen-execution-report.md). Checkpoints D–F remain pending. See the [completion report](qwen-completion-report.md) for checkpoint C and its supervised role split. The [hiccup history](qwen-hiccups.md) records model experiments, rejected drafts and corrective actions. Publishing remains outside this scope.
 
 As a user, I want to inspect each workflow step, see the instructions Nodulus sent and the response it received, understand validation and repairs, and compare available token usage and cost without confusing estimates with charges.
 
@@ -25,7 +25,7 @@ This slice extends the existing local run store, provider adapters, and status c
 | --- | --- | --- | --- |
 | [x] | A: Correlated boundary records and timestamps | OBS-001, OBS-002 | Prerequisites above |
 | [x] | B: Codex, Cursor, and OpenCode usage | OBS-003, OBS-004, OBS-005 | A |
-| [ ] | C: Partial evidence and telemetry failures | OBS-006, OBS-007 | B |
+| [x] | C: Partial evidence and telemetry failures | OBS-006, OBS-007 | B |
 | [ ] | D: Repair/resume accounting and status | OBS-008, OBS-009 | C |
 | [ ] | E: Optional reproducible cost estimates | OBS-010 | D |
 | [ ] | F: Portable acceptance and developer handoff | OBS-011, OBS-012 | E |
@@ -40,4 +40,4 @@ This historical assignment template describes the completed checkpoint A. Choose
 
 ## 2026-09-29 pilot follow-up
 
-[OBS007A](obs-007-pilot.md) now isolates optional telemetry.json write failure after a valid provider result, preserving counters and diagnostics without repeated inference. The [planning pilot report](../13-task-planning/qwen-planning-pilot-report.md) records local Qwen and supervisor contributions. This is one acceptance case; checkpoint C and parent OBS-007 remain unchecked.
+[OBS007A](obs-007-pilot.md) now isolates optional telemetry.json write failure after a valid provider result, preserving counters and diagnostics without repeated inference. The [planning pilot report](../13-task-planning/qwen-planning-pilot-report.md) records local Qwen and supervisor contributions. This was one acceptance case at the time; checkpoint C acceptance is now recorded in the completion report.

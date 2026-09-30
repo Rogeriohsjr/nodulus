@@ -134,3 +134,7 @@ See the [separate run report](../13-task-planning/qwen-planning-pilot-report.md)
 [Recovery report](../13-task-planning/qwen-recovery-report.md): the planning report's IMP-11 now generates remaining documentation/review nodes from verified accepted evidence. This is distinct from this report's earlier packaging IMP-11. A live localhost-Qwen exercise succeeded with one code inference/application, but building the change still required substantial supervisor corrections. OBS006A adds a real-process characterization test for already-working nonzero-exit partial usage. Parent OBS-006 remains open.
 
 Phase F follow-up: [bounded review-loop evidence, configuration experiments and hiccup history](../13-task-planning/qwen-review-loop-report.md). The loop has controlled live local-Qwen proof; it does not complete remaining OBS scenarios.
+
+## 2026-09-30 continuation
+
+The [completion report](qwen-completion-report.md) records checkpoint C acceptance, local Qwen model/configuration comparisons, failed drafts, supervisor interventions and scenario-based improvement proposals. Earlier conclusions above remain historical; they are not overwritten by this later run.

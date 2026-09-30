@@ -8,6 +8,7 @@ import { NodulusError } from "../core/shared/nodulus-error.js";
 import { executeWorkflow } from "../core/execute-workflow.js";
 import { appendRunEvent } from "../core/execution-events.js";
 import type { ApplicationRunResult, ProviderPort } from "./run-workflow.js";
+import { readCallEvidence, type CallEvidence } from './call-evidence.js';
 
 export type ResumeWorkflowRequest = {
   projectRoot: string;
@@ -22,6 +23,7 @@ export type RunStatusResult = {
   checkpoint: unknown;
   pendingRequest?: unknown;
   events?: unknown[];
+  callEvidence?: CallEvidence[];
   metrics?: {
     calls: import("../core/ports/provider.js").ProviderCallMetric[];
     totals: import("../core/ports/provider.js").ProviderUsage;
@@ -81,6 +83,7 @@ export async function getRunStatus(
     status: checkpoint.status,
     checkpoint,
     events,
+    callEvidence: await readCallEvidence(projectRoot, runId, storage, events, metrics.calls),
     metrics,
     diagnostics: { incompleteTrailingEvent },
     ...(pendingRequest === undefined ? {} : { pendingRequest }),

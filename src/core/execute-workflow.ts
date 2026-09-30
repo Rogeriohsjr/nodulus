@@ -698,7 +698,9 @@ async function recordProviderMetric(
     }
     if (telemetry && usage && Object.values(usage).every(value => value === null)) usage = null;
   } catch { usage = null; }
-  calls.push({ nodeId, attempt, usage, elapsedMs: Math.max(0, elapsedMs), callId: call.callId, operation: call.operation, ...(telemetry ? { telemetry } : {}) });
+  let launched: boolean | null = null;
+  try { const value = provider.launchForCall?.(call.callId); if (typeof value === 'boolean') launched = value; } catch { /* optional evidence cannot invalidate the artifact */ }
+  calls.push({ nodeId, attempt, usage, elapsedMs: Math.max(0, elapsedMs), callId: call.callId, operation: call.operation, launched, ...(telemetry ? { telemetry } : {}) });
   await storage.writeRunFiles(projectRoot, runId, { "metrics.json": json(calls) });
 }
 

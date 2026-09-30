@@ -1,6 +1,6 @@
 # Implementation sequence and AI handoff
 
-**Checkpoints A–B are implemented under the user’s 2026-09-28 requests.** Checkpoints C–F remain pending and require a scoped assignment. See [evidence](evidence.md) for tested behavior and the local Qwen/coordinator role split.
+**Checkpoints A–C are locally accepted as of 2026-09-30.** Checkpoints D–F remain pending under the current completion request. See [evidence](evidence.md) for tested behavior and the local Qwen/coordinator role split.
 
 Read [architecture](../../architecture.md), [testing policy](../../testing.md), [code quality](../../code-quality.md), the [scenario TDD skill](../../../.agents/skills/nodulus-scenario-tdd/SKILL.md), and this folder's design/scenarios. Use the [delivery validation skill](../../../.agents/skills/nodulus-delivery-validation/SKILL.md) for the local archive handoff. No new skill is required: this checklist specializes the existing skills.
 
@@ -24,11 +24,11 @@ Read [architecture](../../architecture.md), [testing policy](../../testing.md), 
 
 ## C: Failure handling and measurement validity
 
-- [ ] Add OBS-006/007 fixtures and observe missing partial coverage/diagnostics as RED.
-- [ ] Preserve bounded transport output and failure reasons. Extend process-runner only where required to expose existing capture/termination facts; do not raise limits or add unbounded buffering.
-- [ ] Validate safe integer counters and finite nonnegative costs. Reset telemetry on every path and preserve accepted artifact behavior independently.
-- [ ] Exercise real storage prelaunch failure, timeout, output limits and controlled interruption. Ensure no inference replay for missing logs.
-- [ ] Record GREEN and focused review before D.
+- [x] Characterize existing partial transport and invalid-counter behavior; observe missing launch/status evidence as behavioral RED.
+- [x] Preserve bounded transport output and failure reasons. Extend process-runner only where required to expose existing capture/termination facts; do not raise limits or add unbounded buffering.
+- [x] Validate safe integer counters and finite nonnegative costs. Reset telemetry on every path and preserve accepted artifact behavior independently.
+- [x] Exercise real storage prelaunch failure, timeout, output limits and controlled interruption. Ensure no inference replay for missing logs.
+- [x] Record GREEN and focused review before D.
 
 ## D: Repair/resume totals and read compatibility
 

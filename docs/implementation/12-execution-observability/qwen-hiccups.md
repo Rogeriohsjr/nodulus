@@ -70,3 +70,7 @@ The controlled live documentation rejection was deliberately injected and is not
 H-D09: initial PR #15 macOS CI exposed the coordinator-written command guard comparing an unresolved temporary path with Node's resolved module URL. A real Windows junction reproduced exit 0 with no recovery input before the fix. The guard now resolves the entry path; the unchanged behavioral assertion passes. A thirteenth recovery scenario preserves this regression. No Qwen call or model switch was needed for this narrow integration correction. See the [run report](../13-task-planning/qwen-recovery-report.md) for the failed run and final delivery checks.
 
 Phase F follow-up: [bounded review-loop evidence, configuration experiments and hiccup history](../13-task-planning/qwen-review-loop-report.md). The loop has controlled live local-Qwen proof; it does not complete remaining OBS scenarios.
+
+## 2026-09-30 continuation
+
+The [completion report](qwen-completion-report.md) records checkpoint C acceptance, local Qwen model/configuration comparisons, failed drafts, supervisor interventions and scenario-based improvement proposals. Earlier conclusions above remain historical; they are not overwritten by this later run.

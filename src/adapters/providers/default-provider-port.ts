@@ -21,10 +21,13 @@ const openCodeTransportSuffix = "OpenCode transport instruction: Return exactly 
 export function createDefaultProviderPort(projectRoot: string): ProviderPort {
   const openCodeRepairSessions = new Map<string, { sessionID: string; count: number }>();
   const telemetryByCall = new Map<string, ProviderTelemetry>();
+  const launchByCall = new Map<string, boolean | null>();
   const versions = new Map<string, string>();
   let lastTelemetry: ProviderTelemetry | null = null;
   const captureWithVersion = (version: string | null): Capture => async (executable, args, options, invocation, operation) => {
+    if (invocation.call) launchByCall.set(invocation.call.callId, null);
     const result = await runCapturedProcess(executable, args, options, invocation, operation, version);
+    launchByCall.set(result.callId, true);
     lastTelemetry = result.telemetry;
     telemetryByCall.set(result.callId, result.telemetry);
     return result;
@@ -32,6 +35,7 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
   return {
     async invoke(invocation) {
       lastTelemetry = null;
+      if (invocation.call) launchByCall.set(invocation.call.callId, false);
       const profile = invocation.providerProfile;
       const kind = requireKind(profile);
       try {
@@ -55,6 +59,7 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
     },
     async repairResponse(invocation, previousRawResponse, validationErrors) {
       lastTelemetry = null;
+      if (invocation.call) launchByCall.set(invocation.call.callId, false);
       const kind = requireKind(invocation.providerProfile);
       if (kind !== "opencode") {
         throw new NodulusError("RESPONSE_REPAIR_UNAVAILABLE", "Safe response-only repair is unavailable for this provider; the full provider action will not be replayed.");
@@ -75,6 +80,7 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
       } catch { return false; }
     },
     telemetryForCall: callId => telemetryByCall.get(callId) ?? null,
+    launchForCall: callId => launchByCall.get(callId) ?? null,
     usageForLastCall: () => lastTelemetry ? {
       inputTokens: lastTelemetry.normalized.inputTokens,
       outputTokens: lastTelemetry.normalized.outputTokens,

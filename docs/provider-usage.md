@@ -18,4 +18,12 @@ Other CLI versions retain recognized reported counters but leave normalization u
 
 ## Limits
 
-OBS-006–012's broader failure isolation, resume accounting, coverage views and pricing remain pending. Live usage proof here covers Windows OpenCode/Ollama; Codex/Cursor use offline process fixtures. Provider USD is not a verified invoice or an estimate from a Nodulus rate card. Local Ollama zero does not mean hardware or electricity is free.
+OBS-006/007 failure-capture and validity cases now have local fixture coverage. OBS-008–012 resume accounting, aggregate coverage, estimates and the broader live matrix remain pending. Live usage proof here covers Windows OpenCode/Ollama; Codex/Cursor use offline process fixtures. Provider USD is not a verified invoice or an estimate from a Nodulus rate card. Local Ollama zero does not mean hardware or electricity is free.
+
+## Launch and interrupted-call evidence
+
+`metrics.calls[].launched` is true after completed built-in process capture, false when a built-in readiness check prevented inference, and null when certainty is unavailable (including custom providers without the optional hook). A captured process failure can still report launched true; it does not imply artifact success.
+
+Status also returns `callEvidence`, correlated to valid UUID call-start events. Matching request/transport records distinguish completed capture, incomplete evidence, explicitly not launched, and unavailable capture. A process killed after saving its request has incomplete evidence and unknown launch certainty if no metric or transport resolves it. Status reads existing files without inference or automatic recovery. The run checkpoint remains authoritative. Invalid capture JSON or mismatched identity produces a diagnostic rather than a fabricated record.
+
+Timeout, nonzero exit and output-limit cases preserve whatever bounded output was captured and mark telemetry partial. Invalid counters/cost fields remain null with diagnostics; valid raw fields survive and valid artifacts are not retried just to obtain usage. A failed optional telemetry write does not discard the accepted artifact.
