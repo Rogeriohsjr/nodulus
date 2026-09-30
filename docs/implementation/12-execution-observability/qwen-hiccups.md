@@ -74,3 +74,5 @@ Phase F follow-up: [bounded review-loop evidence, configuration experiments and 
 ## 2026-09-30 continuation
 
 The [completion report](qwen-completion-report.md) records checkpoint C acceptance, local Qwen model/configuration comparisons, failed drafts, supervisor interventions and scenario-based improvement proposals. Earlier conclusions above remain historical; they are not overwritten by this later run.
+
+Checkpoint D/E additions are recorded in the same [completion report](qwen-completion-report.md). The most consequential incidents were the 600-second product timeout clamp making an 8192-output local profile infeasible, the supervisor's `/var` versus `/private/var` fixture assumption, whole-file calculator packets mutating frozen public types, and a stale `dist` test caused by running build-dependent fixtures beside non-emitting typecheck. Raw attempts and rejected artifacts remain under ignored `.nodulus/phase-f`; none is counted as accepted production merely because its envelope succeeded.

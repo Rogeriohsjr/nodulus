@@ -1,6 +1,6 @@
 # 12: Inspect execution traces, provider usage, and cost
 
-Status on 2026-09-30: **checkpoints A–D (OBS-001–009) implemented and locally accepted**. Qwen generated drafts through Nodulus/OpenCode on localhost Ollama; coordinator integration and GPT-5.6 Sol review completed A–C. See [evidence](evidence.md), the [execution/improvements report](qwen-execution-report.md), and the [checkpoint D evidence](obs-008-009.md). Checkpoints E–F remain pending. See the [completion report](qwen-completion-report.md) for the supervised role split. The [hiccup history](qwen-hiccups.md) records model experiments, rejected drafts and corrective actions. Publishing remains outside this scope.
+Status on 2026-09-30: **checkpoints A–D (OBS-001–009) are locally and independently accepted; checkpoint E (OBS-010) is implemented with focused local validation and awaits independent review**. Qwen generated drafts through Nodulus/OpenCode on localhost Ollama; supervisor integration and factual review remain explicit. See [evidence](evidence.md), the [execution/improvements report](qwen-execution-report.md), [checkpoint D evidence](obs-008-009.md), and the [OBS-010 cost guide](obs-010-cost-estimates.md). Checkpoint F remains pending. Publishing remains outside this scope.
 
 As a user, I want to inspect each workflow step, see the instructions Nodulus sent and the response it received, understand validation and repairs, and compare available token usage and cost without confusing estimates with charges.
 
@@ -27,7 +27,7 @@ This slice extends the existing local run store, provider adapters, and status c
 | [x] | B: Codex, Cursor, and OpenCode usage | OBS-003, OBS-004, OBS-005 | A |
 | [x] | C: Partial evidence and telemetry failures | OBS-006, OBS-007 | B |
 | [x] | D: Repair/resume accounting and status | OBS-008, OBS-009 | C |
-| [ ] | E: Optional reproducible cost estimates | OBS-010 | D |
+| [ ] | E: Optional reproducible cost estimates | OBS-010 | D; implementation/focused checks complete, independent review pending |
 | [ ] | F: Portable acceptance and developer handoff | OBS-011, OBS-012 | E |
 
 Implementation boxes are checked only with recorded evidence. Fixture GREEN is required for local acceptance; live compatibility has its own matrix and requires later authorization. An unavailable optional live CLI must not block the normal offline test suite.

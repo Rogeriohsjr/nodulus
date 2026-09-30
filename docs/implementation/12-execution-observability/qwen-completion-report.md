@@ -29,11 +29,11 @@ For the status-reader packet, 12K context gives room for the actual frozen proce
 
 ## Delivery status
 
-Checkpoint C (OBS006/007) is locally accepted. OBS008–012 remain pending. No release or registry publish. Exact run IDs/raw transcripts remain under the local .nodulus/phase-f experiment ledger and its referenced temporary project run stores; a sanitized final ledger will accompany acceptance.
+Checkpoint D (OBS008/009) is locally and independently accepted. Checkpoint E (OBS010) is implemented with focused local validation and awaits independent review. OBS011/012 remain pending. No release or registry publish. Exact run IDs/raw transcripts remain under the local .nodulus/phase-f experiment ledger and its referenced temporary project run stores.
 
 ## Checkpoint C accepted results
 
-Full npm run check passed on Windows: lint, typecheck, 260 scenario tests and 9 installed-package tests. OBS006 now covers nonzero exit, timeout, truncated terminal JSON, 2 MiB output cap, readiness not-launched evidence and a controlled killed workflow inspected from a fresh process. OBS007 covers six malformed token cases, valid zero/fractional and invalid cost values, prior-call isolation, prelaunch persistence failure and optional telemetry-write isolation. Remaining OBS008–012 are pending.
+Full checkpoint C `npm run check` passed on Windows: lint, typecheck, 260 scenario tests and 9 installed-package tests. OBS006 covers nonzero exit, timeout, truncated terminal JSON, 2 MiB output cap, readiness not-launched evidence and a controlled killed workflow inspected from a fresh process. OBS007 covers six malformed token cases, valid zero/fractional and invalid cost values, prior-call isolation, prelaunch persistence failure and optional telemetry-write isolation. Later D/E evidence is recorded below.
 
 The status-reader primary low-thinking run (5ae960a2-01a9-45b6-b224-4b110ee4dc34) stopped after 332.369 seconds without final text: reported input3564/output4096, partial coverage. A separate bounded no-thinking correction produced a draft in a 124.707-second controller attempt (Nodulus run b0e61e7f-f7eb-48cf-b223-4c537b296a0a). My harness had put npm-pack array metadata in package.json, preventing the check script from importing its dependency. Renaming it to archive-metadata.json fixed that supervisor mistake. The exact fixed check should have been preflighted before dispatch; checking a similar command was insufficient.
 
@@ -66,3 +66,30 @@ Envelope success is distinct from code acceptance. Raw records are local; IDs be
 | obs007-invalid | b92ded16-6338-4a0e-8ffe-651b13caf61f | 40.554 | success |
 
 GPT-5.6 Sol accepted the stable checkpoint after one documentation-only correction: the lifecycle guide now distinguishes its read-only reader from provider/core integration and real-process tests. No source changes followed the 260-scenario/9-package full gate. Review was independent source inspection, not a second test execution.
+
+## Checkpoint D completion
+
+OBS-008 characterizes a five-call invoke/repair/resume sequence with unique call IDs and no replay or recount. OBS-009 adds nullable field coverage, origin and provider/model/node groups, corrupt/legacy diagnostics, and read-only JSON/text status. Independent review found conflicting duplicate IDs, unmatched started calls omitted from group denominators, and shallow telemetry validation; exact regressions were added before the final ACCEPT at `e3ee261`. Hosted run `36672162478` passed Windows, macOS, and Linux; publish was skipped.
+
+The macOS run exposed a supervisor-authored packet error: the fixture compared unresolved `/var` with canonical `/private/var`. The strict path check now compares `realpathSync` values. This was not a Qwen defect. The local-Qwen 12K correction helper also requested a 900-second timeout, but Nodulus clamps invocation timeout to 600 seconds; the call ended at 602.342 seconds with no final text. At the measured throughput, a requested 8192-token output could not reliably finish inside that clamp. Later packets used smaller no-thinking outputs rather than repeating that infeasible profile.
+
+## Checkpoint E implementation checkpoint
+
+At `274d68b`, OBS-010 captures a validated rate card and SHA-256 hash before inference, reuses the run snapshot after fresh-process resume, calculates only from complete verified provider/model telemetry, and keeps provider-reported cost separate. Missing or incompatible evidence stays unknown. Local and subscription estimates require an explicit hypothetical flag. Sequential build plus two focused scenario files passed seven tests; lint and typecheck passed. Independent review was still pending when this documentation checkpoint was written.
+
+Local-Qwen production attribution is intentionally granular:
+
+- Snapshot/parser run `f94a2eba-787a-4f94-8ccf-ec73f4fe41e8` supplied the core validation/hash structure; the supervisor corrected type narrowing and duplicated validation structure before integration.
+- Summary primary `0c0bc399-f826-44e2-810e-e9dfed0cb34c` and correction `ccd89baf-83ef-4ab0-8a9d-e7249a10fdf7` supplied the aggregation structure; the correction still accessed a nonexistent `result.estimate`, so the supervisor made the bounded roadblock repair.
+- Calculator primary `d627741e-afae-47f5-b16b-465abfb5335b` and correction `eba00865-0ec4-4d03-a622-65f31a8f213c` both changed or misread the frozen telemetry/public types. After those bounded attempts, the supervisor implemented the narrow repair from the generated structure and exact scenario contract.
+- The supervisor wrote settings/intake/status/CLI coordinator wiring. Earlier supervisor-written material pricing logic was quarantined under ignored experiment evidence and removed from product files before the production packets ran; Qwen review did not retroactively change its authorship.
+- Local-Qwen evidence review `aa88fed4-e28c-4fbf-a6f3-55836136cb92` returned ACCEPT from supplied behavior/results. Bounded source review `c4bd0ac6-2051-4f62-8c1e-9aa28f301119` received the actual calculator and snapshot source and returned ACCEPT; coordinator wiring was explicitly out of its scope. Neither review executed tests. Documentation run `58cb349f-586c-498f-a10e-33a3e3326281` produced the cost guide; the supervisor removed a claim that missing configuration was rejected because absence is intentionally compatible.
+
+The first post-wiring provenance command ran beside typecheck without rebuilding `dist`; its child fixture imports `dist`, so the missing snapshot result was stale-artifact evidence and is excluded from RED/GREEN. Subsequent validation always built first and invoked the CLI tests sequentially.
+
+### Checkpoint E improvement scenarios
+
+- Put public contracts in a frozen reference module and assign the model only the implementation body. Whole-file replacement let both calculator attempts mutate types despite explicit prose. Acceptance is a compile check that proves exported types and signature are unchanged before behavior runs.
+- Size packets from observed throughput and the hard invocation clamp. An output ceiling that cannot complete before the effective timeout is a configuration error, not an unqualified model failure.
+- Build before any child fixture that imports `dist`, in the same sequential check command. A source-only typecheck does not refresh the installed/runtime artifact.
+- Supply the original request, rejected draft, exact interface, and executable error in every correction. The earlier fixture correction omitted prior context and failed for that reason; later self-contained corrections were inspectable even when their source was rejected.

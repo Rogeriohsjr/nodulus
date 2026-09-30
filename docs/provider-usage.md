@@ -18,7 +18,11 @@ Other CLI versions retain recognized reported counters but leave normalization u
 
 ## Limits
 
-OBS-006/007 failure-capture and validity cases now have local fixture coverage. OBS-008–012 resume accounting, aggregate coverage, estimates and the broader live matrix remain pending. Live usage proof here covers Windows OpenCode/Ollama; Codex/Cursor use offline process fixtures. Provider USD is not a verified invoice or an estimate from a Nodulus rate card. Local Ollama zero does not mean hardware or electricity is free.
+OBS-006/007 failure-capture and validity cases and OBS-008/009 resume aggregation now have local fixture coverage. The optional OBS-010 rate-card path produces reproducible estimates from a captured run snapshot; see the [cost-estimate guide](implementation/12-execution-observability/obs-010-cost-estimates.md). OBS-011/012 packaging and the broader live matrix remain pending. Live usage proof here covers Windows OpenCode/Ollama; Codex/Cursor use offline process fixtures. Provider USD is not a verified invoice. Local Ollama zero does not mean hardware or electricity is free.
+
+## Optional reproducible estimates
+
+Set `observability.pricing` in `.nodulus/settings.json` with `mode`, a project-relative `rateCard`, and optional `hypotheticalApiEquivalent`. Nodulus validates and hashes the rate card before inference, saves `pricing.json` in the run, and uses that snapshot for resume and status. JSON status exposes `metrics.estimates` and `metrics.estimateCoverage`; text status keeps reported and estimated USD on separate lines. Missing or incompatible evidence stays null with diagnostics. API estimates are not invoices, and local/subscription usage remains unknown unless an explicitly hypothetical API equivalent is requested.
 
 ## Launch and interrupted-call evidence
 

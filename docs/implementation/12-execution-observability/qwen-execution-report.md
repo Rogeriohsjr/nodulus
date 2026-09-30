@@ -138,3 +138,5 @@ Phase F follow-up: [bounded review-loop evidence, configuration experiments and 
 ## 2026-09-30 continuation
 
 The [completion report](qwen-completion-report.md) records checkpoint C acceptance, local Qwen model/configuration comparisons, failed drafts, supervisor interventions and scenario-based improvement proposals. Earlier conclusions above remain historical; they are not overwritten by this later run.
+
+Checkpoint D/E continuation: [the completion report](qwen-completion-report.md) now records repair/resume aggregation, reproduced reviewer counterexamples, hosted three-OS evidence, reproducible pricing, exact local-Qwen run attribution, supervisor roadblock fixes, and the timeout/stale-build improvement scenarios. The [OBS-010 guide](obs-010-cost-estimates.md) describes the shipped settings and status semantics. No billing, merge, release, or publish proof is inferred from those local tests.

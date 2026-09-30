@@ -19,10 +19,10 @@
 | Checkpoint | Relevant RED | GREEN / regression evidence | Review | Status |
 | --- | --- | --- | --- | --- |
 | A / OBS-001,002 | Missing calls directory; undefined event timestamp; missing accepted result ref; non-string boundary marked successful; resume missing time/sequence | 164 scenario + 7 package tests, lint/typecheck; focused 29 tests | GPT-5.6 Sol ACCEPT after corrections; local Qwen helper review accepted | Locally accepted 2026-09-28 |
-| B / OBS-003,004,005 | Pending | Pending | Pending | Not started |
-| C / OBS-006,007 | Pending | Pending | Pending | Not started |
-| D / OBS-008,009 | OBS-008 characterization GREEN; OBS-009 coverage/diagnostic assertions failed | 30 focused OBS-003–009 tests pass | Local Windows | [Checkpoint D evidence](obs-008-009.md) |
-| E / OBS-010 | Pending | Pending | Pending | Not started |
+| B / OBS-003,004,005 | Missing call-level telemetry and version-aware normalization | 183 scenarios + 7 package tests after archive correction | GPT-5.6 Sol ACCEPT | Locally accepted; hosted evidence recorded on PR #12 |
+| C / OBS-006,007 | Missing launch classification and interrupted-call status | 260 scenarios + 9 package tests | GPT-5.6 Sol ACCEPT after documentation correction | Locally accepted |
+| D / OBS-008,009 | OBS-008 characterization GREEN; OBS-009 coverage/diagnostic assertions failed | 33 focused OBS-003–009 tests pass; hosted run 36672162478 passed Windows/macOS/Linux, publish skipped | GPT-5.6 Sol ACCEPT at e3ee261 | [Checkpoint D evidence](obs-008-009.md) |
+| E / OBS-010 | Exact calculator, captured snapshot and invalid-before-inference assertions failed before implementation | Sequential build; 2 focused files / 7 tests pass; lint/typecheck pass at 274d68b | Local Qwen source ACCEPT c4bd0ac6-2051-4f62-8c1e-9aa28f301119; independent review pending | Implemented; acceptance pending review |
 | F / OBS-011 | Pending | Pending | Pending | Not started |
 
 For every row record actual test names, exact commands, the meaningful failing assertion, passing result, source revision, OS/Node version and unresolved limitations. Record lint/typecheck/full check at the appropriate checkpoints. Never replace a pending entry with an expected result from scenarios.md.
