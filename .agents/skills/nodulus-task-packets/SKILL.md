@@ -41,3 +41,9 @@ If an explicit correction reads a file but ends with prose promising an edit, st
 - Change model/configuration as an experiment with a recorded incident and outcome, not as proof that a larger model solves development. The 14B alias yielded usable microfunctions; both 9B and 14B still required corrections. Preserve failed runs and distinguish hypotheses from observed causes.
 
 - Run the final package/check gate after documentation changes too. A new source-valid user-guide link failed installed-package CI because its target was absent from the archive allowlist. Source links and an earlier package pass are insufficient for a later changed artifact.
+
+## Lessons from the reusable planning pilot
+
+Use [the packaged planning workflow](../../../docs/task-workflow.md) to prepare explicit source/check context and classify ready/split/blocked work. Keep model tools denied and require a reviewed test hash. A test name/RED substring does not prove meaningful coverage: inspect the exact assertions, then freeze the file and recheck all captured hashes after RED. Bind dependency receipts to the exact task definition and repository.
+
+Include lint/typecheck alongside the focused behavioral command before dispatch; the OBS007A draft passed its behavior check but failed unused-variable lint. Always include a literal complete outcome wrapper for each node. A docs envelope failure after accepted code requires a bounded remaining-phase correction, not replay of the code node. This helper currently needs supervised recovery; record that intervention. Documentation-only work uses task-document with concrete replacement checks; upgrade behavior still requires RED/GREEN.

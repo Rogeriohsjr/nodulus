@@ -33,6 +33,21 @@ beforeAll(() => {
 
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
+test("PKG-008 installed task helper includes executable workflows and preserves existing setup", () => {
+  const project = path.join(scratch, "task planning ü");
+  mkdirSync(project);
+  const shim = path.join(installedPrefix, "node_modules/.bin", process.platform === "win32" ? "nodulus-task.cmd" : "nodulus-task");
+  expect(existsSync(shim), "archive must install nodulus-task executable").toBe(true);
+  const setup = crossSpawn.sync(shim, ["setup", project], { cwd: scratch, encoding: "utf8", timeout: 30000, windowsHide: true });
+  expect(setup.status, String(setup.stderr)).toBe(0);
+  expect(existsSync(path.join(project, ".nodulus/workflows/task-plan.json"))).toBe(true);
+  expect(existsSync(path.join(project, ".nodulus/task-tools/runtime.mjs"))).toBe(true);
+  expect(JSON.parse(readFileSync(path.join(project, "opencode.json"), "utf8")).enabled_providers).toEqual(["ollama"]);
+  const second = crossSpawn.sync(shim, ["setup", project], { cwd: scratch, encoding: "utf8", timeout: 30000, windowsHide: true });
+  expect(second.status, String(second.stderr)).toBe(0);
+  expect(JSON.parse(second.stdout).existingOpenCodeConfig).toBe(true);
+});
+
 test("PKG-001 installs and runs the actual archive CLI, initializer, and fixture workflow", () => {
   const help = runInstalled(installedPrefix, ["--help"], scratch);
   expect(help.status, `${String(help.stdout)}\n${String(help.stderr)}`).toBe(0);

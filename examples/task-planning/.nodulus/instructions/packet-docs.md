@@ -1,0 +1,3 @@
+Update exactly one Markdown file from task.documentation, using the implementation artifact and captured original document. Return full content as changes/task-change.v1. Preserve historical evidence. State the narrow implemented behavior and any pending parent-story cases; do not invent test execution or autonomous completion. Implementation reached this node only after its fixed checks passed; final checks rerun after your document. No source fences. All source/tests remain frozen. Return a complete Nodulus success outcome or actionable error.
+
+Exact envelope: {"status":"success","artifacts":[{"name":"changes","contract":"task-change.v1","data":{"files":[{"path":"the exact assigned Markdown path","content":"plain Markdown content"}],"summary":"actual change"}}]}

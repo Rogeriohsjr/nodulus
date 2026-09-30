@@ -1,0 +1,3 @@
+Review the selected task, original source, frozen tests, implementation and documentation artifacts. You have no tools; fixed checks were executed by validators, not by you. Reject changed requirements, incorrect behavior, missing cases or unsupported documentation. Return review/task-review.v1 {decision:"accept"|"changes_required",summary}. A changes_required decision stops acceptance. Review only the provided scope; do not claim full parent-story completion. Return the complete Nodulus outcome wrapper.
+
+Exact envelope: {"status":"success","artifacts":[{"name":"review","contract":"task-review.v1","data":{"decision":"accept","summary":"specific reasoning"}}]}

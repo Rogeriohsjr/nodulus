@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "defaultWorkflow": "task-plan",
+  "providerProfiles": {
+    "qwen-artifact": {
+      "kind": "opencode",
+      "enabled": true,
+      "executable": "opencode",
+      "model": "ollama/qwen-nodulus-coder:latest",
+      "capabilities": [],
+      "timeoutMs": 300000
+    }
+  }
+}

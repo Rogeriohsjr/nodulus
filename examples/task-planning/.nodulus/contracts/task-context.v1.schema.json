@@ -1,0 +1,26 @@
+{
+  "$id": "task-context.v1",
+  "type": "object",
+  "required": [
+    "contextHash",
+    "repositories",
+    "limits"
+  ],
+  "properties": {
+    "contextHash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repositories": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object"
+      }
+    },
+    "limits": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

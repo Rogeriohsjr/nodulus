@@ -1,0 +1,29 @@
+{
+  "limits": {
+    "maxFiles": 3,
+    "maxCases": 3
+  },
+  "repositories": [
+    {
+      "id": "app",
+      "root": "/absolute/path/to/dedicated/worktree",
+      "files": [
+        "src/example.ts",
+        "tests/example.test.ts",
+        "docs/change.md"
+      ],
+      "checks": [
+        {
+          "id": "focused",
+          "executable": "node",
+          "args": [
+            "node_modules/vitest/vitest.mjs",
+            "run",
+            "tests/example.test.ts"
+          ],
+          "redContains": "replace with exact missing-behavior assertion text"
+        }
+      ]
+    }
+  ]
+}

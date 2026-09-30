@@ -1,0 +1,21 @@
+{
+  "$id": "task-review.v1",
+  "type": "object",
+  "required": [
+    "decision",
+    "summary"
+  ],
+  "properties": {
+    "decision": {
+      "enum": [
+        "accept",
+        "changes_required"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}
