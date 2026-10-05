@@ -42,5 +42,4 @@
 
 ## Remaining proof
 
-- Hosted CI was green on original PR commit `6884e0e`; push the corrected branch and wait for terminal hosted checks on the final PR head. No merge or release is in scope.
-- Hosted checks must reach terminal green on the pushed final PR head. No merge or release is in scope.
+- Source commit `a083f8a` passed both push and pull-request workflows: Ubuntu, macOS and Windows validation passed in runs `37273136452` and `37273142756`; PR title validation passed in `37273154876`. The workflow's publish-main jobs were skipped as expected for this open PR. Fresh CI checks each evidence-only follow-up commit; the attached PR reports its current terminal status. No merge or release is in scope.

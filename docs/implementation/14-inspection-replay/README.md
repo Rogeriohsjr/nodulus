@@ -1,6 +1,6 @@
 # 14: Inspect, export and replay saved workflows
 
-Status: implementation complete locally from base revision `c1bf2d3642539591d3db259b8ccb6ec76aecdfe6` (PR #18). INS-001–INS-006 have real-file scenario coverage. Final Sol review findings for schema parity, export redaction, schema-only replay and Windows validator process-tree cleanup have been resolved with regression coverage. The supervised Nodulus documentation/check/review API run succeeded; the current PR head still needs hosted checks. Exact results are in `evidence.md`. Nodulus run records are preserved under the untracked `.nodulus/runs/` directory and excluded from delivery.
+Status: implementation complete locally from base revision `c1bf2d3642539591d3db259b8ccb6ec76aecdfe6` (PR #18). INS-001–INS-006 have real-file scenario coverage. Final Sol review findings for schema parity, export redaction, schema-only replay and Windows validator process-tree cleanup have been resolved with regression coverage. The supervised Nodulus documentation/check/review API run succeeded. Hosted checks passed for source commit `a083f8a`; each evidence-only follow-up commit receives fresh checks tracked by the PR. Exact results are in `evidence.md`. Nodulus run records are preserved under the untracked `.nodulus/runs/` directory and excluded from delivery.
 
 As an operator, I want to explain a workflow or stopped run from saved evidence and share a redacted diagnostic record without reading a chat or rerunning work.
 
@@ -50,7 +50,7 @@ Given real local projects and saved run fixtures, when scenario and installed-pa
 2. INS-002: Saved-run API and CLI summarize states, attempts, calls, artifacts, validation and safe next actions. Contradictory/mispointed validation evidence is diagnosed; uncertain provider calls block resume-like recommendations.
 3. INS-003: Versioned deterministic export API/CLI emits safe profile/schema summaries and portable references while preserving saved run bytes.
 4. INS-004/005: Replay uses captured schemas only, reports current engine/schema drift and skipped scripts; corrupt checkpoints/events and malformed responses remain explicit and non-mutating.
-5. INS-006: User/architecture docs and installed archive CLI/API scenarios added. The full `npm run check`, final review and hosted checks are recorded as pending until observed.
+5. INS-006: User/architecture docs and installed archive CLI/API scenarios added. The final `npm run check` and Sol review passed; hosted CI passed for source commit `a083f8a`. Fresh workflows validate the evidence-only follow-up commit as well.
 
 ## Acceptance
 
@@ -63,7 +63,7 @@ Given real local projects and saved run fixtures, when scenario and installed-pa
 - [x] `npm run check` passes on the final corrected and documented local revision (72 scenario files / 300 tests and 10 installed-archive tests; see evidence).
 - [x] A real-file NODE-003 regression confirms timed-out validator descendants are terminated before timeout returns (Windows pass; cross-platform CI pending).
 - [x] Supervised Nodulus exported-API workflow records documentation validation, the full quality gate, and the independent Sol review artifact; provider launch fields explicitly show handoff mode.
-- [ ] Hosted checks pass on the final PR revision.
+- [x] Hosted Ubuntu, macOS, Windows, and PR title checks passed for source commit `a083f8a` (push and PR workflows); fresh checks also validate the evidence-only follow-up commit (see the attached PR status).
 
 See [scenario map](scenarios.md), [implementation notes](implementation.md) and [evidence](evidence.md).
 \n

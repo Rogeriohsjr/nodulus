@@ -52,4 +52,4 @@ Foundation was implemented using $nodulus-delivery-validation and accepted local
 
 ## Follow-up: workflow inspection, export and replay
 
-[14-inspection-replay](14-inspection-replay/README.md) implements INS-001 through INS-006. Final Sol review findings for INS-001/003/004 and Windows validator process-tree cleanup were addressed with regression tests. Nodulus run `0b4ca749-57a9-4bb6-935b-b0f0b82b7ac0` records documentation validation, the full quality gate, and the independent Sol artifact through the authorized exported-API handoff; current-head hosted checks remain pending.
+[14-inspection-replay](14-inspection-replay/README.md) implements INS-001 through INS-006. Final Sol review findings for INS-001/003/004 and Windows validator process-tree cleanup were addressed with regression tests. Nodulus run `0b4ca749-57a9-4bb6-935b-b0f0b82b7ac0` records documentation validation, the full quality gate, and the independent Sol artifact through the authorized exported-API handoff. Hosted Ubuntu, macOS, Windows and title checks passed for source commit `a083f8a`; fresh CI checks each evidence-only follow-up commit (see the attached PR status).
