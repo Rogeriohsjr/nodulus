@@ -26,6 +26,7 @@ export class ProcessArtifactValidator implements ArtifactValidator {
         if (reason === "timeout") timedOut = true;
         else if (reason === "output") outputLimitExceeded = true;
         else cancelled = true;
+        if (process.platform === "win32") child.kill();
         killProcessTree(child.pid);
       };
       const timer = setTimeout(() => terminate("timeout"), Math.max(1, timeoutMs));

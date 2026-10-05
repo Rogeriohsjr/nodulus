@@ -1,0 +1,112 @@
+import { LocalIntakeStorage } from "../adapters/storage/local-intake-storage.js";
+import type { IntakeStorage } from "../core/ports/intake-storage.js";
+import { inspectRun } from "./inspect-run.js";
+
+type RecordValue = Record<string, unknown>;
+
+function isRecord(value: unknown): value is RecordValue {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function pick(value: unknown, keys: readonly string[]): RecordValue {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(keys.filter((key) => value[key] !== undefined).map((key) => [key, value[key]]));
+}
+
+function safeReference(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value || value.includes("\\") || value.startsWith("/") || /^[A-Za-z]:/.test(value)) return undefined;
+  const parts = value.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) return undefined;
+  return parts.join("/");
+}
+
+function portableDefinitions(value: unknown): RecordValue | null {
+  if (!isRecord(value)) return null;
+  const workflow = pick(value.workflow, ["schemaVersion", "id", "nodes", "inputs"]);
+  const nodes = Array.isArray(value.nodes) ? value.nodes.filter(isRecord).map((node) => ({
+    ...pick(node, ["schemaVersion", "id"]),
+    expectedOutputs: Array.isArray(node.expectedOutputs) ? node.expectedOutputs.filter(isRecord).map((output) => pick(output, ["name", "contract"])) : [],
+  })) : [];
+  const profileCount = isRecord(value.providerProfiles) ? Object.keys(value.providerProfiles).length : 0;
+  const contracts = isRecord(value.contracts)
+    ? Object.fromEntries(Object.entries(value.contracts).map(([id, schema]) => [id, safeContractSummary(schema)]))
+    : {};
+  return {
+    schemaVersion: value.schemaVersion,
+    engineVersion: value.engineVersion,
+    workflow,
+    nodes,
+    contracts,
+    providerProfileCount: profileCount,
+  };
+}
+
+function safeContractSummary(value: unknown): RecordValue {
+  if (!isRecord(value)) return { schemaType: "unknown" };
+  const rawType = value.type;
+  const allowedTypes = new Set(["null", "boolean", "object", "array", "number", "integer", "string"]);
+  const types = Array.isArray(rawType)
+    ? rawType.filter((item): item is string => typeof item === "string" && allowedTypes.has(item))
+    : typeof rawType === "string" && allowedTypes.has(rawType) ? rawType : undefined;
+  return {
+    ...(types === undefined ? { schemaType: "unspecified" } : { type: types }),
+    ...(isRecord(value.properties) ? { propertyCount: Object.keys(value.properties).length } : {}),
+    ...(Array.isArray(value.required) ? { requiredCount: value.required.filter((item) => typeof item === "string").length } : {}),
+    ...(typeof value.additionalProperties === "boolean" ? { additionalProperties: value.additionalProperties } : {}),
+    ...(isRecord(value.items) ? { hasItemSchema: true } : {}),
+  };
+}
+
+/** Create a deterministic, redacted diagnostic envelope without writing to the source run. */
+export async function exportRunDiagnostic(
+  projectRoot: string,
+  runId: string,
+  storage: IntakeStorage = new LocalIntakeStorage(),
+): Promise<RecordValue> {
+  const inspection = await inspectRun(projectRoot, runId, storage);
+  const diagnostics: string[] = [];
+  let definitions: RecordValue | null = null;
+  try {
+    definitions = portableDefinitions(JSON.parse(await storage.readRunFile(projectRoot, runId, "context/definitions.json")) as unknown);
+    if (!definitions) diagnostics.push("Captured workflow definitions are malformed.");
+  } catch {
+    diagnostics.push("Captured workflow definitions are missing or unreadable.");
+  }
+
+  const timeline = Array.isArray(inspection.timeline) ? inspection.timeline.filter(isRecord).map((event) => {
+    const safe = pick(event, ["event", "sequence", "callId", "nodeId", "attempt", "operation", "failed", "elapsedMs", "valid", "outcome", "code", "artifactNames"]);
+    const validationRef = safeReference(event.validationRef) ?? (isRecord(event.refs) ? safeReference(event.refs.validationRef) : undefined);
+    if (validationRef) safe.validationRef = validationRef;
+    return safe;
+  }) : [];
+  const acceptance = Array.isArray(inspection.validation) ? inspection.validation.filter(isRecord).map((item) => ({
+    ...pick(item, ["nodeId", "attempt", "valid", "code"]),
+    ...(Array.isArray(item.errors) ? { errorCount: item.errors.length } : {}),
+    ...(safeReference(item.reference) ? { reference: safeReference(item.reference) } : {}),
+  })) : [];
+  const artifacts = Array.isArray(inspection.artifacts) ? inspection.artifacts.filter(isRecord).map((item) => ({
+    ...pick(item, ["nodeId", "name", "accepted"]),
+    ...(safeReference(item.reference) ? { reference: safeReference(item.reference) } : {}),
+  })) : [];
+  const attempts = Array.isArray(inspection.attempts) ? inspection.attempts.filter(isRecord).map((item) => pick(item, ["nodeId", "attempt", "events", "callIds"])) : [];
+  const checkpoint = isRecord(inspection.checkpoint) ? inspection.checkpoint : {};
+
+  return {
+    schemaVersion: 1,
+    run: {
+      ...pick(inspection, ["runId", "status"]),
+      ...pick(checkpoint, ["phase", "engineVersion"]),
+      ...(typeof inspection.workflowId === "string" ? { workflowId: inspection.workflowId } : isRecord(definitions?.workflow) && typeof definitions.workflow.id === "string" ? { workflowId: definitions.workflow.id } : {}),
+    },
+    definitions,
+    timeline,
+    attempts,
+    artifacts,
+    acceptance,
+    diagnostics,
+    redactions: {
+      enabled: true,
+      omitted: ["caller inputs and request text", "node instructions and prompts", "provider responses and transcripts", "provider profile names, model identifiers, and capabilities", "credentials and executable paths", "absolute machine paths", "validation error text"],
+    },
+  };
+}

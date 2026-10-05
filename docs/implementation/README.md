@@ -44,8 +44,12 @@ Foundation was implemented using $nodulus-delivery-validation and accepted local
 
 ## Follow-up: execution observability
 
-[12-execution-observability](12-execution-observability/README.md) contains research, the proposed log/usage/cost design, twelve scenarios and an ordered AI implementation checklist. **OBS-001–007 implemented and locally accepted** with effective request capture, call/validation links, timestamped events and provider usage parsing. Local Qwen/OpenCode exercised the new records. Repair/resume, coverage and cost scenarios OBS-008–012 remain pending; see its evidence and execution report.
+[12-execution-observability](12-execution-observability/README.md) covers request capture, execution evidence, usage and cost. Its evidence records local completion for checkpoints A–F (OBS-001–011); the OBS-012 live provider/OS matrix remains pending. Publishing and billing reconciliation are outside that folder's recorded proof.
 
 ## Follow-up: reusable task planning
 
-[13-task-planning](13-task-planning/README.md) adds ready/split/blocked packets, repository/dependency/test ownership, explicit non-TDD exceptions, a packaged helper and supervised apply/check/docs/review workflows. The local Qwen pilot implements only OBS007A optional telemetry-file write isolation; parent OBS-007 was subsequently accepted in folder 12 checkpoint C.
+[13-task-planning](13-task-planning/README.md) adds bounded task packets, context preparation, apply/check receipts, and supervised recovery/review workflows. Its follow-up evidence includes OBS-006 characterization and workflow recovery; these do not close parent OBS-006 or OBS-008–012. See the folder's evidence and execution reports for the exact completed subset.
+
+## Follow-up: workflow inspection, export and replay
+
+[14-inspection-replay](14-inspection-replay/README.md) has local implementation and quality/package evidence for INS-001 through INS-006 (`npm run check`: 300 scenarios and 10 installed-archive tests). Final independent review of the last INS-001/003/004 corrections and hosted CI remain pending. See its evidence file for exact results and preserved Nodulus run records.

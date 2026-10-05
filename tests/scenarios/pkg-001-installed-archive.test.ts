@@ -89,6 +89,21 @@ test("PKG-001 installs and runs the actual archive CLI, initializer, and fixture
   const invocation = JSON.parse(readFileSync(fixture.logPath, "utf8").trim());
   expect(invocation.argv).toContain("exec");
   expect(invocation.argv).toContain("--output-last-message");
+
+  const callsBeforeInspection = readFileSync(fixture.logPath, "utf8");
+  const inspectWorkflow = runInstalled(installedPrefix, ["inspect", "workflow", "example", "--project", project, "--json"], project);
+  expect(inspectWorkflow.status, String(inspectWorkflow.stderr)).toBe(0);
+  expect(JSON.parse(inspectWorkflow.stdout)).toMatchObject({ status: "success", result: { workflow: { id: "example" } } });
+  const inspectRun = runInstalled(installedPrefix, ["inspect", "run", parsedResponse.runId, "--project", project, "--json"], project);
+  expect(inspectRun.status, String(inspectRun.stderr)).toBe(0);
+  expect(JSON.parse(inspectRun.stdout)).toMatchObject({ status: "success", runId: parsedResponse.runId, result: { status: "success" } });
+  const exportRun = runInstalled(installedPrefix, ["inspect", "export", parsedResponse.runId, "--project", project, "--json"], project);
+  expect(exportRun.status, String(exportRun.stderr)).toBe(0);
+  expect(JSON.parse(exportRun.stdout)).toMatchObject({ status: "success", result: { schemaVersion: 1, run: { runId: parsedResponse.runId } } });
+  const replayRun = runInstalled(installedPrefix, ["inspect", "replay", parsedResponse.runId, "--project", project, "--json"], project);
+  expect(replayRun.status, String(replayRun.stderr)).toBe(0);
+  expect(JSON.parse(replayRun.stdout)).toMatchObject({ status: "success", result: { mode: "schema-only", runId: parsedResponse.runId } });
+  expect(readFileSync(fixture.logPath, "utf8")).toBe(callsBeforeInspection);
 });
 
 test("PKG-002 includes the user guide and starter assets while excluding development files", () => {
@@ -160,7 +175,7 @@ test("PKG-004 imports the installed application API without CLI argv or stdout e
   const scriptPath = path.join(consumer, "consumer.mjs");
   writeFileSync(scriptPath, [
     "import { writeFileSync } from 'node:fs';",
-    "import { getRunStatus, runWorkflow } from '@rogeriohsjr/nodulus';",
+    "import { exportRunDiagnostic, getRunStatus, inspectRun, inspectWorkflow, replaySavedRun, runWorkflow } from '@rogeriohsjr/nodulus';",
     "const response = JSON.stringify({ status: 'success', artifacts: [{ name: 'example', contract: 'example.v1', data: { message: 'api fixture' } }] });",
     "let invokeOnlyCalls = 0;",
     `const request = { projectRoot: ${JSON.stringify(project)}, cwd: ${JSON.stringify(project)}, workflow: 'example', sources: [{ kind: 'inline', text: 'API boundary' }] };`,
@@ -169,7 +184,11 @@ test("PKG-004 imports the installed application API without CLI argv or stdout e
     "let legacyCalls = 0;",
     "const legacy = await runWorkflow(request, { async invoke() { legacyCalls += 1; return response; }, usageForLastCall() { return { inputTokens: 10, outputTokens: 2, cacheReadTokens: null, costUsd: 0 }; } });",
     `const legacyStatus = await getRunStatus(${JSON.stringify(project)}, legacy.runId);`,
-    `writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify({ result, invokeOnlyCalls, status, legacyCalls, legacyStatus }));`,
+    `const workflowInspection = await inspectWorkflow(${JSON.stringify(project)}, 'example');`,
+    `const runInspection = await inspectRun(${JSON.stringify(project)}, result.runId);`,
+    `const exported = await exportRunDiagnostic(${JSON.stringify(project)}, result.runId);`,
+    `const replay = await replaySavedRun(${JSON.stringify(project)}, result.runId);`,
+    `writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify({ result, invokeOnlyCalls, status, legacyCalls, legacyStatus, workflowInspection, runInspection, exported, replay }));`,
   ].join("\n"), "utf8");
   const run = crossSpawn.sync(process.execPath, [scriptPath], { cwd: consumer, encoding: "utf8", timeout: 30_000, windowsHide: true });
   expect(run.status).toBe(0);
@@ -180,6 +199,10 @@ test("PKG-004 imports the installed application API without CLI argv or stdout e
   expect(imported.invokeOnlyCalls).toBe(1);
   expect(imported.status.metrics).toMatchObject({ origins: ["unavailable"], calls: [{ usage: null }] });
   expect(imported.legacyCalls).toBe(1);
+  expect(imported.workflowInspection.workflow.id).toBe("example");
+  expect(imported.runInspection.status).toBe("success");
+  expect(imported.exported.run.runId).toBe(imported.result.runId);
+  expect(imported.replay.mode).toBe("schema-only");
   expect(imported.legacyStatus.metrics).toMatchObject({
     origins: ["legacy_adapter"],
     calls: [{ usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: null, costUsd: 0 } }],
