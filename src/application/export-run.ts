@@ -3,6 +3,17 @@ import type { IntakeStorage } from "../core/ports/intake-storage.js";
 import { inspectRun } from "./inspect-run.js";
 
 type RecordValue = Record<string, unknown>;
+const safeDiagnosticCodes = new Set([
+  "ARTIFACT_REJECTED", "ARTIFACT_VALIDATION_FAILED", "INVALID_NODE_OUTCOME", "INVALID_NODE_RESPONSE",
+  "PROVIDER_FAILURE", "REPAIR_EXHAUSTED", "RESPONSE_REPAIR_FAILED", "RESPONSE_REPAIR_UNAVAILABLE",
+  "VALIDATOR_EXECUTION_FAILED", "VALIDATOR_INVALID_RESPONSE", "VALIDATOR_TIMEOUT",
+]);
+const safeEventTypes = new Set([
+  "node.started", "node.failed", "node.error", "node.needs_input", "node.rejected", "node.succeeded",
+  "node.repair.started", "node.repaired", "node.validation.completed", "provider.call.started",
+  "provider.call.completed", "run.intake.completed", "run.needs_input", "run.failed", "run.resumed",
+]);
+const safeOperations = new Set(["invoke", "repair_response", "response_repair"]);
 
 function isRecord(value: unknown): value is RecordValue {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -18,6 +29,18 @@ function safeReference(value: unknown): string | undefined {
   const parts = value.split("/");
   if (parts.some((part) => !part || part === "." || part === "..")) return undefined;
   return parts.join("/");
+}
+
+function safeDiagnosticCode(value: unknown): string {
+  return typeof value === "string" && safeDiagnosticCodes.has(value) ? value : "REDACTED_DIAGNOSTIC_CODE";
+}
+
+function safeEventType(value: unknown): string {
+  return typeof value === "string" && safeEventTypes.has(value) ? value : "REDACTED_EVENT_TYPE";
+}
+
+function safeOperation(value: unknown): string {
+  return typeof value === "string" && safeOperations.has(value) ? value : "REDACTED_OPERATION";
 }
 
 function portableDefinitions(value: unknown): RecordValue | null {
@@ -74,13 +97,17 @@ export async function exportRunDiagnostic(
   }
 
   const timeline = Array.isArray(inspection.timeline) ? inspection.timeline.filter(isRecord).map((event) => {
-    const safe = pick(event, ["event", "sequence", "callId", "nodeId", "attempt", "operation", "failed", "elapsedMs", "valid", "outcome", "code", "artifactNames"]);
+    const safe = pick(event, ["sequence", "callId", "nodeId", "attempt", "failed", "elapsedMs", "valid", "outcome", "artifactNames"]);
+    if (event.event !== undefined) safe.event = safeEventType(event.event);
+    if (event.operation !== undefined) safe.operation = safeOperation(event.operation);
+    if (event.code !== undefined) safe.code = safeDiagnosticCode(event.code);
     const validationRef = safeReference(event.validationRef) ?? (isRecord(event.refs) ? safeReference(event.refs.validationRef) : undefined);
     if (validationRef) safe.validationRef = validationRef;
     return safe;
   }) : [];
   const acceptance = Array.isArray(inspection.validation) ? inspection.validation.filter(isRecord).map((item) => ({
-    ...pick(item, ["nodeId", "attempt", "valid", "code"]),
+    ...pick(item, ["nodeId", "attempt", "valid"]),
+    ...(item.code === undefined ? {} : { code: safeDiagnosticCode(item.code) }),
     ...(Array.isArray(item.errors) ? { errorCount: item.errors.length } : {}),
     ...(safeReference(item.reference) ? { reference: safeReference(item.reference) } : {}),
   })) : [];

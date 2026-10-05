@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { runWorkflow } from "../../src/application/run-workflow.js";
@@ -53,8 +54,16 @@ const cases = [
 test.each(cases)("NODE-003 $name", async ({ message, script, expectedStatus, expectedCode }) => {
   const project = createInitializedProject("node-003");
   const markerPath = path.join(project, "timeout-child-survived.marker");
+  const descendantPidPath = path.join(project, "timeout-child.pid");
+  const descendantSource = `setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, 'alive'), 1800);`;
   const validatorSource = script === "TIMEOUT_FIXTURE"
-    ? `import { writeFileSync } from 'node:fs'; setTimeout(() => writeFileSync(${JSON.stringify(markerPath)}, 'alive'), 350); setInterval(() => {}, 1000);`
+    ? [
+      "import { writeFileSync } from 'node:fs';",
+      "import { spawn } from 'node:child_process';",
+      "const descendant = spawn(process.execPath, ['-e', " + JSON.stringify(descendantSource) + "], { windowsHide: true, stdio: 'ignore', detached: " + String(process.platform === "win32") + " });",
+      "writeFileSync(" + JSON.stringify(descendantPidPath) + ", String(descendant.pid));",
+      "setInterval(() => {}, 1000);",
+    ].join("\n")
     : script;
   const validatorPath = writeValidator(project, "check.mjs", validatorSource);
   configureExpectedOutput(project, {
@@ -62,7 +71,7 @@ test.each(cases)("NODE-003 $name", async ({ message, script, expectedStatus, exp
     contract: "example.v1",
     schema,
     validator: validatorPath,
-    validatorTimeoutMs: expectedCode === "VALIDATOR_TIMEOUT" ? 150 : 2500,
+    validatorTimeoutMs: expectedCode === "VALIDATOR_TIMEOUT" ? 700 : 2500,
   });
   try {
     const result = await runWorkflow(
@@ -76,10 +85,36 @@ test.each(cases)("NODE-003 $name", async ({ message, script, expectedStatus, exp
     else expect(validation.valid).toBe(true);
     expect(JSON.parse(readFileSync(path.join(attempt, "invocation.json"), "utf8"))).toMatchObject({ validator: validatorPath });
     if (expectedCode === "VALIDATOR_TIMEOUT") {
-      await new Promise((resolveWait) => setTimeout(resolveWait, 400));
+      const descendantPid = Number(readFileSync(descendantPidPath, "utf8"));
+      expect(isProcessAlive(descendantPid)).toBe(false);
+      await new Promise((resolveWait) => setTimeout(resolveWait, 1900));
       expect(existsSync(markerPath)).toBe(false);
     }
   } finally {
+    if (existsSync(descendantPidPath)) {
+      const descendantPid = Number(readFileSync(descendantPidPath, "utf8"));
+      if (isProcessAlive(descendantPid)) {
+        try { process.kill(descendantPid); } catch { /* cleanup continues if the descendant exited concurrently */ }
+        if (process.platform === "win32") spawnSync("taskkill", ["/f", "/pid", String(descendantPid)], { windowsHide: true, stdio: "ignore", timeout: 2000 });
+        const deadline = Date.now() + 1000;
+        while (Date.now() < deadline && isProcessAlive(descendantPid)) await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+      }
+    }
     rmSync(project, { recursive: true, force: true });
   }
 });
+
+function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (process.platform === "linux") {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const commandEnd = stat.lastIndexOf(")");
+      if (commandEnd >= 0 && stat.slice(commandEnd + 1).trimStart()[0] === "Z") return false;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    }
+  }
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
+}

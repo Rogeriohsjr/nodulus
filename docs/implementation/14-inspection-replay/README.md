@@ -1,6 +1,6 @@
 # 14: Inspect, export and replay saved workflows
 
-Status: implementation complete locally from base revision `c1bf2d3642539591d3db259b8ccb6ec76aecdfe6` (PR #18). INS-001–INS-006 have real-file scenario coverage and `npm run check` passed (300 scenarios plus 10 installed-archive tests). Final independent review of the last INS-001/003/004 corrections and hosted CI remain pending. Nodulus run records are preserved under the untracked `.nodulus/runs/` directory and excluded from delivery.
+Status: implementation complete locally from base revision `c1bf2d3642539591d3db259b8ccb6ec76aecdfe6` (PR #18). INS-001–INS-006 have real-file scenario coverage. Final Sol review findings for schema parity, export redaction, schema-only replay and Windows validator process-tree cleanup have been resolved with regression coverage. The supervised Nodulus documentation/check/review API run succeeded; the current PR head still needs hosted checks. Exact results are in `evidence.md`. Nodulus run records are preserved under the untracked `.nodulus/runs/` directory and excluded from delivery.
 
 As an operator, I want to explain a workflow or stopped run from saved evidence and share a redacted diagnostic record without reading a chat or rerunning work.
 
@@ -54,13 +54,15 @@ Given real local projects and saved run fixtures, when scenario and installed-pa
 
 ## Acceptance
 
-- [x] `inspect workflow` resolves declared structure/policies, including runtime schema validation, and reports source-linked diagnostics without side effects (15-case local scenario GREEN; final independent review pending).
+- [x] `inspect workflow` resolves declared structure/policies, including runtime schema validation, and reports source-linked diagnostics without side effects (15-case local scenario GREEN; final Sol review found no remaining issue).
 - [x] `inspect run` explains terminal and nonterminal records with timeline, attempts, artifacts, validation, uncertainty and safe actions (including a Sol-accepted read-only safety correction).
-- [x] Versioned export is portable, deterministic and redacted by default; original runs remain byte-for-byte unchanged (final node-profile redaction case passes locally; final independent review pending).
-- [x] Default replay checks only captured schemas and never launches providers or scripts; current engine/schema drift is reported.
+- [x] Versioned export is portable, deterministic and redacted by default; original runs remain byte-for-byte unchanged. Saved diagnostic codes, event types and operations use closed allowlists with generic fallbacks for unknown strings; private-marker regression cases pass and Sol accepted the focused redaction re-check.
+- [x] Default replay checks only captured schemas and never launches providers or scripts; current engine/schema drift is reported (final Sol review found no remaining issue).
 - [x] Missing, corrupt, legacy and incompatible data remain explicit and non-mutating.
 - [x] Public API and installed CLI paths are covered by real-file scenarios; installed archive tests pass 10/10.
-- [x] `npm run check` passes on the final local revision (300 scenarios and 10 installed-archive tests).
+- [x] `npm run check` passes on the final corrected and documented local revision (72 scenario files / 300 tests and 10 installed-archive tests; see evidence).
+- [x] A real-file NODE-003 regression confirms timed-out validator descendants are terminated before timeout returns (Windows pass; cross-platform CI pending).
+- [x] Supervised Nodulus exported-API workflow records documentation validation, the full quality gate, and the independent Sol review artifact; provider launch fields explicitly show handoff mode.
 - [ ] Hosted checks pass on the final PR revision.
 
 See [scenario map](scenarios.md), [implementation notes](implementation.md) and [evidence](evidence.md).

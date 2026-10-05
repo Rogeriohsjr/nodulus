@@ -9,7 +9,7 @@ import { createInitializedProject } from "../support/intake-project.js";
 type ExportRun = (projectRoot: string, runId: string) => Promise<Record<string, unknown>>;
 const exportRun = (api as unknown as { exportRunDiagnostic?: ExportRun }).exportRunDiagnostic;
 const RUN_ID = "841c1ff4-31f1-4a02-a2bc-84d298fad913";
-const PRIVATE_MARKERS = ["PRIVATE_REQUEST_7b1", "PRIVATE_PROMPT_8c2", "PRIVATE_ANSWER_9d3", "PRIVATE_TRANSCRIPT_a44", "PRIVATE_SCHEMA_55e", "PRIVATE_DEFAULT_66f", "PRIVATE_CAPABILITY_TOKEN_77g", "fixture-secret-token"];
+const PRIVATE_MARKERS = ["PRIVATE_REQUEST_7b1", "PRIVATE_PROMPT_8c2", "PRIVATE_ANSWER_9d3", "PRIVATE_TRANSCRIPT_a44", "PRIVATE_SCHEMA_55e", "PRIVATE_DEFAULT_66f", "PRIVATE_CAPABILITY_TOKEN_77g", "PRIVATE_EVENT_CODE_sensitive", "PRIVATE_EVENT_TYPE_sensitive", "PRIVATE_OPERATION_sensitive", "fixture-secret-token"];
 
 function write(project: string, relative: string, contents: string): void {
   const file = path.join(project, ".nodulus", "runs", RUN_ID, relative);
@@ -47,9 +47,9 @@ function createFixture(): { project: string; runsRoot: string } {
   write(project, "events.jsonl", [
     { event: "node.started", sequence: 1, nodeId: "worker", attempt: 1 },
     { event: "provider.call.started", sequence: 2, callId: "018bb9a5-9e6e-4a66-9000-000000000013", nodeId: "worker", attempt: 1, operation: "invoke", refs: { promptRef: "calls/018bb9a5-9e6e-4a66-9000-000000000013/request.json", responseRef: "calls/018bb9a5-9e6e-4a66-9000-000000000013/transport.json", invocationRef: "nodes/worker/attempt-001/invocation.json" } },
-    { event: "provider.call.completed", sequence: 3, callId: "018bb9a5-9e6e-4a66-9000-000000000013", nodeId: "worker", attempt: 1, operation: "invoke", failed: false, elapsedMs: 12 },
+    { event: "provider.call.completed", sequence: 3, callId: "018bb9a5-9e6e-4a66-9000-000000000013", nodeId: "worker", attempt: 1, operation: "PRIVATE_OPERATION_sensitive", failed: false, elapsedMs: 12 },
     { event: "node.validation.completed", sequence: 4, nodeId: "worker", attempt: 1, valid: true, validationRef: "nodes/worker/attempt-001/validation.json" },
-    { event: "node.succeeded", sequence: 5, nodeId: "worker", artifactNames: ["result"] },
+    { event: "PRIVATE_EVENT_TYPE_sensitive", sequence: 5, nodeId: "worker", artifactNames: ["result"], code: "PRIVATE_EVENT_CODE_sensitive" },
   ].map((event) => JSON.stringify(event)).join("\n") + "\n");
   write(project, "nodes/worker/attempt-001/invocation.json", JSON.stringify({ prompt: "PRIVATE_PROMPT_8c2", request: "PRIVATE_REQUEST_7b1", answer: "PRIVATE_ANSWER_9d3", transcript: "PRIVATE_TRANSCRIPT_a44", transcriptPath: "C:\\Users\\someone\\secret\\transcript.txt", executable: "C:\\Users\\someone\\bin\\provider.exe" }));
   write(project, "calls/018bb9a5-9e6e-4a66-9000-000000000013/request.json", JSON.stringify({ prompt: "PRIVATE_PROMPT_8c2", request: "PRIVATE_REQUEST_7b1", credential: "fixture-secret-token" }));
@@ -78,6 +78,11 @@ test("INS-003 exports a deterministic versioned portable diagnostic while redact
       redactions: expect.objectContaining({ enabled: true, omitted: expect.arrayContaining([expect.stringContaining("prompt")]) }),
     });
     const serialized = JSON.stringify(first);
+    expect(first.timeline).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: "REDACTED_EVENT_TYPE", code: "REDACTED_DIAGNOSTIC_CODE" }),
+      expect.objectContaining({ event: "provider.call.completed", operation: "REDACTED_OPERATION" }),
+      expect.objectContaining({ event: "provider.call.started", operation: "invoke" }),
+    ]));
     for (const marker of PRIVATE_MARKERS) expect(serialized).not.toContain(marker);
     expect(serialized).not.toContain("C:\\Users\\someone");
     expect(serialized).not.toContain("private.json");
