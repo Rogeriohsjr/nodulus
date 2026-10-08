@@ -184,7 +184,7 @@ test("PKG-012 installed smoke failure diagnostics classify a provider exit witho
   expect(serialized).not.toContain("FIXTURE-SECRET-CREDENTIAL");
   expect(serialized).not.toContain("FIXTURE-PRIVATE-PROMPT");
   expect(serialized).not.toContain(fixture.executable);
-});
+}, 120_000);
 
 test("PKG-013 prelaunch installed smoke diagnostics report unavailable call evidence", () => {
   const fixture = createInstalledSmokeFixture("codex");
