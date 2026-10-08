@@ -22,4 +22,7 @@ if (control.blockTelemetryWrite) {
 let stdin = ""; for await (const chunk of process.stdin) stdin += chunk;
 appendFileSync(log, JSON.stringify({ argv: args, stdin, cwd: process.cwd() }) + "\n");
 if (control.kind === "codex") writeFileSync(flag("--output-last-message"), JSON.stringify({ response: control.outcome }));
-process.stdout.write(control.stdout);
+if (control.kind === "cursor" && flag("--output-format") === "stream-json") {
+  const terminal = JSON.parse(control.stdout);
+  process.stdout.write(`${JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: terminal.result }] } })}\n${JSON.stringify(terminal)}\n`);
+} else process.stdout.write(control.stdout);

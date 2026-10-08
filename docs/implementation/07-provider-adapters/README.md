@@ -34,6 +34,12 @@ Given provider usage is missing or structured output/response-only correction is
 
 - [x] PROV-004 acceptance verified and evidence recorded.
 
+### PROV-008: Select Cursor's final complete outcome
+
+Given Cursor emits narration, tool progress and multiple assistant messages in stream-json, when the adapter normalizes its response, then it selects the final complete assistant text, requires a successful terminal result and process exit, and preserves transport and usage evidence.
+
+- [x] PROV-008 acceptance verified and evidence recorded; live stream-json compatibility remains separate.
+
 ## Implementation guidance
 
 Read current official provider documentation and installed --help before choosing flags. Record supported tool versions, OS support, protocol samples, authentication prerequisites and capabilities in an adapter compatibility document. Do not bake assumed flags into the core.
