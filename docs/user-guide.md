@@ -53,6 +53,46 @@ nodulus run --workflow example --request-stdin --json
 
 Machine output is one JSON envelope on stdout. Exit 0 means `success`, exit 2 means `needs_input`, and exit 1 means `error`. A successful result contains validated artifacts with their declared names and contracts. The runtime validates output schemas even when the provider supports structured output.
 
+## Inspect a workflow
+
+This source change adds a read-only workflow inspection command and API. It reads the workflow, node, contract, instruction and settings files under the selected project and returns the resolved graph, mappings, declared contracts, and allowlisted effective profile policies. It does not start providers or validators, or create or change run records.
+
+```sh
+nodulus inspect workflow example --project . --json
+```
+
+The JSON response contains the inspection result or structured diagnostics for invalid and missing references. The public API is `inspectWorkflow(projectRoot, workflowId)`. When a Codex profile omits `sandbox`, inspection reports the effective default as `read-only`. This is configured policy data; inspection does not verify provider enforcement. This command is available from this source change and is not claimed in the published npm package.
+
+## Inspect a saved run
+
+Use the saved checkpoint and event evidence to explain a run without resuming it:
+
+```sh
+nodulus inspect run <run-id> --project . --json
+```
+
+The report includes status, attempts, provider-call evidence, accepted artifact references, validation evidence, uncertainty and conservative next actions. If the checkpoint is missing or unreadable, the result reports `status: "unavailable"` with diagnostics. An incomplete provider call blocks actions that could replay uncertain work.
+
+The public API is `inspectRun(projectRoot, runId)`. Inspection only reads the run. It does not invoke providers or executable validators.
+
+## Export a diagnostic
+
+```sh
+nodulus inspect export <run-id> --project . --json
+```
+
+Export returns a deterministic, versioned diagnostic envelope. It includes saved workflow metadata, attempts, timeline, artifact references and validation summaries. It omits request and caller-input text, instructions and prompts, provider responses, credentials, profile names/model identifiers/capabilities, schema literal values and annotations, and absolute machine paths. Captured contract schemas are represented by safe structural summaries. The source run is not changed. The public API is `exportRunDiagnostic(projectRoot, runId)`.
+
+## Replay captured schemas offline
+
+```sh
+nodulus inspect replay <run-id> --project . --json
+```
+
+Replay revalidates saved provider candidates against the JSON Schemas captured with that run. It reports candidate results, contract and engine-version drift, and executable validators it skipped. It never starts a provider or project validator script; those external checks are not repeated. A candidate with an unknown or mismatched captured contract is reported as unknown rather than treated as valid or invalid. The public API is `replaySavedRun(projectRoot, runId)`.
+
+These inspection, export and replay commands are included in this source revision and its tested package archive; they are not claimed to be available in the currently published npm package.
+
 ## Answer and resume
 
 When a workflow returns `needs_input`, save its run ID, pending request ID, and requested answer contract. Write a JSON object satisfying that answer contract, then resume the same run:

@@ -8,6 +8,10 @@ import { LocalProjectSettings } from "./adapters/storage/local-project-settings.
 import { createDefaultProviderPort } from "./adapters/providers/default-provider-port.js";
 import { runWorkflow, type ProviderPort } from "./application/run-workflow.js";
 import { getRunStatus, resumeWorkflow } from "./application/resume-workflow.js";
+import { inspectWorkflow } from "./application/inspect-workflow.js";
+import { inspectRun } from "./application/inspect-run.js";
+import { exportRunDiagnostic } from "./application/export-run.js";
+import { replaySavedRun } from "./application/replay-run.js";
 import { inspectProject } from "./core/doctor-project.js";
 import { initializeProject } from "./core/initialize-project.js";
 import { NodulusError } from "./core/shared/nodulus-error.js";
@@ -100,6 +104,68 @@ export async function runCli(
           output.writeOut(`${provider.profile}: ${provider.status}\n`);
         }
       }
+    });
+
+  const inspectCommand = program
+    .command("inspect")
+    .description("Inspect saved workflows and runs without running them")
+  inspectCommand
+    .command("workflow <id>")
+    .option("--project <path>", "project directory; defaults to nearest project")
+    .option("--json", "write a machine-readable result")
+    .action(async (workflowId: string, options: { project?: string; json?: boolean }) => {
+      const projectRoot = options.project
+        ? resolve(options.project)
+        : await settingsStore.findNearestProject(dependencies.cwd ?? process.cwd());
+      if (!projectRoot) throw new NodulusError("PROJECT_NOT_FOUND", "No Nodulus project found. Pass --project <path>.");
+      const result = await inspectWorkflow(projectRoot, workflowId);
+      if (options.json) writeEnvelope(output.writeOut, { schemaVersion: 1, status: "success", runId: null, result });
+      else output.writeOut(`${JSON.stringify(result, null, 2)}\n`);
+    });
+
+  inspectCommand
+    .command("run <run-id>")
+    .description("Explain a saved run without resuming it")
+    .option("--project <path>", "project directory; defaults to nearest project")
+    .option("--json", "write a machine-readable result")
+    .action(async (runId: string, options: { project?: string; json?: boolean }) => {
+      const projectRoot = options.project
+        ? resolve(options.project)
+        : await settingsStore.findNearestProject(dependencies.cwd ?? process.cwd());
+      if (!projectRoot) throw new NodulusError("PROJECT_NOT_FOUND", "No Nodulus project found. Pass --project <path>.");
+      const result = await inspectRun(projectRoot, runId);
+      if (options.json) writeEnvelope(output.writeOut, { schemaVersion: 1, status: "success", runId, result });
+      else output.writeOut(`${JSON.stringify(result, null, 2)}\n`);
+    });
+
+  inspectCommand
+    .command("export <run-id>")
+    .description("Export a portable redacted diagnostic record for a saved run")
+    .option("--project <path>", "project directory; defaults to nearest project")
+    .option("--json", "write a machine-readable result")
+    .action(async (runId: string, options: { project?: string; json?: boolean }) => {
+      const projectRoot = options.project
+        ? resolve(options.project)
+        : await settingsStore.findNearestProject(dependencies.cwd ?? process.cwd());
+      if (!projectRoot) throw new NodulusError("PROJECT_NOT_FOUND", "No Nodulus project found. Pass --project <path>.");
+      const result = await exportRunDiagnostic(projectRoot, runId);
+      if (options.json) writeEnvelope(output.writeOut, { schemaVersion: 1, status: "success", runId, result });
+      else output.writeOut(`${JSON.stringify(result, null, 2)}\n`);
+    });
+
+  inspectCommand
+    .command("replay <run-id>")
+    .description("Revalidate saved artifact candidates with captured JSON Schemas; skip providers and scripts")
+    .option("--project <path>", "project directory; defaults to nearest project")
+    .option("--json", "write a machine-readable result")
+    .action(async (runId: string, options: { project?: string; json?: boolean }) => {
+      const projectRoot = options.project
+        ? resolve(options.project)
+        : await settingsStore.findNearestProject(dependencies.cwd ?? process.cwd());
+      if (!projectRoot) throw new NodulusError("PROJECT_NOT_FOUND", "No Nodulus project found. Pass --project <path>.");
+      const result = await replaySavedRun(projectRoot, runId);
+      if (options.json) writeEnvelope(output.writeOut, { schemaVersion: 1, status: "success", runId, result });
+      else output.writeOut(`${JSON.stringify(result, null, 2)}\n`);
     });
 
   program

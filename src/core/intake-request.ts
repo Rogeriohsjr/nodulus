@@ -3,7 +3,7 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import type { AnySchema } from "ajv";
 import path from "node:path";
 import { parseProjectSettings, type ProjectSettings } from "./project-settings.js";
-import { resolveOutputReference } from "./workflow-mapping.js";
+import { inputMappingError } from "./workflow-mapping.js";
 import type { IntakeStorage, RunFiles } from "./ports/intake-storage.js";
 import { NodulusError } from "./shared/nodulus-error.js";
 import { createPricingSnapshot } from "./pricing-snapshot.js";
@@ -48,9 +48,9 @@ type ResolvedProviderProfile = {
 };
 
 const idPattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-const requestContract = { type: "string", minLength: 1 };
+export const requestContractSchema = { type: "string", minLength: 1 };
 
-const workflowSchema = {
+export const workflowDefinitionSchema = {
   type: "object",
   required: ["schemaVersion", "id", "nodes"],
   properties: {
@@ -70,7 +70,7 @@ const workflowSchema = {
   additionalProperties: false,
 };
 
-const nodeSchema = {
+export const nodeDefinitionSchema = {
   type: "object",
   required: ["schemaVersion", "id", "providerProfile", "instructions", "inputs", "expectedOutputs"],
   properties: {
@@ -111,7 +111,7 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
   const providerProfiles: Record<string, ResolvedProviderProfile> = {};
   const instructions: Array<{ path: string; content: string }> = [];
   const declaredOutputs = new Map<string, Map<string, string>>();
-  contracts["request.v1"] = requestContract;
+  contracts["request.v1"] = requestContractSchema;
   for (const [name, declaration] of Object.entries(workflow.inputs ?? {})) {
     if (!isSafeId(name) || !isSafeId(declaration.contract)) configError(`Workflow '${workflow.id}' has an invalid caller input declaration '${name}'.`);
     if (declaration.contract !== "request.v1") contracts[declaration.contract] = await readContract(projectRoot, declaration.contract, storage);
@@ -236,7 +236,7 @@ async function readSettings(projectRoot: string, storage: IntakeStorage): Promis
 
 async function readWorkflow(projectRoot: string, workflowId: string, storage: IntakeStorage): Promise<WorkflowDefinition> {
   const value = await readJson(storage, path.join(projectRoot, ".nodulus", "workflows", `${workflowId}.json`), `Workflow '${workflowId}'`);
-  const valid = new Ajv2020({ strict: false }).compile(workflowSchema);
+  const valid = new Ajv2020({ strict: false }).compile(workflowDefinitionSchema);
   if (!valid(value)) configError(`Invalid workflow '${workflowId}': ${formatAjvErrors(valid.errors)}.`);
   const workflow = value as WorkflowDefinition;
   if (workflow.id !== workflowId || !workflow.nodes.every(isSafeId) || new Set(workflow.nodes).size !== workflow.nodes.length) {
@@ -247,7 +247,7 @@ async function readWorkflow(projectRoot: string, workflowId: string, storage: In
 
 async function readNode(projectRoot: string, nodeId: string, storage: IntakeStorage): Promise<NodeDefinition> {
   const value = await readJson(storage, path.join(projectRoot, ".nodulus", "nodes", `${nodeId}.json`), `Node '${nodeId}'`);
-  const valid = new Ajv2020({ strict: false }).compile(nodeSchema);
+  const valid = new Ajv2020({ strict: false }).compile(nodeDefinitionSchema);
   if (!valid(value)) configError(`Invalid node '${nodeId}': ${formatAjvErrors(valid.errors)}.`);
   return value as NodeDefinition;
 }
@@ -264,7 +264,7 @@ async function readContract(projectRoot: string, contractId: string, storage: In
   return schema;
 }
 
-function validateProvider(settings: ProjectSettings, profileName: string, nodeId: string): ProjectSettings["providerProfiles"][string] {
+export function validateProvider(settings: ProjectSettings, profileName: string, nodeId: string): ProjectSettings["providerProfiles"][string] {
   const profile = settings.providerProfiles[profileName];
   if (!profile) configError(`Node '${nodeId}' references unknown provider profile '${profileName}'.`);
   if (!profile.enabled) configError(`Provider profile '${profileName}' used by node '${nodeId}' is disabled.`);
@@ -312,39 +312,11 @@ function validateMappings(
   callerInputs: Record<string, { contract: string }>,
 ): void {
   for (const [inputName, candidate] of Object.entries(node.inputs)) {
-    if (!isRecord(candidate) || typeof candidate.from !== "string") {
-      configError(`Node '${node.id}' input '${inputName}' must map from request or a prior node output.`);
-    }
-    if (candidate.from === "request") {
-      const contract = candidate.contract ?? "request.v1";
-      if (contract !== "request.v1") {
-        configError(`Node '${node.id}' input '${inputName}' must declare request contract 'request.v1'.`);
-      }
-      continue;
-    }
-    if (candidate.from.startsWith("caller.")) {
-      const callerName = candidate.from.slice("caller.".length);
-      const declaration = callerInputs[callerName];
-      if (!declaration) configError(`Node '${node.id}' input '${inputName}' references undeclared caller input '${callerName}'.`);
-      if (candidate.contract !== declaration.contract) {
-        configError(`Node '${node.id}' input '${inputName}' contract must match caller input '${callerName}' contract '${declaration.contract}'.`);
-      }
-      continue;
-    }
-    const resolution = resolveOutputReference(candidate.from, earlierNodeIds.map((nodeId) => ({
+    const diagnostic = inputMappingError(node.id, inputName, candidate, earlierNodeIds.map((nodeId) => ({
       nodeId,
       outputs: [...(earlierOutputs.get(nodeId) ?? new Map())].map(([name, contract]) => ({ name, contract })),
-    })));
-    if (resolution.status === "ambiguous") {
-      configError(`Node '${node.id}' input '${inputName}' source '${candidate.from}' is ambiguous between declared prior outputs.`);
-    }
-    if (resolution.status === "missing") {
-      configError(`Node '${node.id}' input '${inputName}' has an invalid source '${candidate.from}'.`);
-    }
-    const declaredContract = candidate.contract;
-    if (typeof declaredContract !== "string" || declaredContract !== resolution.contract) {
-      configError(`Node '${node.id}' input '${inputName}' contract must match source '${candidate.from}' contract '${resolution.contract}'.`);
-    }
+    })), callerInputs);
+    if (diagnostic) configError(diagnostic);
   }
 }
 

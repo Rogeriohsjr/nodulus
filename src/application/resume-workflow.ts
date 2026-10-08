@@ -58,7 +58,7 @@ type SavedDefinitions = {
 type SavedInputs = { request: string; callerInputs?: Record<string, unknown>; instructions: Array<{ path: string; content: string }> };
 type SavedReference = { path: string; mode: "snapshot" | "workspace"; sha256: string };
 
-const ENGINE_VERSION = "1.0.0";
+export const ENGINE_VERSION = "1.0.0";
 
 export async function getRunStatus(
   projectRoot: string,

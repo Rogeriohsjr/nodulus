@@ -22,11 +22,15 @@ export class ProcessArtifactValidator implements ArtifactValidator {
       let cancelled = false;
       let outputLimitExceeded = false;
       let settled = false;
+      let terminating = false;
+      let termination: Promise<void> = Promise.resolve();
       const terminate = (reason: "timeout" | "output" | "cancel") => {
+        if (terminating) return;
+        terminating = true;
         if (reason === "timeout") timedOut = true;
         else if (reason === "output") outputLimitExceeded = true;
         else cancelled = true;
-        killProcessTree(child.pid);
+        termination = killProcessTree(child.pid);
       };
       const timer = setTimeout(() => terminate("timeout"), Math.max(1, timeoutMs));
       const onAbort = () => terminate("cancel");
@@ -52,7 +56,9 @@ export class ProcessArtifactValidator implements ArtifactValidator {
         signal?.removeEventListener("abort", onAbort);
         reject(error);
       });
-      child.once("close", (exitCode) => {
+      child.once("close", async (exitCode) => {
+        if (settled) return;
+        await termination;
         if (settled) return;
         settled = true;
         clearTimeout(timer);
@@ -65,13 +71,16 @@ export class ProcessArtifactValidator implements ArtifactValidator {
   }
 }
 
-function killProcessTree(pid: number | undefined): void {
-  if (!pid) return;
+function killProcessTree(pid: number | undefined): Promise<void> {
+  if (!pid) return Promise.resolve();
   if (process.platform === "win32") {
     const killer = spawn("taskkill", ["/pid", String(pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
-    killer.unref();
-    return;
+    return new Promise((resolve) => {
+      killer.once("error", () => resolve());
+      killer.once("close", () => resolve());
+    });
   }
   try { process.kill(-pid, "SIGKILL"); }
   catch { try { process.kill(pid, "SIGKILL"); } catch { /* process already exited */ } }
+  return Promise.resolve();
 }

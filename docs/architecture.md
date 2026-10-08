@@ -26,13 +26,17 @@ Sequential execution is ordinary code. Dynamic graphs, LLM supervisors, parallel
 
 ## CLI baseline
 
-Commands: `init`, `doctor`, `run`, `status`, `resume`, `--help`, `--version`.
+Commands: `init`, `doctor`, `run`, `inspect workflow`, `inspect run`, `inspect export`, `inspect replay`, `status`, `resume`, `--help`, `--version`.
 `--project <path>` is explicit; otherwise find the nearest ancestor with `.nodulus/settings.json`. Init defaults to cwd.
 
 ```text
 nodulus run --workflow example --request "Short task" --json
 nodulus run --workflow example --request-file brief.md --references-file refs.json --json
 nodulus run --workflow example --request-stdin --json
+nodulus inspect workflow example --project <path> --json
+nodulus inspect run <run-id> --project <path> --json
+nodulus inspect export <run-id> --project <path> --json
+nodulus inspect replay <run-id> --project <path> --json
 nodulus status <run-id> --json
 nodulus resume <run-id> --request-id <id> --answers-file answers.json --json
 ```
@@ -42,6 +46,10 @@ Workflows may also declare named caller inputs as `inputs: {goal: {contract: "go
 Node input mappings use `{from: "request"}`, `{from: "caller.goal", contract: "goal.v1"}`, or `{from: "analyze.findings", contract: "finding.v1"}`. Prior-artifact mappings require an exact matching declared contract ID. References match declared node/output pairs, including dotted names; ambiguous pairs fail preflight. An empty mapping supplies no inputs. Each node gets its own instructions and only its mapped input values.
 
 Exactly one request source. CLI file arguments resolve against caller cwd; manifest entries and definition paths resolve against project root. Read UTF-8 text. Never silently truncate required instructions/context.
+
+`inspect workflow` is read-only. It resolves declared caller-input contracts and node mappings against request contracts and earlier workflow outputs, and returns structured diagnostics for invalid references. It does not invoke providers or validators or touch the run tree. Inspection reports effective configured profile policy, including Codex's `read-only` sandbox default when omitted; it does not establish provider enforcement.
+
+`inspect run` reads saved checkpoints, events, call evidence, artifacts, and validation records. Contradictory or mispointed validation evidence is diagnosed and not treated as accepted. Damaged checkpoints return an unavailable status with diagnostics. `inspect export` emits a deterministic versioned redacted envelope without changing the run; contract schemas and provider-profile metadata are summarized to avoid copying private schema literals or arbitrary profile strings. `inspect replay` revalidates persisted candidates with captured Ajv schemas and reports current-schema/engine drift; it never invokes providers or executable validators.
 
 Machine mode returns immediately on clarification. One JSON object on stdout; diagnostics on stderr. Exit 0 = success, 2 = needs_input, 1 = error, including usage/configuration failures. Normalize parser errors when `--json` is present.
 

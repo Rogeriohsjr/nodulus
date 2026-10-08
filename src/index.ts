@@ -4,3 +4,7 @@ export { runWorkflow } from "./application/run-workflow.js";
 export type { ApplicationRunResult, ProviderInvocation, ProviderPort, RunWorkflowDependencies } from "./application/run-workflow.js";
 export { getRunStatus, resumeWorkflow } from "./application/resume-workflow.js";
 export type { ResumeWorkflowRequest, RunStatusResult } from "./application/resume-workflow.js";
+export { inspectWorkflow } from "./application/inspect-workflow.js";
+export { inspectRun } from "./application/inspect-run.js";
+export { exportRunDiagnostic } from "./application/export-run.js";
+export { replaySavedRun } from "./application/replay-run.js";
