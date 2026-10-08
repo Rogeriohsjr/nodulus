@@ -10,6 +10,7 @@ test.skipIf(!enabled)("LIVE-CURSOR-001 verifies installed Cursor observability",
     model: process.env.NODULUS_LIVE_CURSOR_MODEL ?? null,
     timeoutMs: 120_000,
     evidencePath: process.env.NODULUS_LIVE_EVIDENCE,
+    diagnosticPath: process.env.NODULUS_LIVE_EVIDENCE ? `${process.env.NODULUS_LIVE_EVIDENCE}.failure.json` : undefined,
   });
   expect(evidence.provider).toBe("cursor");
 }, 480_000);

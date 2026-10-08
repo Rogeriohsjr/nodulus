@@ -5,7 +5,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rm
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runInstalledProviderSmoke } from "../support/live-provider-observability.js";
+import { classifyInstalledFailure, runInstalledProviderSmoke } from "../support/live-provider-observability.js";
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const scratch = mkdtempSync(path.join(tmpdir(), "nodulus-package-"));
@@ -153,6 +153,94 @@ test("PKG-011 offline installed smoke fixtures do not overwrite saved live evide
     else process.env.NODULUS_LIVE_EVIDENCE = previousEvidencePath;
   }
 }, 120_000);
+
+test("PKG-012 installed smoke failure diagnostics classify a provider exit without exposing output", () => {
+  const fixture = createFailingInstalledSmokeFixture();
+  const diagnosticPath = path.join(scratch, "provider failure diagnostic.json");
+  expect(() => runInstalledProviderSmoke({
+    provider: "codex",
+    executable: fixture.executable,
+    model: null,
+    timeoutMs: 10_000,
+    diagnosticPath,
+    prepareProject: fixture.prepareProject,
+  })).toThrow();
+
+  const diagnostic = JSON.parse(readFileSync(diagnosticPath, "utf8"));
+  expect(diagnostic).toEqual({
+    stage: "run",
+    cliExitCode: 1,
+    envelopeStatus: "error",
+    errorCode: "PROVIDER_FAILURE",
+    runIdPresent: true,
+    callLaunched: true,
+    requestAvailable: true,
+    transportAvailable: true,
+    transportExitCode: 23,
+    timedOut: false,
+    outputLimitExceeded: false,
+  });
+  const serialized = JSON.stringify(diagnostic);
+  expect(serialized).not.toContain("FIXTURE-SECRET-CREDENTIAL");
+  expect(serialized).not.toContain("FIXTURE-PRIVATE-PROMPT");
+  expect(serialized).not.toContain(fixture.executable);
+});
+
+test("PKG-013 prelaunch installed smoke diagnostics report unavailable call evidence", () => {
+  const fixture = createInstalledSmokeFixture("codex");
+  const diagnosticPath = path.join(scratch, "prelaunch failure diagnostic.json");
+  const executable = path.join(scratch, "missing provider executable");
+  expect(() => runInstalledProviderSmoke({
+    provider: "codex",
+    executable,
+    model: null,
+    timeoutMs: 10_000,
+    diagnosticPath,
+    prepareProject: fixture.prepareProject,
+  })).toThrow();
+
+  const diagnostic = JSON.parse(readFileSync(diagnosticPath, "utf8"));
+  expect(diagnostic).toEqual({
+    stage: "run",
+    cliExitCode: 1,
+    envelopeStatus: "error",
+    errorCode: "PROVIDER_FAILURE",
+    runIdPresent: true,
+    callLaunched: false,
+    requestAvailable: false,
+    transportAvailable: false,
+    transportExitCode: null,
+    timedOut: false,
+    outputLimitExceeded: false,
+  });
+  expect(JSON.stringify(diagnostic)).not.toContain(executable);
+}, 120_000);
+
+test("PKG-014 failure diagnostic classifier redacts unknown envelope statuses and unavailable observations", () => {
+  const project = path.join(scratch, "failure classification fixture");
+  mkdirSync(project, { recursive: true });
+  const envelopePath = path.join(project, "malformed-status-envelope.json");
+  writeFileSync(envelopePath, JSON.stringify({
+    schemaVersion: 1,
+    status: "SECRET-UNRECOGNIZED-ENVELOPE-STATUS",
+    runId: "runfixture123",
+    result: { error: { code: "PROVIDER_FAILURE", message: "SECRET-PRIVATE-DIAGNOSTIC" } },
+  }), "utf8");
+
+  const diagnostic = classifyInstalledFailure(readFileSync(envelopePath, "utf8"), null, project);
+  expect(diagnostic).toMatchObject({
+    envelopeStatus: null,
+    runIdPresent: true,
+    callLaunched: null,
+    requestAvailable: null,
+    transportAvailable: null,
+    transportExitCode: null,
+    timedOut: null,
+    outputLimitExceeded: null,
+  });
+  expect(JSON.stringify(diagnostic)).not.toContain("SECRET-UNRECOGNIZED-ENVELOPE-STATUS");
+  expect(JSON.stringify(diagnostic)).not.toContain("SECRET-PRIVATE-DIAGNOSTIC");
+});
 
 test("PKG-002 includes the user guide and starter assets while excluding development files", () => {
   expect(archivedPaths).toContain("README.md");
@@ -407,6 +495,40 @@ function createInstalledSmokeFixture(kind: "codex" | "cursor" | "opencode"): {
       const directory = path.join(project, ".nodulus", "fixtures");
       mkdirSync(directory, { recursive: true });
       writeFileSync(path.join(directory, "usage-control.json"), JSON.stringify({ kind, stdout, version, outcome }), "utf8");
+    },
+  };
+}
+
+function createFailingInstalledSmokeFixture(): {
+  executable: string;
+  prepareProject: (project: string) => void;
+} {
+  const fixtureDirectory = path.join(scratch, "failure diagnostics fixture");
+  mkdirSync(fixtureDirectory, { recursive: true });
+  const scriptPath = path.join(fixtureDirectory, "provider.mjs");
+  writeFileSync(scriptPath, [
+    "import { writeFileSync } from 'node:fs';",
+    "const args = process.argv.slice(2);",
+    "if (args[0] === '--version') { process.stdout.write('codex-cli 0.156.1\\n'); process.exit(0); }",
+    "if (args[0] === 'login' && args[1] === 'status') process.exit(0);",
+    "const flag = (name) => { const index = args.indexOf(name); return index < 0 ? undefined : args[index + 1]; };",
+    "let stdin = ''; for await (const chunk of process.stdin) stdin += chunk;",
+    "process.stderr.write('FIXTURE-SECRET-CREDENTIAL FIXTURE-PRIVATE-PROMPT ' + stdin);",
+    "const output = flag('--output-last-message'); if (output) writeFileSync(output, JSON.stringify({ response: JSON.stringify({ status: 'success', artifacts: [] }) }));",
+    "process.exit(23);",
+  ].join("\n"), "utf8");
+  const executable = path.join(fixtureDirectory, process.platform === "win32" ? "failing-codex.cmd" : "failing-codex.sh");
+  if (process.platform === "win32") {
+    writeFileSync(executable, `@echo off\r\n"${process.execPath}" "%~dp0provider.mjs" %*\r\nexit /b %ERRORLEVEL%\r\n`, "utf8");
+  } else {
+    writeFileSync(executable, `#!/bin/sh\nexec '${process.execPath}' '${scriptPath}' "$@"\n`, "utf8");
+    chmodSync(executable, 0o755);
+  }
+  return {
+    executable,
+    prepareProject(project) {
+      const directory = path.join(project, ".nodulus", "fixtures");
+      mkdirSync(directory, { recursive: true });
     },
   };
 }

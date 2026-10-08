@@ -37,6 +37,7 @@ test.skipIf(!enabled)("LIVE-OPENCODE-001 verifies installed OpenCode/Ollama obse
     endpointOrigin: baseURL.origin,
     timeoutMs: 300_000,
     evidencePath: process.env.NODULUS_LIVE_EVIDENCE,
+    diagnosticPath: process.env.NODULUS_LIVE_EVIDENCE ? `${process.env.NODULUS_LIVE_EVIDENCE}.failure.json` : undefined,
     prepareProject: project => writeFileSync(path.join(project, "opencode.json"), `${JSON.stringify(liveConfig, null, 2)}\n`, "utf8"),
   });
   expect(evidence.provider).toBe("opencode");

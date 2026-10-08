@@ -10,6 +10,7 @@ test.skipIf(!enabled)("LIVE-CODEX-001 verifies installed Codex observability", (
     model: process.env.NODULUS_LIVE_CODEX_MODEL ?? null,
     timeoutMs: 120_000,
     evidencePath: process.env.NODULUS_LIVE_EVIDENCE,
+    diagnosticPath: process.env.NODULUS_LIVE_EVIDENCE ? `${process.env.NODULUS_LIVE_EVIDENCE}.failure.json` : undefined,
   });
   expect(evidence.provider).toBe("codex");
 }, 480_000);

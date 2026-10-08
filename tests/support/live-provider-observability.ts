@@ -1,6 +1,6 @@
 import crossSpawn from "cross-spawn";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { arch, platform, release, tmpdir } from "node:os";
 import path from "node:path";
 import { expect } from "vitest";
@@ -23,16 +23,153 @@ export interface InstalledProviderSmokeOptions {
   timeoutMs: number;
   endpointOrigin?: string;
   evidencePath?: string;
+  diagnosticPath?: string;
   prepareProject?: (project: string) => void;
 }
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
+function processErrorCode(error: unknown): string | null {
+  const code = record(error)?.["code"];
+  return typeof code === "string" ? code : null;
+}
+
 function run(stage: string, command: string, args: string[], cwd: string, timeout = 30_000): { stdout: string; stderr: string } {
   const result = crossSpawn.sync(command, args, { cwd, encoding: "utf8", timeout, windowsHide: true });
-  if (result.error) throw new Error(`Installed smoke ${stage} could not start (code ${result.error.code ?? "unknown"}).`);
-  if (result.status !== 0) throw new Error(`Installed smoke ${stage} failed (exit ${String(result.status ?? "unknown")}, code ${result.error?.code ?? "unknown"}).`);
+  const errorCode = processErrorCode(result.error);
+  if (result.error) throw new Error(`Installed smoke ${stage} could not start (code ${errorCode ?? "unknown"}).`);
+  if (result.status !== 0) throw new Error(`Installed smoke ${stage} failed (exit ${String(result.status ?? "unknown")}, code ${errorCode ?? "unknown"}).`);
   return { stdout: String(result.stdout), stderr: String(result.stderr) };
+}
+
+function capture(command: string, args: string[], cwd: string, timeout = 30_000) {
+  const result = crossSpawn.sync(command, args, { cwd, encoding: "utf8", timeout, windowsHide: true });
+  const errorCode = processErrorCode(result.error);
+  return {
+    stdout: String(result.stdout ?? ""),
+    exitCode: result.status,
+    errorCode,
+    timedOut: errorCode === "ETIMEDOUT",
+  };
+}
+
+const safeErrorCodes = new Set([
+  "PROVIDER_FAILURE", "PROVIDER_EXECUTABLE_UNAVAILABLE", "PROVIDER_VERSION_UNAVAILABLE",
+  "PROVIDER_VERSION_UNRECOGNIZED", "PROVIDER_VERSION_UNSUPPORTED", "PROVIDER_MODEL_UNAVAILABLE",
+  "PROVIDER_DISABLED", "PROVIDER_KIND_REQUIRED", "RESPONSE_REPAIR_UNAVAILABLE",
+  "OUTPUT_CONTRACT_INVALID", "RUN_STATE_INVALID", "PROJECT_NOT_FOUND", "INVALID_SETTINGS",
+  "INVALID_SETTINGS_JSON", "CONFIGURATION_INVALID",
+]);
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | undefined {
+  try { return record(JSON.parse(value)); } catch { return undefined; }
+}
+
+function safeId(value: unknown): value is string {
+  return typeof value === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
+}
+
+function safeCode(value: unknown): string | null {
+  return typeof value === "string" && safeErrorCodes.has(value) ? value : null;
+}
+
+function within(root: string, target: string): boolean {
+  const relative = path.relative(root, target);
+  return relative !== "" && !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative);
+}
+
+function writeFailureDiagnostic(destination: string | undefined, diagnostic: Record<string, unknown>): void {
+  if (!destination) return;
+  const resolved = path.resolve(destination);
+  mkdirSync(path.dirname(resolved), { recursive: true });
+  writeFileSync(resolved, `${JSON.stringify(diagnostic, null, 2)}\n`, "utf8");
+}
+
+export function classifyInstalledFailure(stdout: string, statusStdout: string | null, projectRoot: string): Record<string, unknown> {
+  const envelope = parseJsonRecord(stdout);
+  const runId = envelope?.["runId"];
+  const safeRunId = safeId(runId) ? runId : null;
+  const runRoot = safeRunId ? path.resolve(projectRoot, ".nodulus", "runs", safeRunId) : null;
+  const runsRoot = path.resolve(projectRoot, ".nodulus", "runs");
+  const diagnostic: Record<string, unknown> = {
+    stage: "run",
+    cliExitCode: null,
+    envelopeStatus: envelope?.["status"] === "success" || envelope?.["status"] === "needs_input" || envelope?.["status"] === "error"
+      ? envelope["status"]
+      : null,
+    errorCode: safeCode(record(envelope?.["result"])?.["code"])
+      ?? safeCode(record(record(envelope?.["result"])?.["error"])?.["code"]),
+    runIdPresent: safeRunId !== null,
+    callLaunched: null,
+    requestAvailable: null,
+    transportAvailable: null,
+    transportExitCode: null,
+    timedOut: null,
+    outputLimitExceeded: null,
+  };
+  if (safeRunId && runRoot && within(runsRoot, runRoot) && statusStdout !== null) {
+    const statusEnvelope = parseJsonRecord(statusStdout);
+    const status = record(statusEnvelope?.["result"]);
+    const metrics = record(status?.["metrics"]);
+    const calls = Array.isArray(metrics?.["calls"]) ? metrics["calls"] as unknown[] : [];
+    const call = record(calls[0]);
+    if (typeof call?.["launched"] === "boolean") diagnostic["callLaunched"] = call["launched"];
+    const callId = call?.["callId"];
+    let safeRunRoot: string | undefined;
+    try {
+      const nodulusRoot = realpathSync(path.resolve(projectRoot, ".nodulus"));
+      const realRunsRoot = realpathSync(runsRoot);
+      const candidateRunRoot = realpathSync(runRoot);
+      if (within(nodulusRoot, realRunsRoot) && within(realRunsRoot, candidateRunRoot)) safeRunRoot = candidateRunRoot;
+    } catch { /* An unavailable or invalid run directory is unobserved evidence. */ }
+    if (safeId(callId) && safeRunRoot) {
+      const callRoot = path.resolve(safeRunRoot, "calls", callId);
+      if (within(safeRunRoot, callRoot)) {
+        let safeCallRoot: string | undefined;
+        try {
+          const candidateCallRoot = realpathSync(callRoot);
+          if (within(safeRunRoot, candidateCallRoot)) safeCallRoot = candidateCallRoot;
+        } catch {
+          if (!existsSync(callRoot)) {
+            diagnostic["requestAvailable"] = false;
+            diagnostic["transportAvailable"] = false;
+            diagnostic["timedOut"] = false;
+            diagnostic["outputLimitExceeded"] = false;
+          }
+        }
+        if (safeCallRoot) {
+          const safeRequestPath = path.join(safeCallRoot, "request.json");
+          const safeTransportPath = path.join(safeCallRoot, "transport.json");
+          if (existsSync(safeRequestPath)) {
+            try { diagnostic["requestAvailable"] = within(safeCallRoot, realpathSync(safeRequestPath)); }
+            catch { diagnostic["requestAvailable"] = false; }
+          } else diagnostic["requestAvailable"] = false;
+          if (existsSync(safeTransportPath)) {
+            let transportIsContained = false;
+            try { transportIsContained = within(safeCallRoot, realpathSync(safeTransportPath)); } catch { /* Invalid transport is unavailable. */ }
+            const transport = transportIsContained ? parseJsonRecord(readFileSync(safeTransportPath, "utf8")) : undefined;
+            if (transport?.["callId"] === callId) {
+              diagnostic["transportAvailable"] = true;
+              diagnostic["transportExitCode"] = typeof transport["exitCode"] === "number" ? transport["exitCode"] : null;
+              diagnostic["timedOut"] = typeof transport["timedOut"] === "boolean" ? transport["timedOut"] : null;
+              diagnostic["outputLimitExceeded"] = typeof transport["outputLimitExceeded"] === "boolean" ? transport["outputLimitExceeded"] : null;
+            } else {
+              diagnostic["transportAvailable"] = false;
+            }
+          } else {
+            diagnostic["transportAvailable"] = false;
+          }
+        }
+      }
+    }
+  }
+  return diagnostic;
 }
 
 function parseRecord(value: unknown, description: string): Record<string, unknown> {
@@ -91,7 +228,18 @@ export function runInstalledProviderSmoke(options: InstalledProviderSmokeOptions
 
     const request = `OBS-012 ${options.provider} live fixture: return exactly the requested artifact with message LIVE-${options.provider}-artifact.`;
     const expectedArtifact = { name: "example", contract: "example.v1", data: { message: `LIVE-${options.provider}-artifact` } };
-    const execution = run("run installed CLI", shim, ["run", "--project", project, "--request", request, "--json"], project, options.timeoutMs + 30_000);
+    const execution = capture(shim, ["run", "--project", project, "--request", request, "--json"], project, options.timeoutMs + 30_000);
+    if (execution.exitCode !== 0) {
+      const envelope = parseJsonRecord(execution.stdout);
+      const runId = envelope?.["runId"];
+      const safeRunId = safeId(runId) ? runId : null;
+      const statusCapture = safeRunId ? capture(shim, ["status", safeRunId, "--project", project, "--json"], project, 15_000) : null;
+      const statusStdout = statusCapture?.exitCode === 0 ? statusCapture.stdout : null;
+      const diagnostic = classifyInstalledFailure(execution.stdout, statusStdout, project);
+      diagnostic["cliExitCode"] = execution.exitCode;
+      try { writeFailureDiagnostic(options.diagnosticPath, diagnostic); } catch { /* Keep the bounded CLI failure summary independent of optional export I/O. */ }
+      throw new Error(`Installed smoke run installed CLI failed (exit ${String(execution.exitCode ?? "unknown")}, code ${execution.errorCode ?? "unknown"}).`);
+    }
     const runEnvelope = parseRecord(JSON.parse(execution.stdout), "run result");
     expect(runEnvelope["status"]).toBe("success");
     const runId = requireString(runEnvelope["runId"], "runId");
@@ -117,11 +265,12 @@ export function runInstalledProviderSmoke(options: InstalledProviderSmokeOptions
     expect(savedResult["status"]).toBe("success");
     expect(savedResult["artifacts"]).toEqual([expectedArtifact]);
     const call = calls[0]!;
-    const callRoot = path.join(project, ".nodulus", "runs", runId, "calls", call.callId);
+    const callId = requireString(call.callId, "callId");
+    const callRoot = path.join(project, ".nodulus", "runs", runId, "calls", callId);
     for (const filename of ["request.json", "stdin.txt", "transport.json", "telemetry.json"]) expect(existsSync(path.join(callRoot, filename)), filename).toBe(true);
     const capturedRequest = readRecord(path.join(callRoot, "request.json"), "request capture");
     const transport = readRecord(path.join(callRoot, "transport.json"), "transport capture");
-    expect(capturedRequest).toMatchObject({ callId: call.callId, requestedModel: options.model, provider: options.provider });
+    expect(capturedRequest).toMatchObject({ callId, requestedModel: options.model, provider: options.provider });
     expect(readFileSync(path.join(callRoot, "stdin.txt"), "utf8")).toContain(request);
     expect(transport).toMatchObject({ callId: call.callId, exitCode: 0, timedOut: false, outputLimitExceeded: false });
 
