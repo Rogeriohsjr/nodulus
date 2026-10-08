@@ -1,6 +1,6 @@
 # Implementation sequence
 
-Status: folders 00 through 08 accepted, with hosted Windows/macOS/Linux validation. Public Apache-2.0 version 2.0.0 is published; earlier automated OIDC release and registry-upgrade evidence is retained in folder 09, which remains open for external release-guard proof.
+Status: folders 00 through 08 accepted, with hosted Windows/macOS/Linux validation. Public Apache-2.0 version 2.3.1 is verified on main; folder 09 remains open for external release-guard proof.
 
 Read [architecture](../architecture.md) and [testing policy](../testing.md). Work in numeric order; each folder depends on the preceding one. This keeps tests and implementation following the same user flow. A developer can implement one folder and hand off its evidence before the next begins.
 
