@@ -204,20 +204,50 @@ async function invokeCodex(executable: string, cwd: string, invocation: Provider
 
 async function invokeCursor(executable: string, cwd: string, invocation: ProviderInvocation, timeoutMs: number, capture: Capture): Promise<string> {
   const directory = await attemptDirectory(cwd, invocation);
-  const args = ["-p", "--output-format", "json", "--trust", "--workspace", cwd];
+  const args = ["-p", "--output-format", "stream-json", "--trust", "--workspace", cwd];
   if (typeof invocation.providerProfile.model === "string") args.push("--model", invocation.providerProfile.model);
   const result = await capture(executable, args, { cwd, stdin: invocation.prompt, timeoutMs }, invocation);
   await saveTransport(directory, "cursor", result);
   if (result.timedOut) throw new NodulusError("PROVIDER_TIMEOUT", "Cursor CLI exceeded its configured invocation timeout.");
   if (result.outputLimitExceeded) throw new NodulusError("PROVIDER_OUTPUT_LIMIT", "Cursor CLI exceeded the 2 MiB transport output limit.");
   if (result.exitCode !== 0) throw new NodulusError("PROVIDER_PROCESS_FAILED", `Cursor CLI exited with code ${result.exitCode}${detail(result.stderr)}.`);
-  let envelope: unknown;
-  try { envelope = JSON.parse(result.stdout) as unknown; }
-  catch (error) { throw new NodulusError("PROVIDER_TRANSPORT_INVALID", `Cursor CLI returned malformed JSON: ${messageOf(error)}${detail(result.stderr)}.`); }
-  if (!isRecord(envelope) || envelope.type !== "result" || envelope.subtype !== "success" || envelope.is_error !== false || typeof envelope.result !== "string") {
-    throw new NodulusError("PROVIDER_TRANSPORT_INVALID", `Cursor CLI returned an unrecognized result envelope${detail(result.stderr)}.`);
+  return parseCursorStreamOutcome(result.stdout, result.stderr);
+}
+
+function parseCursorStreamOutcome(stdout: string, stderr: string): string {
+  const events: unknown[] = [];
+  for (const [index, line] of stdout.split(/\r?\n/).entries()) {
+    if (line.trim() === "") continue;
+    try { events.push(JSON.parse(line) as unknown); }
+    catch (error) { throw new NodulusError("PROVIDER_TRANSPORT_INVALID", `Cursor CLI returned malformed NDJSON on line ${index + 1}: ${messageOf(error)}${detail(stderr)}.`); }
   }
-  return envelope.result;
+  const terminal = events.at(-1);
+  if (!isRecord(terminal) || terminal.type !== "result") {
+    throw new NodulusError("PROVIDER_TRANSPORT_INVALID", `Cursor CLI stream is missing its terminal result event${detail(stderr)}.`);
+  }
+  if (events.slice(0, -1).some((event) => isRecord(event) && event.type === "result")) {
+    throw new NodulusError("PROVIDER_TRANSPORT_INVALID", `Cursor CLI stream contains a result event before its terminal event${detail(stderr)}.`);
+  }
+  if (terminal.subtype !== "success" || terminal.is_error !== false || typeof terminal.result !== "string") {
+    throw new NodulusError("PROVIDER_TRANSPORT_INVALID", `Cursor CLI terminal result did not report success${detail(stderr)}.`);
+  }
+
+  let finalAssistantText: string | undefined;
+  for (const event of events) {
+    if (!isRecord(event) || event.type !== "assistant") continue;
+    if (!isRecord(event.message) || event.message.role !== "assistant" || !Array.isArray(event.message.content)) {
+      throw new NodulusError("PROVIDER_TRANSPORT_INVALID", "Cursor CLI returned a malformed assistant event.");
+    }
+    const textBlocks: string[] = [];
+    for (const block of event.message.content) {
+      if (!isRecord(block) || block.type !== "text") continue;
+      if (typeof block.text !== "string") throw new NodulusError("PROVIDER_TRANSPORT_INVALID", "Cursor CLI returned a malformed assistant text block.");
+      textBlocks.push(block.text);
+    }
+    finalAssistantText = textBlocks.join("");
+  }
+  if (finalAssistantText === undefined) throw new NodulusError("PROVIDER_TRANSPORT_INVALID", "Cursor CLI stream contains no complete assistant message.");
+  return finalAssistantText;
 }
 
 async function invokeOpenCode(executable: string, cwd: string, invocation: ProviderInvocation, timeoutMs: number, repairSessions: Map<string, { sessionID: string; count: number }>, capture: Capture): Promise<string> {

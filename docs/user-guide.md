@@ -41,6 +41,8 @@ Run `nodulus init` in an empty project directory, or pass `--project <path>`. In
 
 The `example.v1` contract requires an object with a non-empty `message` string. The example has an unconfigured provider profile so you can choose and authenticate the provider you intend to use before running it. Add a profile to `providerProfiles` in settings and set the example node's `providerProfile` to that profile name. The built-in Codex, Cursor and OpenCode adapters use `kind: "codex"`, `kind: "cursor"` or `kind: "opencode"`, `enabled: true`, and an `executable` path or command name. Authentication and local model configuration remain in the provider's own CLI/configuration; do not store credentials in Nodulus settings.
 
+The Cursor adapter uses `agent -p --output-format stream-json` and the project workspace. It selects text from the last complete assistant message and requires a successful terminal result and process exit. Cursor's aggregate result text is not treated as the Nodulus outcome.
+
 Use `nodulus doctor --json` to inspect settings and executable availability. The doctor check does not sign in or run a model.
 
 ## Run a workflow

@@ -33,7 +33,8 @@ test.each(providers)("PROV-001 translates Nodulus execution through the default 
     } else {
       expect(call.argv).toContain("-p");
       expect(call.argv).toContain("--output-format");
-      expect(call.argv[call.argv.indexOf("--output-format") + 1]).toBe("json");
+      expect(call.argv[call.argv.indexOf("--output-format") + 1]).toBe("stream-json");
+      expect(call.argv).not.toContain("--stream-partial-output");
       expect(call.argv).toContain("--trust");
       expect(call.argv).not.toContain("--force");
       expect(call.argv).not.toContain("--yolo");

@@ -1,5 +1,6 @@
 import { test, expect } from 'vitest';
 import { getRunStatus } from '../../src/application/resume-workflow.js';
+import { parseCursorUsage } from '../../src/adapters/providers/cursor-usage.js';
 import { createUsageScenario, usageOutcome } from '../support/observability-usage.js';
 import { runDefaultProviderCli, readProviderCalls, cleanupProviderProject } from '../support/provider-adapter-scenarios.js';
 
@@ -56,3 +57,12 @@ test.each(['present', 'absent', 'malformed'] as const)('OBS-004 %s', async mode 
     cleanupProviderProject(project);
   }
 }, 20000);
+
+test('OBS-004 retains parsing for captured legacy Cursor JSON usage envelopes', () => {
+  const telemetry = parseCursorUsage(JSON.stringify({
+    type: 'result', subtype: 'success', is_error: false, result: usageOutcome,
+    model: 'legacy-cursor-model', usage: { inputTokens: 5, outputTokens: 3 }
+  }), null);
+  expect(telemetry.reported).toMatchObject({ inputTokens: 5, outputTokens: 3 });
+  expect(telemetry.reportedModel).toBe('legacy-cursor-model');
+});
