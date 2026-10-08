@@ -1,6 +1,6 @@
 # 12: Inspect execution traces, provider usage, and cost
 
-Status on 2026-10-05: checkpoints A–F (OBS-001–011) have local completion evidence. **OBS-012 live-provider compatibility remains pending** across its matrix; the recorded Windows OpenCode/Ollama exercise does not establish the other provider/OS cells. See [evidence](evidence.md), the [execution/improvements report](qwen-execution-report.md), [checkpoint D evidence](obs-008-009.md), and the [OBS-010 cost guide](obs-010-cost-estimates.md). Publishing remains outside this scope.
+Status on 2026-10-08: checkpoints A–F (OBS-001–011) have local completion evidence. The OBS-012 opt-in installed-archive smoke harness is implemented for Codex, Cursor, and OpenCode/Ollama. **Live compatibility remains pending** except for the previously recorded Windows OpenCode/Ollama cell; the new harness has not been invoked and does not establish any additional provider/OS cells. See [evidence](evidence.md), [testing commands](../../testing.md), the [execution/improvements report](qwen-execution-report.md), [checkpoint D evidence](obs-008-009.md), and the [OBS-010 cost guide](obs-010-cost-estimates.md). Publishing remains outside this scope.
 
 As a user, I want to inspect each workflow step, see the instructions Nodulus sent and the response it received, understand validation and repairs, and compare available token usage and cost without confusing estimates with charges.
 

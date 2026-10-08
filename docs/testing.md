@@ -38,7 +38,19 @@ Slice 00 establishes `npm run typecheck`, `npm run build`, `npm run test:scenari
 
 `npm run check` is the final local quality gate: lint, typecheck, then the sequential runtime and package suites. See [code quality](code-quality.md) for rule scope and the AI handoff checklist. Use `npm run lint:fix` only for changes you will inspect.
 
-Live provider smoke tests are separate because they require installed authenticated CLIs and may consume provider usage. For Cursor, set `NODULUS_LIVE_CURSOR=1` and optionally `NODULUS_CURSOR_EXECUTABLE` before running `npm run test:live:cursor`. Without the explicit opt-in, the live test is skipped. The test invokes the production adapter in a temporary directory, requests a fixed read-only JSON response, and never runs as part of `npm test` or `npm run check`.
+Live provider smokes are separate because they install a freshly built local archive into an isolated prefix, require an authenticated provider CLI, and may consume provider usage. Each smoke uses the installed Nodulus CLI, a tiny known artifact request, captured request/transport/telemetry and validation records, and a bounded provider timeout. Every test is skipped unless its explicit flag equals `1`; live tests are outside `npm test` and `npm run check`. See the OBS-012 commands below.
+
+### OBS-012 installed-archive provider smokes
+
+Run one provider command at a time; each smoke rebuilds `dist` before packing:
+
+- Codex (Windows): `$env:NODULUS_LIVE_CODEX='1'; $env:NODULUS_CODEX_EXECUTABLE='C:\Users\Admin\AppData\Roaming\npm\codex.cmd'; npm run test:live:codex`
+- Cursor (Windows): `$env:NODULUS_LIVE_CURSOR='1'; $env:NODULUS_CURSOR_EXECUTABLE='agent'; npm run test:live:cursor`
+- OpenCode/Ollama (Windows): `$env:NODULUS_LIVE_OPENCODE='1'; $env:NODULUS_LIVE_OPENCODE_CONFIG=(Resolve-Path 'opencode.json').Path; $env:NODULUS_LIVE_OPENCODE_MODEL='ollama/qwen-nodulus-coder:latest'; npm run test:live:opencode`
+
+Portable environment names are `NODULUS_LIVE_CODEX` / `NODULUS_CODEX_EXECUTABLE` / optional `NODULUS_LIVE_CODEX_MODEL`, `NODULUS_LIVE_CURSOR` / `NODULUS_CURSOR_EXECUTABLE` / optional `NODULUS_LIVE_CURSOR_MODEL`, and `NODULUS_LIVE_OPENCODE` / `NODULUS_OPENCODE_EXECUTABLE` / `NODULUS_LIVE_OPENCODE_CONFIG` / optional `NODULUS_LIVE_OPENCODE_MODEL`. Set `NODULUS_LIVE_EVIDENCE` to write sanitized allowlisted evidence JSON. The Codex smoke uses a read-only sandbox, low reasoning effort, no extra capabilities, and an isolated Git repository. The OpenCode smoke accepts only an Ollama model served over loopback HTTP, denies tools and disables compaction. Optional missing usage remains null/unavailable.
+
+On Windows, the verified standalone Codex executable is `C:\Users\Admin\AppData\Roaming\npm\codex.cmd` (0.156.1). The app-bundled 0.144.4 CLI may reject repository role configuration; use the standalone executable override when needed. Cursor `2026.09.23-86fc751` and OpenCode 1.18.32 with Ollama 0.35.0/model availability have been checked for readiness only; readiness is not live observability proof. Authenticated provider CLIs and supported local environments are required. Evidence records package/archive hash, run/call IDs, provider/model and nullable reported model, CLI/Node/OS versions, coverage/counters, and relative references; it does not export raw prompts, responses, transport output, credentials or diagnostics. See [OBS-012 evidence](implementation/12-execution-observability/evidence.md) for the live compatibility matrix. Never infer macOS/Linux live compatibility from Windows results.
 
 Vitest does not replace type checking. After each slice, run focused tests and accumulated scenarios. Record platform/revision. A local Windows pass is not proof of macOS/Linux compatibility.
 

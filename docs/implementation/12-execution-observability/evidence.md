@@ -108,3 +108,76 @@ On base `1f5ddba`, branch `codex/observability-completion`, missing launch class
 `npm run check` passed on Windows Node 24.15.0: lint, typecheck, **260 scenarios and 9 installed-package tests** (`.nodulus/phase-f/obs-c-check.txt`). Real fixture processes cover timeout, truncation, output cap, prelaunch failure and killed-process read-only status. Invalid usage never retries a valid artifact. GPT-5.6 Sol accepted after a documentation-only scope correction. Hosted acceptance is separate and pending for this revision.
 
 The [completion report](qwen-completion-report.md) records exact Qwen runs, supervisor fixes, tuning, failed attempts and improvement scenarios. The [lifecycle guide](obs-006-lifecycle.md) describes nullable launch evidence. OBS008–012 remain pending; no release or merge was performed.
+
+## OBS-012 checkpoint A test review: 2026-10-08
+
+Base: `2ae0153` (`codex/obs-012-live-provider-evidence`), Windows, Node v24.15.0. Work is frozen at the test-review checkpoint; no collector behavior beyond the faithful existing-field extraction is implemented. No live provider, install, authentication, commit, or push was performed.
+
+- Behavior-preserving baseline: `npm run build` then `npx vitest run tests/scenarios/obs-012-live-evidence.test.ts` passed, 1 test. The real OpenCode fixture runs through `runDefaultProviderCli`, production adapter and status; the extracted collector emits the prior schemaVersion/packageVersion/archiveSha256/runId/callId/model/optional endpointOrigin/cliVersion/coverage/reported/normalized keys.
+- Expanded behavioral RED: same build and focused command after adding OBS-012 assertions failed, 6 tests. The positive case fails because `os` and `nodeVersion` are absent. Five negative cases show no throw for tampered telemetry and missing/invalid validation or result records. These are collector-behavior failures, not setup failures.
+- The frozen scenario also asserts call-relative paths for request/stdin/transport/telemetry and prompt/response/validation/result; fixture-captured stdin equality; valid validation and successful expected artifact; persisted telemetry equality; and evidence JSON exclusion of the unique request sentinel, raw transport stdout, profile credential sentinel and diagnostics.
+- This is offline fixture evidence only. The already recorded live Windows OpenCode/Ollama cell is unchanged; all other provider/platform cells remain pending.
+
+### OBS-012 checkpoint A test-review correction 1: 2026-10-08
+
+The initial review requested a stricter frozen test contract. The live OpenCode path now passes the installed CLI's existing `statusEnvelope.result` directly to the collector; it no longer performs an additional repository `getRunStatus` read. The offline scenario exact allowlist now requires provider, nullable reportedModel, platform/architecture/OS release, Node version and all eight relative references. Requested model metadata accepts null for future unknown-model cells.
+
+- Corrected focused run: `npm run build` passed; `npx vitest run tests/scenarios/obs-012-live-evidence.test.ts` produced **8 failed, 1 passed**. The positive test fails because the extracted baseline collector lacks the required provider/model/OS/Node/refs fields. Seven negative cases fail because it accepts telemetry tampering, missing/invalid validation/result, and request.json references escaping the run root or using an absolute path.
+- The unavailable-usage case passes: a real Cursor fixture reports unavailable coverage and all-null counters, and collection succeeds. The positive scenario hashes the run tree around collection to assert read-only behavior when the positive assertions reach that check.
+- Baseline extraction's original 1-test GREEN remains historical evidence above. No new collector behavior has been implemented; this checkpoint remains frozen for review. No provider was invoked live and no package was installed.
+
+### OBS-012 checkpoint A test-review correction 2: collection read-only snapshot ordering
+
+Moved the run-tree hash snapshot to immediately before `collectLiveEvidence`; the unchanged post-collection hash comparison now brackets the collector call directly. No other scenario, helper, or behavior changes were made.
+
+- Validation: `npm run build` passed; `npx vitest run tests/scenarios/obs-012-live-evidence.test.ts` produced **8 failed, 1 passed**. The positive test reaches the expected RED at missing provider/nullable model/OS/Node/reference evidence. The seven integrity-negative cases remain RED because the baseline collector accepts tampered telemetry, missing/invalid validation/result, and escaped/absolute request references. The unavailable-usage case passes with null counters and successful collection.
+- The pre-collection run-tree snapshot and post-collection comparison now directly prove read-only behavior once the positive metadata assertions pass. No collector implementation was added. `git diff --check` passed.
+
+## OBS-012 checkpoint A collector implementation: local GREEN
+
+Implemented the accepted frozen contract in `tests/support/live-provider-observability.ts`; the frozen scenario at SHA-256 `6AA0FCEC08D3ACB2B1BAD21E5F28C6D936EFEFA306BE3E1BEB657FB60E71614D` is unchanged. The collector reads only the selected run's real files, checks request/run/call/provider identity and exact safe relative refs, rejects path escape/absolute refs, requires successful transport, matches persisted telemetry against status, and requires valid saved validation plus a successful nonempty result. The emitted evidence contains the allowlisted provider/model/version/OS fields and relative refs; it excludes raw prompt, response, transport, profile data and diagnostics. The installed OpenCode harness hands the CLI status result into the same collector.
+
+- `npm run build`: **PASS**.
+- `npx vitest run tests/scenarios/obs-012-live-evidence.test.ts`: **PASS, 9 tests**. This includes unavailable optional usage with null counters, exact captured stdin, evidence redaction/allowlist, read-only run-tree hash, and rejection of telemetry tampering, missing/invalid validation/result, and escaped/absolute request refs.
+- `npm run lint`: **PASS**, zero warnings.
+- `npm run typecheck`: **PASS**.
+- `git diff --check`: **PASS**.
+
+Windows, Node v24.15.0. Offline provider fixtures only; no live provider, package install, or full quality gate was run. This is the implementation checkpoint awaiting focused Sol review.
+
+## OBS-012 checkpoint B installed-smoke harness: local validation
+
+Added a shared installed-archive provider smoke path for Codex, Cursor, and OpenCode/Ollama. It sequentially builds, packs, installs into a temporary prefix, initializes a fresh project, configures a tiny artifact-only request, runs/statuses the installed Nodulus CLI, validates the exact saved artifact and captured call evidence, and optionally writes only the collector's sanitized allowlist. Codex uses an initialized isolated Git repository, read-only sandbox, low reasoning effort and no extra capabilities. OpenCode preserves the loopback-only Ollama configuration, exact model/small_model, Ollama-only enablement, denied tools and disabled compaction. Cursor model and all provider reported-model/usage fields may remain null.
+
+- `npx vitest run tests/scenarios/obs-012-live-evidence.test.ts`: **9 passed**; frozen test SHA-256 remains `6AA0FCEC08D3ACB2B1BAD21E5F28C6D936EFEFA306BE3E1BEB657FB60E71614D`.
+- `npm run test:live:codex`, `npm run test:live:cursor`, `npm run test:live:opencode`: each **1 skipped** with opt-in unset. No live CLI was invoked.
+- `npm run check`: **PASS**; lint, typecheck, **74 scenario files / 321 tests**, installed archive **10 tests**. The build/package phases ran sequentially.
+- Changed Markdown local-link check: **PASS**, 4 files. `git diff --check`: **PASS**.
+
+Windows, Node v24.15.0. This validates harness wiring and offline gates, not live provider compatibility. No additional OBS-012 matrix cell is claimed. The earlier Windows OpenCode/Ollama PASS remains the sole recorded live cell. Current provider readiness (standalone Codex 0.156.1, Cursor 2026.09.23-86fc751, OpenCode 1.18.32/Ollama 0.35.0/model available) is not inference proof. No live provider, authenticated session, or explicit-opt-in archive installation occurred. Ready for focused Sol review.
+
+### OBS-012 harness correction 1: enabled-path setup failure reproduced
+
+Before changing the harness, the persistent PKG-010 enabled-path test was run with local child-process fixtures and no live provider. Command: npx vitest run tests/scenarios/pkg-001-installed-archive.test.ts -t PKG-010. It failed in runInstalledProviderSmoke with initialized settings must be an object. The helper supplied UTF-8 JSON text directly to its object validator instead of parsing it. The failure occurred before the configured fixture provider executable was called. This is a harness setup failure, not a live-provider or Nodulus runtime behavioral RED; no usage, authentication, or provider compatibility conclusion is drawn.
+
+Enabled local-fixture rerun after parsing correction advanced beyond initialization and invoked the installed CLI with the real Codex child fixture. It failed the harness assertion that captured stdin contain the known request: the initializer's starter node has inputs empty, so the CLI did not map --request into provider stdin. This is an enabled-path fixture setup gap, not live Codex evidence or a Nodulus runtime regression; only the scripted local provider boundary was invoked.
+
+### OBS-012 harness correction 2 test-review checkpoint: fixture evidence overwrite
+
+Added PKG-011 with a real marker file and the actual NODULUS_LIVE_EVIDENCE environment variable, saving and restoring its prior value around an enabled offline fixture run. Before changing the helper, command npx vitest run tests/scenarios/pkg-001-installed-archive.test.ts -t PKG-011 failed because the local Codex fixture overwrote the marker with generated evidence JSON. The subprocess was the scripted local fixture, not a live provider. This is a harness separation/data-preservation defect, not product behavioral RED. The helper implementation remains unchanged at this checkpoint.
+
+The scenarios now state that all provider smokes send a tiny artifact-only request; only Codex applies Nodulus's read-only sandbox. Cursor relies on the request and does not receive a Codex sandbox policy; OpenCode separately denies tools in its configured project.
+
+### OBS-012 harness correction 2: explicit evidence destination accepted
+
+Sol accepted the PKG-011 marker-overwrite failure as the focused RED. The helper now accepts an optional explicit evidencePath and never reads NODULUS_LIVE_EVIDENCE itself. Only the three opt-in live tests pass process.env.NODULUS_LIVE_EVIDENCE; offline archive fixtures omit the destination. PKG-011 sets the actual environment variable while preserving a pre-existing marker and verifies the file remains byte-for-byte unchanged after the local fixture run.
+
+The correction-1 setup failures above were observed and corrected before the reviewer requested a frozen test checkpoint; their actual ordering is retained here. They were not presented as accepted behavioral REDs. No frozen OBS-012 collector scenario was changed.
+
+- Sol accepted PKG-011 RED; `tests/scenarios/pkg-001-installed-archive.test.ts` SHA-256 is `4CFE77EF94F9395248F22ABD29F78DB4B694A184E1882258B5186483233CA4ED`.
+- `npx vitest run tests/scenarios/pkg-001-installed-archive.test.ts -t 'PKG-010|PKG-011'`: **2 passed, 10 skipped**. The three sequential local child-process provider fixtures pass; the evidence marker stays unchanged; invalid executable errors are bounded and sanitized.
+- `npm run test:live:codex`, `npm run test:live:cursor`, `npm run test:live:opencode`: each **1 skipped** with opt-in unset; no provider was called.
+- Final `npm run check`: **PASS**; lint and typecheck passed, **74 scenario files / 321 tests**, installed archive **12 tests**. Build and package phases ran sequentially.
+- Changed Markdown local-link check: **PASS**; `git diff --check`: **PASS**.
+
+Windows, Node v24.15.0. These are local fixture and repository checks, not live provider evidence. No live provider, package installation for a live smoke, authentication, commit, or push occurred. Ready for final focused Sol code review.

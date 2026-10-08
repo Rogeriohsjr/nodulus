@@ -5,6 +5,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rm
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { runInstalledProviderSmoke } from "../support/live-provider-observability.js";
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const scratch = mkdtempSync(path.join(tmpdir(), "nodulus-package-"));
@@ -105,6 +106,53 @@ test("PKG-001 installs and runs the actual archive CLI, initializer, and fixture
   expect(JSON.parse(replayRun.stdout)).toMatchObject({ status: "success", result: { mode: "schema-only", runId: parsedResponse.runId } });
   expect(readFileSync(fixture.logPath, "utf8")).toBe(callsBeforeInspection);
 });
+
+test("PKG-010 shared installed provider smokes run sequentially with real child-process fixtures", () => {
+  for (const provider of ["codex", "cursor", "opencode"] as const) {
+    const fixture = createInstalledSmokeFixture(provider);
+    const model = provider === "opencode" ? "ollama/qwen3.5:9b" : null;
+    const evidence = runInstalledProviderSmoke({
+      provider,
+      executable: fixture.executable,
+      model,
+      timeoutMs: 10_000,
+      prepareProject: fixture.prepareProject,
+    });
+    expect(evidence).toMatchObject({ provider, model, reportedModel: null, runId: expect.any(String), callId: expect.any(String) });
+    expect(evidence.coverage).toBe(provider === "cursor" ? "unavailable" : "complete");
+  }
+  const codexFixture = createInstalledSmokeFixture("codex");
+  const unavailableExecutable = path.join(scratch, "private executable path that must not escape");
+  expect(() => runInstalledProviderSmoke({
+    provider: "codex",
+    executable: unavailableExecutable,
+    model: null,
+    timeoutMs: 10_000,
+    prepareProject: codexFixture.prepareProject,
+  })).toThrow(/^Installed smoke run installed CLI failed \(exit 1, code unknown\)\.$/);
+}, 360_000);
+
+test("PKG-011 offline installed smoke fixtures do not overwrite saved live evidence", () => {
+  const markerPath = path.join(scratch, "preserved live evidence.json");
+  const marker = JSON.stringify({ source: "previous live run", marker: "must-remain-unchanged" });
+  writeFileSync(markerPath, marker, "utf8");
+  const previousEvidencePath = process.env.NODULUS_LIVE_EVIDENCE;
+  process.env.NODULUS_LIVE_EVIDENCE = markerPath;
+  try {
+    const fixture = createInstalledSmokeFixture("codex");
+    runInstalledProviderSmoke({
+      provider: "codex",
+      executable: fixture.executable,
+      model: null,
+      timeoutMs: 10_000,
+      prepareProject: fixture.prepareProject,
+    });
+    expect(readFileSync(markerPath, "utf8")).toBe(marker);
+  } finally {
+    if (previousEvidencePath === undefined) delete process.env.NODULUS_LIVE_EVIDENCE;
+    else process.env.NODULUS_LIVE_EVIDENCE = previousEvidencePath;
+  }
+}, 120_000);
 
 test("PKG-002 includes the user guide and starter assets while excluding development files", () => {
   expect(archivedPaths).toContain("README.md");
@@ -323,6 +371,44 @@ function stageBuiltPackage(source: string, destination: string): void {
   for (const item of ["package.json", "README.md", "NOTICE", "LICENSE", "dist", "docs"]) {
     cpSync(path.join(source, item), path.join(destination, item), { recursive: true });
   }
+}
+
+function createInstalledSmokeFixture(kind: "codex" | "cursor" | "opencode"): {
+  executable: string;
+  prepareProject: (project: string) => void;
+} {
+  const fixtureDirectory = path.join(scratch, "installed smoke fixtures");
+  mkdirSync(fixtureDirectory, { recursive: true });
+  const scriptPath = path.join(fixtureDirectory, "usage-provider.mjs");
+  cpSync(path.join(repository, "tests", "fixtures", "observability", "usage-provider.mjs"), scriptPath);
+  const executable = path.join(fixtureDirectory, process.platform === "win32" ? `${kind}-smoke.cmd` : `${kind}-smoke.sh`);
+  if (process.platform === "win32") {
+    writeFileSync(executable, `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\nexit /b %ERRORLEVEL%\r\n`, "utf8");
+  } else {
+    const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+    writeFileSync(executable, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(scriptPath)} "$@"\n`, "utf8");
+    chmodSync(executable, 0o755);
+  }
+  const message = `LIVE-${kind}-artifact`;
+  const outcome = JSON.stringify({ status: "success", artifacts: [{ name: "example", contract: "example.v1", data: { message } }] });
+  const version = kind === "codex" ? "0.144.4" : kind === "cursor" ? "2026.09.23-86fc751" : "1.18.32";
+  const stdout = kind === "codex"
+    ? JSON.stringify({ type: "turn.started" }) + "\n" + JSON.stringify({ type: "turn.completed", usage: { input_tokens: 8, output_tokens: 3 } }) + "\n"
+    : kind === "cursor"
+      ? JSON.stringify({ type: "result", subtype: "success", is_error: false, result: outcome })
+      : [
+          { type: "text", part: { messageID: "fixture-live-message", text: outcome } },
+          { type: "step_finish", part: { id: "fixture-live-step", sessionID: "fixture-live-session", messageID: "fixture-live-message", reason: "stop", tokens: { input: 8, output: 3, reasoning: 0, cache: { read: 0, write: 0 } }, cost: 0 } },
+        ].map(event => JSON.stringify(event)).join("\n") + "\n";
+
+  return {
+    executable,
+    prepareProject(project) {
+      const directory = path.join(project, ".nodulus", "fixtures");
+      mkdirSync(directory, { recursive: true });
+      writeFileSync(path.join(directory, "usage-control.json"), JSON.stringify({ kind, stdout, version, outcome }), "utf8");
+    },
+  };
 }
 
 test("PKG-005 packs the scoped public package with Apache-2.0 notices in the archive", () => {
