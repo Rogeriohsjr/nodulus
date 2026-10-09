@@ -14,18 +14,21 @@ export function parseClaudeUsage(stdout: string, cliVersion: string | null): Pro
   }
 
   const usage = event.usage;
+  const outputDetails = isRecord(usage.output_tokens_details) ? usage.output_tokens_details : null;
   const counters = {
     inputTokens: usage.input_tokens,
     outputTokens: usage.output_tokens,
     cacheReadTokens: usage.cache_read_input_tokens,
     cacheWriteTokens: usage.cache_creation_input_tokens,
+    reasoningTokens: outputDetails?.thinking_tokens,
     costUsd: event.total_cost_usd,
   };
-  const complete = Object.values(counters).every(value => value !== undefined && value !== null);
+  const complete = [counters.inputTokens, counters.outputTokens, counters.cacheReadTokens, counters.cacheWriteTokens, counters.costUsd]
+    .every(value => value !== undefined && value !== null);
   const records: UsageRecord[] = [{ id: "result", counters }];
-  const model = typeof event.model === "string" ? event.model : null;
+  const model = reportedModel(event);
   const telemetry = makeTelemetry("claude", cliVersion, "result", records, [], complete, model);
-  if (cliVersion === "2.1.294") {
+  if (cliVersion === "2.1.294" || cliVersion === "2.1.295") {
     telemetry.semantics = {
       inputCache: "excluded",
       outputReasoning: "included",
@@ -40,6 +43,15 @@ export function parseClaudeUsage(stdout: string, cliVersion: string | null): Pro
     if (isTokenCount(counters.outputTokens)) telemetry.normalized.outputTokens = counters.outputTokens;
   }
   return telemetry;
+}
+
+function reportedModel(event: Record<string, unknown>): string | null {
+  if (typeof event.model === "string" && event.model.trim()) return event.model;
+  if (!isRecord(event.modelUsage)) return null;
+  const entries = Object.values(event.modelUsage);
+  if (entries.length !== 1 || !isRecord(entries[0])) return null;
+  const canonicalModel = entries[0].canonicalModel;
+  return typeof canonicalModel === "string" && canonicalModel.trim() ? canonicalModel : null;
 }
 
 function isTokenCount(value: unknown): value is number {

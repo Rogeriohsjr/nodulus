@@ -1,0 +1,6 @@
+{
+  "cliVersion": "2.1.295",
+  "exitCode": 1,
+  "stdout": "",
+  "stderr": "Error: Invalid MCP configuration:\nmcpServers: Invalid input: expected record, received undefined\n"
+}
