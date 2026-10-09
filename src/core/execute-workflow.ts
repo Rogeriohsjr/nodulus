@@ -619,7 +619,7 @@ function buildPrompt(
     JSON.stringify(node.expectedOutputs.map(({ name, contract }) => ({ name, contract })), null, 2),
     "## System outcome schemas",
     JSON.stringify({ success: successSchema, needsInput: needsInputSchema, error: errorSchema }, null, 2),
-    "Return one JSON object matching the package outcome protocol. Do not include runtime metadata.",
+    "Return one JSON object matching the package outcome protocol. Do not include runtime metadata. Return only the raw JSON outcome. Do not wrap it in Markdown fences or add explanatory text.",
   ].join("\n\n");
 }
 

@@ -20,6 +20,7 @@ if (control.blockTelemetryWrite) {
   }
 }
 let stdin = ""; for await (const chunk of process.stdin) stdin += chunk;
+if (control.capturePath) writeFileSync(control.capturePath, stdin, "utf8");
 appendFileSync(log, JSON.stringify({ argv: args, stdin, cwd: process.cwd() }) + "\n");
 if (control.kind === "codex") writeFileSync(flag("--output-last-message"), JSON.stringify({ response: control.outcome }));
 if (control.kind === "cursor" && flag("--output-format") === "stream-json") {

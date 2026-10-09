@@ -242,6 +242,42 @@ test("PKG-014 failure diagnostic classifier redacts unknown envelope statuses an
   expect(JSON.stringify(diagnostic)).not.toContain("SECRET-PRIVATE-DIAGNOSTIC");
 });
 
+test("PKG-015 installed smoke request names the exact artifact with unambiguous JSON", () => {
+  const fixture = createInstalledSmokeFixture("codex");
+  const capturedStdinPath = path.join(scratch, "PKG-015 captured child stdin.txt");
+  const result = runInstalledProviderSmoke({
+    provider: "codex",
+    executable: fixture.executable,
+    model: null,
+    timeoutMs: 10_000,
+    prepareProject(project) {
+      fixture.prepareProject(project);
+      const controlPath = path.join(project, ".nodulus", "fixtures", "usage-control.json");
+      const control = JSON.parse(readFileSync(controlPath, "utf8"));
+      control.capturePath = capturedStdinPath;
+      writeFileSync(controlPath, JSON.stringify(control), "utf8");
+    },
+  });
+
+  expect(result.provider).toBe("codex");
+  const capturedStdin = readFileSync(capturedStdinPath, "utf8");
+  const mappedHeader = "## Mapped Inputs\n";
+  const mappedStart = capturedStdin.indexOf(mappedHeader);
+  expect(mappedStart).toBeGreaterThanOrEqual(0);
+  const mappedContentStart = mappedStart + mappedHeader.length;
+  const mappedEnd = capturedStdin.indexOf("\n\n## ", mappedContentStart);
+  const mappedText = capturedStdin.slice(mappedContentStart, mappedEnd < 0 ? undefined : mappedEnd).trim();
+  const mappedInputs = JSON.parse(mappedText);
+  expect(typeof mappedInputs.request).toBe("string");
+  const exactArtifact = JSON.stringify({
+    name: "example",
+    contract: "example.v1",
+    data: { message: "LIVE-codex-artifact" },
+  });
+  expect(mappedInputs.request).toContain(exactArtifact);
+  expect(mappedInputs.request).toContain("raw JSON outcome");
+}, 120_000);
+
 test("PKG-002 includes the user guide and starter assets while excluding development files", () => {
   expect(archivedPaths).toContain("README.md");
   expect(archivedPaths).toContain("docs/user-guide.md");

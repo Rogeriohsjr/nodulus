@@ -226,8 +226,8 @@ export function runInstalledProviderSmoke(options: InstalledProviderSmokeOptions
     node["inputs"] = { request: { from: "request", contract: "request.v1" } };
     writeFileSync(nodePath, `${JSON.stringify(node, null, 2)}\n`, "utf8");
 
-    const request = `OBS-012 ${options.provider} live fixture: return exactly the requested artifact with message LIVE-${options.provider}-artifact.`;
     const expectedArtifact = { name: "example", contract: "example.v1", data: { message: `LIVE-${options.provider}-artifact` } };
+    const request = `OBS-012 ${options.provider} live fixture. Return exactly this artifact: ${JSON.stringify(expectedArtifact)}. Return only the raw JSON outcome object. Do not wrap it in Markdown fences or add explanatory text.`;
     const execution = capture(shim, ["run", "--project", project, "--request", request, "--json"], project, options.timeoutMs + 30_000);
     if (execution.exitCode !== 0) {
       const envelope = parseJsonRecord(execution.stdout);
@@ -271,7 +271,17 @@ export function runInstalledProviderSmoke(options: InstalledProviderSmokeOptions
     const capturedRequest = readRecord(path.join(callRoot, "request.json"), "request capture");
     const transport = readRecord(path.join(callRoot, "transport.json"), "transport capture");
     expect(capturedRequest).toMatchObject({ callId, requestedModel: options.model, provider: options.provider });
-    expect(readFileSync(path.join(callRoot, "stdin.txt"), "utf8")).toContain(request);
+    const effectiveStdin = readFileSync(path.join(callRoot, "stdin.txt"), "utf8");
+    const mappedHeader = "## Mapped Inputs\n";
+    const mappedStart = effectiveStdin.indexOf(mappedHeader);
+    if (mappedStart < 0) throw new Error("Effective stdin is missing the mapped-input section.");
+    const mappedContentStart = mappedStart + mappedHeader.length;
+    const mappedEnd = effectiveStdin.indexOf("\n\n## ", mappedContentStart);
+    const mappedText = effectiveStdin.slice(mappedContentStart, mappedEnd < 0 ? undefined : mappedEnd).trim();
+    const mappedInputs = parseRecord(JSON.parse(mappedText), "mapped inputs");
+    expect(mappedInputs["request"]).toBe(request);
+    const savedPrompt = readFileSync(path.join(runRoot, evidence.refs.prompt), "utf8");
+    expect(effectiveStdin).toContain(savedPrompt);
     expect(transport).toMatchObject({ callId: call.callId, exitCode: 0, timedOut: false, outputLimitExceeded: false });
 
     const evidencePath = options.evidencePath;
