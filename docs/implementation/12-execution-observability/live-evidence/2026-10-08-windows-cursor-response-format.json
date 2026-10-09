@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "1.0.0",
+  "archiveSha256": "c164ae83a6e56802a940585dfbbfc0adf60adad96a4ecffe8ad68d8ac82a9f9e",
+  "runId": "20da18b9-7c2f-4b44-9157-ee391f46cf02",
+  "callId": "f2138433-f60f-4ee9-a4c4-2c7337971608",
+  "provider": "cursor",
+  "model": null,
+  "reportedModel": null,
+  "cliVersion": "2026.10.01-e373342",
+  "coverage": "complete",
+  "reported": {
+    "inputTokens": 11237,
+    "outputTokens": 182,
+    "cacheReadTokens": 0,
+    "cacheWriteTokens": 0,
+    "reasoningTokens": null,
+    "costUsd": null
+  },
+  "normalized": {
+    "inputTokens": null,
+    "outputTokens": null
+  },
+  "os": {
+    "platform": "win32",
+    "arch": "x64",
+    "release": "10.0.26300"
+  },
+  "nodeVersion": "v24.15.0",
+  "refs": {
+    "request": "calls/f2138433-f60f-4ee9-a4c4-2c7337971608/request.json",
+    "stdin": "calls/f2138433-f60f-4ee9-a4c4-2c7337971608/stdin.txt",
+    "transport": "calls/f2138433-f60f-4ee9-a4c4-2c7337971608/transport.json",
+    "telemetry": "calls/f2138433-f60f-4ee9-a4c4-2c7337971608/telemetry.json",
+    "prompt": "nodes/example/attempt-001/prompt.md",
+    "response": "nodes/example/attempt-001/response.raw.txt",
+    "validation": "nodes/example/attempt-001/validation.json",
+    "result": "nodes/example/attempt-001/result.json"
+  }
+}

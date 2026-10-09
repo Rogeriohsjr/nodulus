@@ -265,3 +265,47 @@ Corrected the schema sample to validate the saved attempt result object, which i
 - `npx vitest run tests/scenarios/obs-012-outcome-protocol.test.ts`: **3 passed** for Codex, Cursor, and OpenCode. Each verifies one successful real fixture call, successful transport, both persisted artifacts, saved valid validation/result, exact expected pair records, inclusion in effective stdin, and real Ajv acceptance/rejection samples for all three serialized outcome schemas.
 - The scenario's first strict TypeScript check exposed an incorrect default Ajv import. Corrected it to the repository's named `Ajv2020` export. This is a static typing finding, not behavioral RED. Focused command `.\node_modules\.bin\tsc.cmd --ignoreConfig --noEmit --strict --skipLibCheck --module NodeNext --moduleResolution NodeNext --target ES2023 --types node tests/scenarios/obs-012-outcome-protocol.test.ts`: **PASS** after correction.
 - `npm run check`: **PASS** after source and documentation edits; lint, source typecheck, 75 scenario files / 324 tests, then installed archive **15 tests**. No live-provider call was made.
+
+## OBS-012 response formatting: frozen RED checkpoint
+
+Added a real `runDefaultProviderCli` scenario for Codex, Cursor, and OpenCode requiring an explicit raw-JSON-only and no-Markdown-fence/no-explanation instruction in both saved prompt and effective provider stdin. Added PKG-015 using the real installed-smoke helper and a real provider child fixture. The fixture writes its captured stdin to a test-owned path outside the helper's temporary tree so the test can parse the real `## Mapped Inputs` JSON after helper cleanup. PKG-015 requires the mapped request to include the exact `JSON.stringify` representation of the expected artifact plus the raw-JSON policy; it does not change earlier request, artifact, success, failure, or timeout assertions.
+
+- `npm run build`: **PASS**.
+- `npx vitest run tests/scenarios/obs-012-response-format.test.ts`: **3 failed**, one per provider at the intended missing `Return only the raw JSON outcome.` prompt assertion. Each real fixture invocation returned its fixed valid artifact and the real local CLI workflow succeeded; saved prompt and provider stdin lack the required wording.
+- `npx vitest run tests/scenarios/pkg-001-installed-archive.test.ts -t PKG-015`: **1 failed, 15 skipped** at the intended missing serialized-artifact assertion. The installed Codex smoke succeeded and produced the external captured stdin; parsing the real mapped-input section yields the current prose request, which lacks the exact serialized artifact literal. The following raw-JSON policy assertion is not reached in RED.
+- These are prompt/request contract findings only. No live provider was invoked, and the tests do not attribute earlier live failures to these defects.
+- Existing protocol regression `tests/scenarios/obs-012-outcome-protocol.test.ts` remains frozen at SHA-256 `758BDA9D2DED6A6E750D886D27686E920DC6EB26F362CF84F6D7119ADE9EF7FB`; the earlier collector test remains at `6AA0FCEC08D3ACB2B1BAD21E5F28C6D936EFEFA306BE3E1BEB657FB60E71614D`.
+
+Stop for focused Sol test review before changing prompt or smoke request behavior.
+
+### OBS-012 response formatting test-review correction 1: duplicate fixture write
+
+Removed one duplicate write of the captured provider stdin in the fixture child. This is fixture cleanup only; the test assertions and production code are unchanged.
+
+- `npm run build`: **PASS**.
+- `npx vitest run tests/scenarios/obs-012-response-format.test.ts`: **3 failed** at the same intended missing raw-JSON prompt instruction, one per provider.
+- `npx vitest run tests/scenarios/pkg-001-installed-archive.test.ts -t PKG-015`: **1 failed, 15 skipped** at the intended missing serialized-artifact request assertion. The child captured real stdin and the test parsed its mapped-input section before the failure.
+- Frozen `tests/scenarios/obs-012-outcome-protocol.test.ts` remains SHA-256 `758BDA9D2DED6A6E750D886D27686E920DC6EB26F362CF84F6D7119ADE9EF7FB`. No behavior implementation or live provider call occurred.
+
+Stop for the exact-delta Sol test review; prompt and request behavior remain unimplemented.
+
+## OBS-012 response formatting implementation: local GREEN
+
+Updated the core prompt's final instruction to require the raw JSON outcome alone, with no Markdown fences or explanatory text. The installed smoke now sends a quoted `JSON.stringify` representation of its exact expected artifact and the same response-format policy. Its real installed-run assertion parses the `## Mapped Inputs` section from captured effective stdin and checks that the mapped request equals the submitted request, then verifies that stdin contains the full saved shared prompt. This replaces a raw substring assertion that cannot hold when JSON serialization escapes embedded quotes; it preserves semantic equality and confirms the actual prompt reached the provider boundary.
+
+- `npm run build`: **PASS**.
+- `npx vitest run tests/scenarios/obs-012-response-format.test.ts`: **3 passed** (Codex, Cursor, OpenCode).
+- `npx vitest run tests/scenarios/pkg-001-installed-archive.test.ts -t PKG-015`: **1 passed, 15 skipped**. The real installed smoke succeeds; its saved request has the exact serialized artifact and raw-JSON policy, with full saved prompt present in effective stdin.
+- Frozen test files and fixture stayed unchanged during implementation: response-format scenario SHA-256 `6637418F61EF8E226FAF1E13CFF4B4500191132FBEBBDFE4ED25FD31EFB01257`, package test `9AD3AF82E90423AE5895A71D732FBF856F0A5420C068A68F00272C35324859C5`, fixture `42BD5E2CEE4E98AD0D052C7CB3FF1AF4C1ED793D9873FB0A85BDBCCDF50BB205`. Existing outcome-protocol regression remains `758BDA9D2DED6A6E750D886D27686E920DC6EB26F362CF84F6D7119ADE9EF7FB`.
+
+No live provider was invoked. These fixture results do not revise earlier live evidence or establish provider/platform compatibility. See [the recorded Windows follow-up](outcome-protocol-live.md) for prior outcomes; macOS and Linux remain pending.
+
+- Targeted strict TypeScript check covering `tests/support/live-provider-observability.ts`, the response-format scenario, and all three live callers: **PASS**. `npm run lint` and `npm run typecheck`: **PASS**.
+- First `npm run check` attempt passed lint/typecheck and reported **326 passed, 1 failed** across 76 scenario files; `DEV-002 assertion failure is RED despite model ACCEPT` reached its 5-second test timeout. The isolated `npx vitest run tests/scenarios/dev-002-red-checkpoint-gate.test.ts` then passed **3/3**. A bounded full-gate rerun completed: `npm run check` **PASS**, **327/327** scenario tests across 76 files and **16/16** installed-package tests. The prior timeout remains recorded; no test deadline or assertion was changed.
+- `git diff --check`: **PASS**. No live provider was invoked.
+
+### OBS-012 response formatting: coordinated Windows live follow-up
+
+After Sol accepted the implementation, the coordinator verified installed-package smokes on Windows for Codex, Cursor and OpenCode/Ollama. Codex and Cursor passed their first attempts; OpenCode failed its first outcome validation, then a bounded diagnostic run returned the exact valid artifact and one bounded installed-smoke retry passed. The original rejection remains unexplained and recorded. The successful Cursor receipt reports 2026.10.01-e373342; earlier failed-version labels represent the initial readiness probe, not retained per-attempt versions.
+
+See [the detailed Windows results and allowlisted receipts](response-format-live.md) for exact versions, counters, source/archive hashes, timing and limitations. macOS/Linux live cells and REL-003 external release-guard exercises remain pending. The existing full-gate timeout and successful bounded rerun above remain part of the evidence.

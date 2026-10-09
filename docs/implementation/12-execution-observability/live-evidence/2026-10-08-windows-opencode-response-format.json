@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "1.0.0",
+  "archiveSha256": "c164ae83a6e56802a940585dfbbfc0adf60adad96a4ecffe8ad68d8ac82a9f9e",
+  "runId": "ac176646-88fb-4856-a8ba-1e9257226111",
+  "callId": "dc340c12-f758-4f8d-862d-89c9994072ae",
+  "provider": "opencode",
+  "model": "ollama/qwen3.5:9b",
+  "reportedModel": null,
+  "endpointOrigin": "http://127.0.0.1:11434",
+  "cliVersion": "1.18.32",
+  "coverage": "complete",
+  "reported": {
+    "inputTokens": 1304,
+    "outputTokens": 235,
+    "cacheReadTokens": 0,
+    "cacheWriteTokens": 0,
+    "reasoningTokens": 0,
+    "costUsd": 0
+  },
+  "normalized": {
+    "inputTokens": 1304,
+    "outputTokens": 235
+  },
+  "os": {
+    "platform": "win32",
+    "arch": "x64",
+    "release": "10.0.26300"
+  },
+  "nodeVersion": "v24.15.0",
+  "refs": {
+    "request": "calls/dc340c12-f758-4f8d-862d-89c9994072ae/request.json",
+    "stdin": "calls/dc340c12-f758-4f8d-862d-89c9994072ae/stdin.txt",
+    "transport": "calls/dc340c12-f758-4f8d-862d-89c9994072ae/transport.json",
+    "telemetry": "calls/dc340c12-f758-4f8d-862d-89c9994072ae/telemetry.json",
+    "prompt": "nodes/example/attempt-001/prompt.md",
+    "response": "nodes/example/attempt-001/response.raw.txt",
+    "validation": "nodes/example/attempt-001/validation.json",
+    "result": "nodes/example/attempt-001/result.json"
+  }
+}

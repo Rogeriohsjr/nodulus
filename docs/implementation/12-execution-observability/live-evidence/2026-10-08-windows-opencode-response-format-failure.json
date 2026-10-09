@@ -1,0 +1,13 @@
+{
+  "stage": "run",
+  "cliExitCode": 1,
+  "envelopeStatus": "error",
+  "errorCode": "RESPONSE_REPAIR_UNAVAILABLE",
+  "runIdPresent": true,
+  "callLaunched": true,
+  "requestAvailable": true,
+  "transportAvailable": true,
+  "transportExitCode": 0,
+  "timedOut": false,
+  "outputLimitExceeded": false
+}
