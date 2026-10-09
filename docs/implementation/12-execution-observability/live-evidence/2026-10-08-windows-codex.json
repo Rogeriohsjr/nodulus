@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "packageVersion": "1.0.0",
+  "archiveSha256": "8b29d62f4b5cd0193f0d253cc967676de205c6e61b39dfd6ba074ed6e77984d5",
+  "runId": "94392832-feed-4fe8-9424-a045b8275e33",
+  "callId": "b6c2e4c0-8fd9-41ea-80c6-760af112ab98",
+  "provider": "codex",
+  "model": "gpt-6-luna",
+  "reportedModel": null,
+  "cliVersion": "0.156.1",
+  "coverage": "complete",
+  "reported": {
+    "inputTokens": 20844,
+    "outputTokens": 47,
+    "cacheReadTokens": 0,
+    "cacheWriteTokens": null,
+    "reasoningTokens": 0,
+    "costUsd": null
+  },
+  "normalized": {
+    "inputTokens": null,
+    "outputTokens": null
+  },
+  "os": {
+    "platform": "win32",
+    "arch": "x64",
+    "release": "10.0.26300"
+  },
+  "nodeVersion": "v24.15.0",
+  "refs": {
+    "request": "calls/b6c2e4c0-8fd9-41ea-80c6-760af112ab98/request.json",
+    "stdin": "calls/b6c2e4c0-8fd9-41ea-80c6-760af112ab98/stdin.txt",
+    "transport": "calls/b6c2e4c0-8fd9-41ea-80c6-760af112ab98/transport.json",
+    "telemetry": "calls/b6c2e4c0-8fd9-41ea-80c6-760af112ab98/telemetry.json",
+    "prompt": "nodes/example/attempt-001/prompt.md",
+    "response": "nodes/example/attempt-001/response.raw.txt",
+    "validation": "nodes/example/attempt-001/validation.json",
+    "result": "nodes/example/attempt-001/result.json"
+  }
+}

@@ -65,6 +65,8 @@ error: {status:"error",error:{code,message}}
 
 Slice 03 implements the exact schemas and additional-property policy. Validate outcome first, then expected artifact names/contracts/data and script checks. Reject missing, duplicate, and unexpected output names. Contract IDs are versioned (e.g. review.v1); normal validation does not fetch remote schemas.
 
+Each node prompt includes the exact expected artifact name/contract pairs and the package-owned schemas for `success`, `needs_input`, and `error`. Artifact names are distinct even when multiple expected outputs share one contract. These prompt details explain the existing protocol to providers; runtime validation remains authoritative and unchanged.
+
 ## Execution
 
 Run states: running, needs_input, success, error. Track active node, attempts, completed nodes, and accepted outputs. Persist before advancing or returning.
