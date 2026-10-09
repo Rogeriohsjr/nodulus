@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { realpathSync } from "node:fs";
 import { cleanupProviderProject, createProviderScenario, readProviderCalls, runDefaultProviderCli, type FixtureProviderKind } from "../support/provider-adapter-scenarios.js";
 
-const providers: FixtureProviderKind[] = ["codex", "cursor"];
+const providers: FixtureProviderKind[] = ["codex", "cursor", "claude"];
 
 test.each(providers)("PROV-003 preserves long %s context across Unicode and shell-sensitive paths", async (kind) => {
   const { project, logPath } = await createProviderScenario(kind);
@@ -20,12 +20,16 @@ test.each(providers)("PROV-003 preserves long %s context across Unicode and shel
       expect(call.stdin).toContain(uniqueTail);
       expect(call.stdin).toContain("Ω");
       expect(call.stdin).toContain("& % must stay literal");
-    } else {
+    } else if (kind === "cursor") {
       expect(call.argv[call.argv.indexOf("-p") + 1]).toBe("--output-format");
       expect(call.stdin).toContain(uniqueTail);
       expect(call.stdin).toContain("Ω");
       expect(call.stdin).toContain("& % must stay literal");
       expect(call.promptFile).toBeUndefined();
+    } else {
+      expect(call.stdin).toContain(uniqueTail);
+      expect(call.stdin).toContain("Ω");
+      expect(call.stdin).toContain("& % must stay literal");
     }
   } finally {
     cleanupProviderProject(project);

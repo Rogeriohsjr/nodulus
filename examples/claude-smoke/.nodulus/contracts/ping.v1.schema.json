@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ping.v1",
+  "title": "Claude smoke ping",
+  "type": "object",
+  "properties": {
+    "message": {
+      "const": "ping"
+    }
+  },
+  "required": [
+    "message"
+  ],
+  "additionalProperties": false
+}

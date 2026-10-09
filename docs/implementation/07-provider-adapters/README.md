@@ -1,6 +1,6 @@
 # 07-provider-adapters: Integrate Codex, Cursor and OpenCode
 
-**Status:** accepted locally on Windows after independent Sol review. Provider tests use executable fixtures; Codex, OpenCode/Ollama, and Cursor have separate Windows live proof. Live provider compatibility on macOS/Linux remains unverified. **Prerequisite:** 06-repair-recovery. **Method:** TDD for adapters; live compatibility verification is separate.
+**Status:** Codex/Cursor/OpenCode behavior and the current-main Claude source are accepted locally on Windows after focused Sol review. Provider tests use executable fixtures; prior Windows live proof covers Codex, OpenCode/Ollama, and Cursor. Claude live inference and macOS/Linux live compatibility remain unverified. **Prerequisite:** 06-repair-recovery. **Method:** TDD for adapters; live compatibility verification is separate.
 
 A caller selects a supported installed provider without changing the workflow engine.
 
@@ -33,6 +33,13 @@ Given executable/project paths with spaces/Unicode and long input, when the adap
 Given provider usage is missing or structured output/response-only correction is unsupported, when run executes, then capabilities govern behavior, unknown statistics remain null, and unsupported repair cannot replay actions.
 
 - [x] PROV-004 acceptance verified and evidence recorded.
+
+### PROV-005: Integrate Claude Code
+
+Given a captured Claude profile and supported CLI, when a workflow invokes Claude, then readiness, bounded JSON transport, structured outcomes, safe options, and observed usage use the shared provider capture path; missing usage stays unknown and transport failures do not replay or start successor nodes.
+
+- [x] PROV-005 current-main implementation source reviewed and accepted; historical acceptance evidence is retained in [evidence.md](evidence.md).
+- [ ] Live Claude compatibility verified separately after authenticated bounded smoke.
 
 ### PROV-008: Select Cursor's final complete outcome
 

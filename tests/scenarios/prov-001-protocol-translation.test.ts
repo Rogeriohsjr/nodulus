@@ -4,13 +4,20 @@ import { expect, test } from "vitest";
 import { cleanupProviderProject, createProviderScenario, readProviderCalls, runDefaultProviderCli, type FixtureProviderKind } from "../support/provider-adapter-scenarios.js";
 import { resumeDefaultProviderCli } from "../support/provider-adapter-scenarios.js";
 
-const providers: FixtureProviderKind[] = ["codex", "cursor"];
+const providers: FixtureProviderKind[] = ["codex", "cursor", "claude"];
 
 test.each(providers)("PROV-001 translates Nodulus execution through the default %s adapter", async (kind) => {
   const { project, logPath } = await createProviderScenario(kind);
   try {
     const result = await runDefaultProviderCli(project, `Translate this ${kind} fixture response.`);
-    expect(result.code).toBe(0);
+    if (kind === "claude") {
+      const [call] = readProviderCalls(logPath);
+      const schema = JSON.parse(call.argv[call.argv.indexOf("--json-schema") + 1]);
+      expect(schema).toMatchObject({ type: "object", properties: { response: { type: "string" } }, required: ["response"], additionalProperties: false });
+      const transport = JSON.parse(readFileSync(path.join(project, ".nodulus", "runs", result.envelope.runId, "provider", "example", "attempt-001", "transport.json"), "utf8"));
+      expect(JSON.parse(transport.stdout).structured_output).toEqual({ response: expect.any(String) });
+    }
+    expect(result.code, JSON.stringify(result.envelope)).toBe(0);
     expect(result.envelope).toMatchObject({ schemaVersion: 1, status: "success", result: { artifacts: [{ name: "example", contract: "example.v1", data: { message: "fixture result" } }] } });
 
     const [call] = readProviderCalls(logPath);
@@ -30,7 +37,7 @@ test.each(providers)("PROV-001 translates Nodulus execution through the default 
       const lastMessage = JSON.parse(readFileSync(outputPath, "utf8"));
       expect(JSON.parse(lastMessage.response)).toMatchObject({ status: "success", artifacts: [{ data: { message: "fixture result" } }] });
       expect(JSON.parse(readFileSync(schemaPath, "utf8"))).toBeDefined();
-    } else {
+    } else if (kind === "cursor") {
       expect(call.argv).toContain("-p");
       expect(call.argv).toContain("--output-format");
       expect(call.argv[call.argv.indexOf("--output-format") + 1]).toBe("stream-json");
@@ -43,6 +50,13 @@ test.each(providers)("PROV-001 translates Nodulus execution through the default 
       expect(call.argv[call.argv.indexOf("-p") + 1]).toBe("--output-format");
       expect(call.stdin).toContain(`Translate this ${kind} fixture response.`);
       expect(call.promptFile).toBeUndefined();
+    } else {
+      expect(call.argv).toContain("-p");
+      expect(call.argv[call.argv.indexOf("-p") + 1]).toBe("--output-format");
+      expect(call.argv[call.argv.indexOf("--output-format") + 1]).toBe("json");
+      expect(call.argv).toContain("--json-schema");
+      expect(call.argv).toContain("--no-session-persistence");
+      expect(call.stdin).toContain(`Translate this ${kind} fixture response.`);
     }
 
     const definitions = JSON.parse(readFileSync(path.join(project, ".nodulus", "runs", result.envelope.runId, "context", "definitions.json"), "utf8"));
@@ -84,11 +98,17 @@ test.each(providers)("PROV-001 keeps each %s resume invocation transport in its 
       const secondMessage = JSON.parse(readFileSync(path.join(providerRoot, "attempt-002", "last-message.txt"), "utf8"));
       expect(JSON.parse(firstMessage.response).status).toBe("needs_input");
       expect(JSON.parse(secondMessage.response).status).toBe("success");
-    } else {
+    } else if (kind === "cursor") {
       expect(first).toContain("needs_input");
       expect(second).toContain("success");
       expect(calls[0]!.stdin).not.toContain("Answers to clarification questions");
       expect(calls[1]!.stdin).toContain("Answers to clarification questions");
+    } else {
+      expect(JSON.parse(JSON.parse(JSON.parse(first).stdout).structured_output.response).status).toBe("needs_input");
+      expect(JSON.parse(JSON.parse(JSON.parse(second).stdout).structured_output.response).status).toBe("success");
+      const nodeRoot = path.join(project, ".nodulus", "runs", paused.envelope.runId, "nodes", "example");
+      expect(readFileSync(path.join(nodeRoot, "attempt-001", "prompt.md"), "utf8")).not.toContain("Answers to clarification questions");
+      expect(readFileSync(path.join(nodeRoot, "attempt-002", "prompt.md"), "utf8")).toContain("Answers to clarification questions");
     }
   } finally {
     cleanupProviderProject(project);
@@ -97,6 +117,17 @@ test.each(providers)("PROV-001 keeps each %s resume invocation transport in its 
 
 test("PROV-003 preserves split UTF-8 characters from the Cursor JSON transport", async () => {
   const { project } = await createProviderScenario("cursor", "split-unicode-response");
+  try {
+    const result = await runDefaultProviderCli(project, "Return a Unicode artifact");
+    expect(result.code).toBe(0);
+    expect(result.envelope.result.artifacts[0].data.message).toBe("split Ω 🦊 response");
+  } finally {
+    cleanupProviderProject(project);
+  }
+});
+
+test("PROV-003 preserves split UTF-8 characters from the Claude JSON transport", async () => {
+  const { project } = await createProviderScenario("claude", "split-unicode-response");
   try {
     const result = await runDefaultProviderCli(project, "Return a Unicode artifact");
     expect(result.code).toBe(0);

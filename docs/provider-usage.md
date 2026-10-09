@@ -7,6 +7,7 @@ Use a release containing OBS-003–005 or build this branch. Each launched built
 - **Codex 0.144.4:** terminal `turn.completed.usage` only. Input already includes cached tokens and output already includes reasoning; normalized totals do not add them again. Provider cost is unknown.
 - **Cursor:** optional camelCase usage on the terminal JSON result. Missing fields remain null. Cache/reasoning inclusion is unverified, so normalized input/output remain null even with reported counts.
 - **OpenCode 1.18.32:** sum unique `step_finish` parts by `(sessionID, part.id)`; ignore assistant totals. Reported input excludes cache read/write and output excludes reasoning. Normalization adds those buckets once. A missing required bucket leaves the affected total null.
+- **Claude Code 2.1.294:** read one successful JSON `result` record, reported `usage` counters and top-level `total_cost_usd`. Normalize input as `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`; a missing subtotal stays null. Anthropic's [pricing usage notes](https://docs.anthropic.com/en/docs/about-claude/pricing) document this input-token sum. Claude telemetry is fixture-verified; live CLI compatibility remains separate.
 
 Other CLI versions retain recognized reported counters but leave normalization unknown. The exact-version evidence is recorded in `semantics.evidence`.
 
