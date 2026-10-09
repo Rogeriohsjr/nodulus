@@ -14,6 +14,8 @@ For project setup and usage, see the [Nodulus user guide](docs/user-guide.md).
 
 Status: folders 00 through 08 are implemented and independently reviewed: initialization, request capture, validated node outcomes, sequential workflows, persisted pause/resume, bounded repair/crash detection, Codex/Cursor adapters, and local package installation/upgrades. Hosted Windows, macOS and Linux checks exercise the scenario and package install/upgrade suites. The public package identity is `@rogeriohsjr/nodulus`; release and registry validation status is recorded in folder 09. The generated project has no configured provider. Adapter tests use real local fixture executables; Codex, OpenCode/Ollama, and Cursor have separate Windows live proof, while macOS/Linux live-provider compatibility remains pending.
 
+The current feature branch adds bounded feedback routing and read-only inspection/export/replay. FB-010/030/040/045/060 have independent local review; FB-050 is a green local candidate awaiting review and the final repository check. This branch status does not change the currently published npm package.
+
 Start with the [implementation sequence](https://github.com/Rogeriohsjr/nodulus/blob/main/docs/implementation/README.md). Each numbered folder contains scenarios, implementation guidance, checkboxes, and an evidence record.
 
 - [User scenarios](https://github.com/Rogeriohsjr/nodulus/blob/main/docs/user-scenarios.md)

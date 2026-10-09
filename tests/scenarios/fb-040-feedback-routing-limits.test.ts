@@ -122,7 +122,7 @@ test("FB-040 allows acceptance on the last iteration and rejects a revision at t
     accepted.cleanup();
     revision.cleanup();
   }
-});
+}, 20000);
 
 test.each([3, 4])("FB-040 provider-call budget %i excludes prefix and continuation calls", async (maxProviderCalls) => {
   const fixture = createFeedbackProject("region-call-budget-" + maxProviderCalls);

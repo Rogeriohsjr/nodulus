@@ -12,6 +12,7 @@ export type FeedbackFixtureResponse = {
   name?: string;
   contract?: string;
   text?: string;
+  data?: Record<string, unknown>;
   kind?: "decision";
   decisionCode?: unknown;
   reason?: string;

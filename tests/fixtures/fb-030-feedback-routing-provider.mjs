@@ -35,9 +35,9 @@ if (typeof entry.rawOutcome === "string") {
   process.stdout.write(entry.rawOutcome);
   process.exit(0);
 }
-const data = entry.kind === "decision"
+const data = entry.data ?? (entry.kind === "decision"
   ? { decisionCode: entry.decisionCode, reason: entry.reason, findings: entry.findings, artifactRefs: references }
-  : { text: entry.text };
+  : { text: entry.text });
 process.stdout.write(JSON.stringify({
   status: "success",
   artifacts: [{ name: entry.name ?? (entry.kind === "decision" ? "decision" : "continued"), contract: entry.contract ?? (entry.kind === "decision" ? "workflow-decision.v1" : "continued.v1"), data }],

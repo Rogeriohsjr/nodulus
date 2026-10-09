@@ -79,7 +79,7 @@ Use the saved checkpoint and event evidence to explain a run without resuming it
 nodulus inspect run <run-id> --project . --json
 ```
 
-The report includes status, attempts, provider-call evidence, accepted artifact references, validation evidence, uncertainty and conservative next actions. If the checkpoint is missing or unreadable, the result reports `status: "unavailable"` with diagnostics. An incomplete provider call blocks actions that could replay uncertain work.
+The report includes status, attempts, provider-call evidence, accepted artifact references, validation evidence, uncertainty and conservative next actions. For routed runs it also reports the captured route policy, last selected route code and target, region budget counters, event-derived generation status, and whether each generation still matches its live artifact file. Active elapsed usage is marked as checkpoint-reported until completion evidence freezes it. Damaged generation or route evidence is diagnostic and is not listed as current. If the checkpoint is missing or unreadable, the result reports `status: "unavailable"` with diagnostics. An incomplete or possibly launched provider call blocks actions that could replay uncertain work.
 
 The public API is `inspectRun(projectRoot, runId)`. Inspection only reads the run. It does not invoke providers or executable validators.
 
@@ -89,7 +89,7 @@ The public API is `inspectRun(projectRoot, runId)`. Inspection only reads the ru
 nodulus inspect export <run-id> --project . --json
 ```
 
-Export returns a deterministic, versioned diagnostic envelope. It includes saved workflow metadata, attempts, timeline, artifact references and validation summaries. It omits request and caller-input text, instructions and prompts, provider responses, credentials, profile names/model identifiers/capabilities, schema literal values and annotations, and absolute machine paths. Captured contract schemas are represented by safe structural summaries. The source run is not changed. The public API is `exportRunDiagnostic(projectRoot, runId)`.
+Export returns a deterministic, versioned diagnostic envelope. It includes saved workflow metadata, attempts, timeline, artifact references and validation summaries. Routed runs add structural policy, last decision code/target, budget usage/reached flags, and generation metadata without feedback text or artifact contents. It omits request and caller-input text, instructions and prompts, provider responses, credentials, profile names/model identifiers/capabilities, schema literal values and annotations, and absolute machine paths. Captured contract schemas are represented by safe structural summaries. The source run is not changed. The public API is `exportRunDiagnostic(projectRoot, runId)`.
 
 ## Replay captured schemas offline
 
@@ -97,7 +97,7 @@ Export returns a deterministic, versioned diagnostic envelope. It includes saved
 nodulus inspect replay <run-id> --project . --json
 ```
 
-Replay revalidates saved provider candidates against the JSON Schemas captured with that run. It reports candidate results, contract and engine-version drift, and executable validators it skipped. It never starts a provider or project validator script; those external checks are not repeated. A candidate with an unknown or mismatched captured contract is reported as unknown rather than treated as valid or invalid. The public API is `replaySavedRun(projectRoot, runId)`.
+Replay revalidates saved provider candidates against the JSON Schemas captured with that run. For routed runs, it can label candidate attempts with their saved generation status; schema validity remains separate from route acceptance. It reports candidate results, contract and engine-version drift, and executable validators it skipped. It never starts a provider or project validator script; those external checks are not repeated. A candidate with an unknown or mismatched captured contract is reported as unknown rather than treated as valid or invalid. The public API is `replaySavedRun(projectRoot, runId)`.
 
 These inspection, export and replay commands are included in this source revision and its tested package archive; they are not claimed to be available in the currently published npm package.
 
