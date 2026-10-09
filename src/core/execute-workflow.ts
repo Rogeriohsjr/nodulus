@@ -1,5 +1,5 @@
 import type { ProviderTelemetry } from "./ports/provider-telemetry.js";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import type { AnySchema } from "ajv";
@@ -9,6 +9,7 @@ import type { IntakeStorage, RunFiles } from "./ports/intake-storage.js";
 import type { ProviderCallContext, ProviderCallMetric, ProviderInvocation, ProviderPort, ProviderUsage } from "./ports/provider.js";
 import { resolveOutputReference } from "./workflow-mapping.js";
 import { appendRunEvent, recordValidationEvent, traceProviderCall } from "./execution-events.js";
+import { feedbackArtifactReferences, type FeedbackRegionState } from "./feedback-routing.js";
 
 type Node = {
   id: string;
@@ -18,7 +19,7 @@ type Node = {
   expectedOutputs: Array<{ name: string; contract: string; validator?: string; validatorTimeoutMs?: number }>;
 };
 type DefinitionContext = {
-  workflow: { id: string; nodes: string[]; inputs?: Record<string, { contract: string }> };
+  workflow: { id: string; nodes: string[]; inputs?: Record<string, { contract: string }>; feedbackRouting?: import("./feedback-definition.js").FeedbackRoutingDefinition };
   nodes: Node[];
   contracts: Record<string, unknown>;
   providerProfiles: Record<string, Record<string, unknown>>;
@@ -150,6 +151,51 @@ export async function executeWorkflow(
     }
   }
 
+  const route = context.workflow.feedbackRouting;
+  let routingSegmentStartedAt = performance.now();
+  const attempts = new Map<string, number>();
+  let providerCalls = 0;
+  let elapsedBeforeSegment = 0;
+  const persistRoutingElapsed = async (): Promise<void> => {
+    if (!route) return;
+    elapsedBeforeSegment += performance.now() - routingSegmentStartedAt;
+    routingState.elapsedMs = elapsedBeforeSegment;
+    routingState.providerCalls = providerCalls;
+    routingSegmentStartedAt = performance.now();
+    try {
+      const checkpoint = JSON.parse(await storage.readRunFile(request.projectRoot, runId, "run.json")) as Record<string, unknown>;
+      const feedbackRouting = checkpoint.feedbackRouting as { regions?: Record<string, FeedbackRegionState> } | undefined;
+      await storage.writeRunFiles(request.projectRoot, runId, { "run.json": json({ ...checkpoint, feedbackRouting: { ...feedbackRouting, regions: { ...feedbackRouting?.regions, [route.regionId]: routingState } } }) });
+    } catch { /* the caller still writes its complete checkpoint */ }
+  };
+  let routingState: FeedbackRegionState = { iteration: 1, generationHistory: [], invalidatedSuffixes: [], reusedPrefix: [], eligibleNodes: [] };
+  let feedback: Record<string, unknown> | undefined;
+  if (route) {
+    try {
+      const checkpoint = JSON.parse(await storage.readRunFile(request.projectRoot, runId, "run.json")) as { feedbackRouting?: { regions?: Record<string, FeedbackRegionState> } };
+      const saved = checkpoint.feedbackRouting?.regions?.[route.regionId];
+      if (saved && Number.isInteger(saved.iteration) && Array.isArray(saved.generationHistory)) routingState = saved;
+      feedback = routingState.feedback;
+      providerCalls = routingState.providerCalls ?? 0;
+      elapsedBeforeSegment = routingState.elapsedMs ?? 0;
+      routingSegmentStartedAt = performance.now();
+      for (const record of routingState.generationHistory) {
+        const nodeId = String(record.nodeId);
+        const attempt = /attempt-(\d+)/.exec(String(record.attemptPath))?.[1];
+        if (attempt) attempts.set(nodeId, Math.max(attempts.get(nodeId) ?? 0, Number(attempt)));
+      }
+      // Generation history covers routed artifacts, but not decision nodes. Restore
+      // every node's high-water attempt from the durable execution event stream.
+      const events = await storage.readRunFile(request.projectRoot, runId, "events.jsonl");
+      for (const line of events.split(/\r?\n/)) {
+        if (!line) continue;
+        const event = JSON.parse(line) as { event?: string; nodeId?: string; attempt?: number };
+        if (event.event === "node.started" && event.nodeId && Number.isInteger(event.attempt)) {
+          attempts.set(event.nodeId, Math.max(attempts.get(event.nodeId) ?? 0, event.attempt as number));
+        }
+      }
+    } catch { /* a new run has no prior routing checkpoint */ }
+  }
   for (let index = 0; index < context.nodes.length; index += 1) {
     const node = context.nodes[index];
     if (state.startNodeId && index < resumeIndex) {
@@ -165,6 +211,7 @@ export async function executeWorkflow(
       continue;
     }
     const profile = context.providerProfiles[node.providerProfile];
+    if (route && node.id === route.startNode && routingState.iteration === 1) routingState.reusedPrefix = context.nodes.slice(0, index).map(({ id }) => id);
     const mapped = resolveMappedInputs(node, inputs.request, callerInputs, context.nodes.slice(0, index), acceptedOutputs, contracts);
     if (!mapped.valid) {
       return finishError(request.projectRoot, runId, storage, mapped.code, mapped.message, undefined, undefined, completedNodes, node.id);
@@ -172,9 +219,12 @@ export async function executeWorkflow(
     const nodeInstructions = inputs.instructions.filter((item) =>
       node.instructions.some((instruction) => path.resolve(request.projectRoot, instruction) === path.resolve(item.path)),
     );
+    if (route && node.id === route.decisionNode) mapped.values.artifactReferences = feedbackArtifactReferences(runId, route, context.nodes, acceptedOutputs, routingState.iteration, routingState);
+    if (route && feedback && node.id === route.routes[(feedback.decisionCode as string)] ) mapped.values.feedback = feedback;
     const nodeAnswers = state.startNodeId === node.id ? state.answers ?? {} : {};
     const prompt = buildPrompt(context, node, nodeInstructions, mapped.values, nodeAnswers);
-    let attempt = state.startNodeId === node.id ? state.attempt ?? 2 : 1;
+    let attempt = state.startNodeId === node.id ? state.attempt ?? 2 : (attempts.get(node.id) ?? 0) + 1;
+    attempts.set(node.id, attempt);
     let activeCall: ProviderCallContext = { callId: randomUUID(), attempt, operation: "invoke" };
     const invocation: ProviderInvocation = {
       call: activeCall,
@@ -207,7 +257,7 @@ export async function executeWorkflow(
     };
 
     await storage.writeRunFiles(request.projectRoot, runId, {
-      "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "running", activeNode: node.id, completedNodes, attempt, answers: nodeAnswers, pendingKind: null }),
+      "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "running", activeNode: node.id, completedNodes, attempt, answers: nodeAnswers, pendingKind: null, ...(route ? { feedbackRouting: { regions: { [route.regionId]: routingState } } } : {}) }),
       [`${attemptRoot}/invocation.json`]: json(invocationRecord),
       [`${attemptRoot}/prompt.md`]: prompt,
       [`${attemptRoot}/stderr.log`]: "",
@@ -217,12 +267,16 @@ export async function executeWorkflow(
     let raw: string;
     const callStartedAt = performance.now();
     try {
+      if (route && (providerCalls >= route.limits.maxProviderCalls || elapsedBeforeSegment + performance.now() - routingSegmentStartedAt > route.limits.maxElapsedMs)) return finishError(request.projectRoot, runId, storage, "FEEDBACK_LIMIT_EXCEEDED", "Feedback routing provider-call or elapsed-time limit was reached.", undefined, undefined, completedNodes, node.id);
+      providerCalls += 1;
+      if (route) { routingState.providerCalls = providerCalls; await persistRoutingElapsed(); }
       raw = await traceProviderCall(request.projectRoot, runId, storage, { nodeId: node.id, ...activeCall }, async () => {
         const response = await provider.invoke(invocation);
         if (typeof response !== "string") throw new Error("Provider returned a non-string response.");
         return response;
       });
     } catch (error) {
+      await persistRoutingElapsed();
       await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, attempt, performance.now() - callStartedAt, activeCall);
       const diagnostic = { code: "PROVIDER_FAILURE", message: messageOf(error) };
       const validation = { valid: false, code: diagnostic.code, errors: [diagnostic.message] };
@@ -235,6 +289,7 @@ export async function executeWorkflow(
       return finishError(request.projectRoot, runId, storage, diagnostic.code, diagnostic.message, attemptRoot, validation, completedNodes, node.id);
     }
 
+    await persistRoutingElapsed();
     await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, attempt, performance.now() - callStartedAt, activeCall);
     await storage.writeRunFiles(request.projectRoot, runId, { [`${attemptRoot}/response.raw.txt`]: raw });
     let parsed = parseProviderOutcome(raw);
@@ -261,11 +316,17 @@ export async function executeWorkflow(
         const message = "The provider response remained invalid after two response-only repairs.";
         return finishError(request.projectRoot, runId, storage, "REPAIR_EXHAUSTED", message, currentAttemptRoot, validation, completedNodes, node.id);
       }
+      if (route && (providerCalls >= route.limits.maxProviderCalls || elapsedBeforeSegment + performance.now() - routingSegmentStartedAt > route.limits.maxElapsedMs)) {
+        await persistRoutingElapsed();
+        return finishError(request.projectRoot, runId, storage, "FEEDBACK_LIMIT_EXCEEDED", "Feedback routing provider-call or elapsed-time limit was reached before response repair.", currentAttemptRoot, validation, completedNodes, node.id);
+      }
       await recordValidationEvent(request.projectRoot, runId, storage, currentAttemptRoot);
       repairCount += 1;
       currentAttempt += 1;
       activeCall = { callId: randomUUID(), attempt: currentAttempt, operation: "repair_response", parentCallId: activeCall.callId };
       currentAttemptRoot = `nodes/${node.id}/attempt-${String(currentAttempt).padStart(3, "0")}`;
+      attempts.set(node.id, currentAttempt);
+      if (route) { providerCalls += 1; routingState.providerCalls = providerCalls; await persistRoutingElapsed(); }
       const repairRecord = {
         ...invocationRecord,
         callId: activeCall.callId,
@@ -278,13 +339,14 @@ export async function executeWorkflow(
         startedAt: new Date().toISOString(),
       };
       await storage.writeRunFiles(request.projectRoot, runId, {
-        "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "running", activeNode: node.id, completedNodes, attempt: currentAttempt, answers: nodeAnswers, pendingKind: null }),
+        "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "running", activeNode: node.id, completedNodes, attempt: currentAttempt, answers: nodeAnswers, pendingKind: null, ...(route ? { feedbackRouting: { regions: { [route.regionId]: routingState } } } : {}) }),
         [`${currentAttemptRoot}/invocation.json`]: json(repairRecord),
         [`${currentAttemptRoot}/prompt.md`]: prompt,
         [`${currentAttemptRoot}/response.raw.txt`]: "",
         [`${currentAttemptRoot}/stderr.log`]: "",
       });
       await appendEvent(request.projectRoot, runId, storage, { event: "node.repair.started", runId, nodeId: node.id, attempt: currentAttempt });
+      await appendEvent(request.projectRoot, runId, storage, { event: "node.started", runId, nodeId: node.id, attempt: currentAttempt });
       const repairStartedAt = performance.now();
       try {
         const previousRaw = raw;
@@ -294,6 +356,7 @@ export async function executeWorkflow(
           return response;
         });
       } catch (error) {
+        await persistRoutingElapsed();
         await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, currentAttempt, performance.now() - repairStartedAt, activeCall);
         const message = messageOf(error);
         const repairValidation = { valid: false, code: "RESPONSE_REPAIR_FAILED", errors: [message] };
@@ -304,6 +367,7 @@ export async function executeWorkflow(
         });
         return finishError(request.projectRoot, runId, storage, "RESPONSE_REPAIR_FAILED", message, currentAttemptRoot, repairValidation, completedNodes, node.id);
       }
+      await persistRoutingElapsed();
       await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, currentAttempt, performance.now() - repairStartedAt, activeCall);
       await storage.writeRunFiles(request.projectRoot, runId, { [`${currentAttemptRoot}/response.raw.txt`]: raw });
       parsed = parseProviderOutcome(raw);
@@ -330,7 +394,7 @@ export async function executeWorkflow(
       await storage.writeRunFiles(request.projectRoot, runId, {
         [`${attemptRoot}/validation.json`]: json(validation),
         [`${attemptRoot}/result.json`]: json({ status: "error", error: parsed.outcome.error }),
-        "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "error", activeNode: node.id, completedNodes, attempt }),
+        "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "error", activeNode: node.id, completedNodes, attempt, ...(route ? { feedbackRouting: { regions: { [route.regionId]: routingState } } } : {}) }),
         "result.json": json(result),
       });
       await recordValidationEvent(request.projectRoot, runId, storage, attemptRoot);
@@ -349,11 +413,26 @@ export async function executeWorkflow(
         return finishError(request.projectRoot, runId, storage, "INVALID_ANSWER_CONTRACT", messageOf(error), attemptRoot, validation, completedNodes, node.id);
       }
       const validation = { valid: true, outcome: "needs_input", errors: [] };
+      if (route) await persistRoutingElapsed();
       await storage.writeRunFiles(request.projectRoot, runId, {
         [`${attemptRoot}/validation.json`]: json(validation),
         [`${attemptRoot}/result.json`]: json({ status: "needs_input", request: pending }),
         "pending/request.json": json(pending),
-        "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "needs_input", activeNode: node.id, completedNodes, attempt, requestId, pendingKind: "node", pendingNodeId: node.id, answers: nodeAnswers }),
+        "run.json": json({
+          schemaVersion: 1,
+          engineVersion: "1.0.0",
+          runId,
+          phase: "execution",
+          status: "needs_input",
+          activeNode: node.id,
+          completedNodes,
+          attempt,
+          requestId,
+          pendingKind: "node",
+          pendingNodeId: node.id,
+          answers: nodeAnswers,
+          ...(route ? { feedbackRouting: { regions: { [route.regionId]: routingState } } } : {}),
+        }),
       });
       await recordValidationEvent(request.projectRoot, runId, storage, attemptRoot);
       await appendEvent(request.projectRoot, runId, storage, { event: "node.needs_input", runId, nodeId: node.id, requestId });
@@ -447,24 +526,55 @@ export async function executeWorkflow(
     for (const artifact of parsed.outcome.artifacts) {
       persisted[`nodes/${node.id}/artifacts/${artifact.name}.json`] = json(artifact);
     }
+    if (route && context.nodes.findIndex(({ id }) => id === node.id) >= context.nodes.findIndex(({ id }) => id === route.startNode) && context.nodes.findIndex(({ id }) => id === node.id) < context.nodes.findIndex(({ id }) => id === route.decisionNode)) {
+      for (const artifact of parsed.outcome.artifacts) routingState.generationHistory.push({ runId, nodeId: node.id, outputName: artifact.name, contract: artifact.contract, generationId: randomUUID(), sha256: createHash("sha256").update(JSON.stringify(artifact.data)).digest("hex"), iteration: routingState.iteration, attemptPath: `${attemptRoot}/result.json`, status: "accepted" });
+    }
     await storage.writeRunFiles(request.projectRoot, runId, persisted);
     await recordValidationEvent(request.projectRoot, runId, storage, attemptRoot);
     acceptedOutputs.set(node.id, new Map(parsed.outcome.artifacts.map((artifact) => [artifact.name, artifact])));
     completedNodes.push(node.id);
 
+    if (route && node.id === route.decisionNode) {
+      const decisionArtifact = parsed.outcome.artifacts.find(({ name }) => name === route.decisionOutput.name);
+      const decision = decisionArtifact?.data as { decisionCode?: unknown; reason?: unknown; findings?: unknown } | undefined;
+      const code = typeof decision?.decisionCode === "string" ? decision.decisionCode : "";
+      const target = route.routes[code];
+      if (!target) return finishError(request.projectRoot, runId, storage, "FEEDBACK_DECISION_INVALID", `Feedback decision code '${code}' has no declared route.`, attemptRoot, { valid: false, code: "FEEDBACK_DECISION_INVALID", errors: [`Unknown decision code '${code}'.`] }, completedNodes, node.id);
+      if (target !== route.continuationNode) {
+        if (routingState.iteration >= route.limits.maxIterations) return finishError(request.projectRoot, runId, storage, "FEEDBACK_LIMIT_EXCEEDED", "Feedback routing iteration limit was reached.", attemptRoot, { valid: false, code: "FEEDBACK_LIMIT_EXCEEDED", errors: ["Feedback routing iteration limit was reached."] }, completedNodes, node.id);
+        const targetIndex = context.nodes.findIndex(({ id }) => id === target);
+        routingState.reusedPrefix = context.nodes.slice(0, targetIndex).map(({ id }) => id);
+        const suffix = context.nodes.slice(targetIndex, context.nodes.findIndex(({ id }) => id === route.decisionNode) + 1).map(({ id }) => id);
+        for (const generation of routingState.generationHistory) if (suffix.includes(String(generation.nodeId)) && generation.iteration === routingState.iteration) generation.status = "invalidated";
+        routingState.invalidatedSuffixes.push({ iteration: routingState.iteration + 1, target, nodeIds: suffix });
+        routingState.eligibleNodes = suffix;
+        routingState.iteration += 1;
+        const revisionNodes = new Set(suffix.slice(0, -1));
+        feedback = { originalRequest: inputs.request, decisionCode: code, reason: decision?.reason, findings: decision?.findings, resolvedArtifacts: feedbackArtifactReferences(runId, route, context.nodes, acceptedOutputs, routingState.iteration - 1, routingState).filter((reference) => revisionNodes.has(String(reference.nodeId))).map((reference) => ({ ...reference, data: acceptedOutputs.get(String(reference.nodeId))?.get(String(reference.outputName))?.data })) };
+        routingState.feedback = feedback;
+        for (const id of suffix) { acceptedOutputs.delete(id); const at = completedNodes.lastIndexOf(id); if (at >= 0) completedNodes.splice(at, 1); }
+        index = targetIndex - 1;
+        await persistRoutingElapsed();
+        await storage.writeRunFiles(request.projectRoot, runId, { "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "running", activeNode: target, completedNodes, attempt, feedbackRouting: { regions: { [route.regionId]: routingState } } }) });
+        continue;
+      }
+      routingState.eligibleNodes = [];
+    }
+
     if (index < context.nodes.length - 1) {
       const nextNode = context.nodes[index + 1];
       await storage.writeRunFiles(request.projectRoot, runId, {
-        "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "running", activeNode: nextNode.id, completedNodes, attempt: 1 }),
+        "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "running", activeNode: nextNode.id, completedNodes, attempt: 1, ...(route ? { feedbackRouting: { regions: { [route.regionId]: routingState } } } : {}) }),
       });
       await appendEvent(request.projectRoot, runId, storage, { event: "node.succeeded", runId, nodeId: node.id, artifactNames: parsed.outcome.artifacts.map((artifact) => artifact.name) });
       continue;
     }
 
     const result = { runId, status: "success", artifacts: parsed.outcome.artifacts };
-    await storage.writeRunFiles(request.projectRoot, runId, {
-      "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "success", activeNode: null, completedNodes, attempt: 1 }),
-    });
+      if (route) await persistRoutingElapsed();
+      await storage.writeRunFiles(request.projectRoot, runId, {
+        "run.json": json({ schemaVersion: 1, engineVersion: "1.0.0", runId, phase: "execution", status: "success", activeNode: null, completedNodes, attempt: 1, ...(route ? { feedbackRouting: { regions: { [route.regionId]: routingState } } } : {}) }),
+      });
     await storage.writeRunFiles(request.projectRoot, runId, { "result.json": json(result) });
     await appendEvent(request.projectRoot, runId, storage, { event: "node.succeeded", runId, nodeId: node.id, artifactNames: parsed.outcome.artifacts.map((artifact) => artifact.name) });
     return { runId, status: "success", result: { artifacts: parsed.outcome.artifacts } };
@@ -635,8 +745,10 @@ async function finishError(
   activeNode: string | null = null,
 ): Promise<RunResponse> {
   const result = { runId, status: "error", error: { code, message } };
+  let previousCheckpoint: Record<string, unknown> = {};
+  try { previousCheckpoint = JSON.parse(await storage.readRunFile(projectRoot, runId, "run.json")) as Record<string, unknown>; } catch { /* error checkpoint can initialize damaged or new run state */ }
   const files: RunFiles = {
-    "run.json": json({ schemaVersion: 1, runId, phase: "execution", status: "error", activeNode, completedNodes, error: { code, message } }),
+    "run.json": json({ ...previousCheckpoint, schemaVersion: 1, runId, phase: "execution", status: "error", activeNode, completedNodes, error: { code, message } }),
     "result.json": json(result),
   };
   if (attemptRoot) files[`${attemptRoot}/result.json`] = json({ status: "error", error: { code, message } });

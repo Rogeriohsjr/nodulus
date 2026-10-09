@@ -43,6 +43,8 @@ Given a long brief and ordered instruction files, when intake captures them, the
 Create workflow/node/config schemas, definition loading, request normalization and filesystem run creation. Save initial context and events. Missing required caller data is detected here; full pause/resume behavior is completed in 05. Structural preflight can reject malformed mappings now; full graph validation is extended in 04.
 These tests call the production application intake entry point used by run; successful intake is an internal milestone, not a public terminal-success shortcut. Do not ship run claiming completion before node execution exists.
 
+An optional `feedbackRouting` workflow definition is also validated during intake when present. Its strict schema and ordered-node, route-target, reentry declaration, limit, and decision-output contract checks are shared with public workflow inspection. The definition is captured with run context; this preflight support does not implement feedback execution or alter ordinary workflow sequencing. See [folder 15](../15-feedback-routing/README.md).
+
 ## Developer sequence
 
 - [x] Build real fixture files/scripts for the first scenario and write its entry-point test.
