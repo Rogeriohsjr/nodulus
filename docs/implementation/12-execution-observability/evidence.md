@@ -238,3 +238,30 @@ Declared the optional `diagnosticPath` property used by the installed smoke help
 - Final `npm run check` after source and documentation edits: **PASS**; lint, source typecheck, 74 scenario files / 321 tests, then installed archive **15 tests**. Markdown local links: **PASS**, 4 files. `git diff --check`: **PASS**.
 
 Ready for final focused Sol review. No live providers were invoked; no commit or push was made.
+
+## OBS-012 outcome protocol regression: frozen RED checkpoint
+
+Added `tests/scenarios/obs-012-outcome-protocol.test.ts` for Codex, Cursor, and OpenCode through the real `createProviderScenario` and `runDefaultProviderCli` path. The named-outputs fixture always returns the same valid fixed response with `primary` and `secondary` artifacts, both using `example.v1`; it does not inspect or condition its answer on the prompt. The scenario configures both expected outputs in the real node file, verifies one launched provider call and successful transport, checks the CLI's accepted artifacts plus saved valid validation/result and both persisted artifacts, then inspects the saved prompt and effective captured stdin for the exact output name/contract pairs and package schemas for all three outcome types. Ajv assertions exercise valid and invalid samples using the parsed schemas.
+
+- `npm run build`: **PASS**.
+- `npx vitest run tests/scenarios/obs-012-outcome-protocol.test.ts`: **3 failed**, one for each provider. Setup, provider fixture invocation, protocol response, success transport, artifact validation and persistence assertions passed; each case then fails at the intended assertion because `prompt.md` lacks `## Expected output names and contracts`. No syntax/import/setup failure occurred. The later schema and Ajv assertions are frozen in the test but were not reached because the required prompt section is absent.
+- This is a production prompt-contract RED. The fixture deliberately returns the correct fixed two-output response independent of prompt contents; the test does not claim that this defect caused any previous live response loss.
+
+Only the support fixture and new scenario test changed for this checkpoint; `src/core/execute-workflow.ts` is untouched. No live providers were invoked. Stop for Sol test review before implementation.
+
+### OBS-012 outcome protocol test-review correction 1
+
+Corrected the schema sample to validate the saved attempt result object, which includes the `success` status required by the outcome schema. Changed the fixture instruction to neutral wording that does not name expected output artifacts or reveal their contracts. The fixed provider response remains unconditional and prompt-independent.
+
+- `npm run build`: **PASS**.
+- `npx vitest run tests/scenarios/obs-012-outcome-protocol.test.ts`: **3 failed**, one for each provider, at the same intended missing `## Expected output names and contracts` section. All run acceptance, successful transport, valid saved validation/result, and artifact persistence assertions before that checkpoint pass. The Ajv sample assertions occur after the missing section assertion and were not reached in RED.
+- `src/core/execute-workflow.ts` remains untouched. No live providers were invoked. This is the corrected frozen test checkpoint for Sol review.
+
+### OBS-012 outcome protocol implementation: local GREEN
+
+`buildPrompt` now includes the exact expected name/contract pair list separately from contract-keyed schemas, preserving multiple outputs that share one contract. It also serializes the existing package-owned success, needs-input, and error schemas in a provider-neutral prompt section. Runtime outcome parsing and artifact/script validation remain authoritative and unchanged; no provider adapter or transport envelope changed.
+
+- `npm run build`: **PASS**.
+- `npx vitest run tests/scenarios/obs-012-outcome-protocol.test.ts`: **3 passed** for Codex, Cursor, and OpenCode. Each verifies one successful real fixture call, successful transport, both persisted artifacts, saved valid validation/result, exact expected pair records, inclusion in effective stdin, and real Ajv acceptance/rejection samples for all three serialized outcome schemas.
+- The scenario's first strict TypeScript check exposed an incorrect default Ajv import. Corrected it to the repository's named `Ajv2020` export. This is a static typing finding, not behavioral RED. Focused command `.\node_modules\.bin\tsc.cmd --ignoreConfig --noEmit --strict --skipLibCheck --module NodeNext --moduleResolution NodeNext --target ES2023 --types node tests/scenarios/obs-012-outcome-protocol.test.ts`: **PASS** after correction.
+- `npm run check`: **PASS** after source and documentation edits; lint, source typecheck, 75 scenario files / 324 tests, then installed archive **15 tests**. No live-provider call was made.

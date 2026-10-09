@@ -615,6 +615,10 @@ function buildPrompt(
     ...(Object.keys(answers).length ? ["## Answers to clarification questions", JSON.stringify(answers, null, 2)] : []),
     "## Required output contracts",
     JSON.stringify(nodeSchemas, null, 2),
+    "## Expected output names and contracts",
+    JSON.stringify(node.expectedOutputs.map(({ name, contract }) => ({ name, contract })), null, 2),
+    "## System outcome schemas",
+    JSON.stringify({ success: successSchema, needsInput: needsInputSchema, error: errorSchema }, null, 2),
     "Return one JSON object matching the package outcome protocol. Do not include runtime metadata.",
   ].join("\n\n");
 }
