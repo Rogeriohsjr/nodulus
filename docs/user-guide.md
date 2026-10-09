@@ -55,6 +55,12 @@ nodulus run --workflow example --request-stdin --json
 
 Machine output is one JSON envelope on stdout. Exit 0 means `success`, exit 2 means `needs_input`, and exit 1 means `error`. A successful result contains validated artifacts with their declared names and contracts. The runtime validates output schemas even when the provider supports structured output.
 
+## Route bounded feedback
+
+A workflow may declare a `feedbackRouting` region with a decision artifact, an allowlist of route codes, reentry-safe nodes, and limits for iterations, provider calls, and elapsed time. A decision can re-enter an allowed node in that region or continue to the next workflow node. Earlier outputs are reused; outputs in the replayed suffix receive new generation identities. Review nodes should return the exact artifact references supplied by the runtime with their decision.
+
+The [normalization and review example](../examples/feedback-routing/README.md) shows a `FIX_TEXT` correction route followed by an `ACCEPT` continuation. Its local fixture demonstrates Unicode normalization, empty text, finite limits, and an installed-package runnable flow without contacting a model provider. Feedback routing is part of this source branch; use the branch build or a package release containing the feature.
+
 ## Inspect a workflow
 
 This source change adds a read-only workflow inspection command and API. It reads the workflow, node, contract, instruction and settings files under the selected project and returns the resolved graph, mappings, declared contracts, and allowlisted effective profile policies. It does not start providers or validators, or create or change run records.

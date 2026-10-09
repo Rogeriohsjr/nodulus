@@ -15,6 +15,7 @@ import { parsePricingSnapshot } from "../core/pricing-snapshot.js";
 import type { PricingSnapshot } from "../core/cost-estimate.js";
 import { createFeedbackDeadline } from "../core/feedback-deadline.js";
 import type { FeedbackRegionState } from "../core/feedback-routing.js";
+import { validateFeedbackResumeEvidence } from "../core/feedback-evidence.js";
 
 export type ResumeWorkflowRequest = {
   projectRoot: string;
@@ -54,7 +55,7 @@ type SavedDefinitions = {
   schemaVersion: number;
   engineVersion?: string;
   workflow: { id: string; nodes: string[]; inputs?: Record<string, { contract: string }>; feedbackRouting?: import("../core/feedback-definition.js").FeedbackRoutingDefinition };
-  nodes: Array<{ id: string; providerProfile: string }>;
+  nodes: Array<{ id: string; providerProfile: string; expectedOutputs: Array<{ name: string; contract: string }> }>;
   providerProfiles: Record<string, Record<string, unknown>>;
   contracts: Record<string, unknown>;
 };
@@ -213,6 +214,7 @@ async function resumeWorkflowLocked(
   if ((checkpoint.engineVersion ?? definitions.engineVersion) !== ENGINE_VERSION || (definitions.engineVersion ?? ENGINE_VERSION) !== ENGINE_VERSION) {
     throw new NodulusError("ENGINE_VERSION_UNSUPPORTED", "This run was captured by an incompatible Nodulus engine version; resume it with the matching version or start a new run.");
   }
+  await validateFeedbackResumeEvidence(storage, projectRoot, runId, checkpoint, definitions, pending);
   await validateWorkspaceReferences(projectRoot, references, storage);
   validateAnswers(request.answers, pending.answerContract);
   const route = definitions.workflow.feedbackRouting;

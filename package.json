@@ -20,6 +20,7 @@
     "LICENSE",
     "NOTICE",
     "scripts/task-workflow/**",
+    "examples/feedback-routing/**",
     "examples/task-planning/**",
     "docs/task-workflow.md"
   ],
@@ -38,8 +39,8 @@
     "node": ">=24.0.0 <25"
   },
   "scripts": {
-    "lint": "oxlint src tests scripts examples/task-planning --deny-warnings",
-    "lint:fix": "oxlint --fix src tests scripts examples/task-planning --deny-warnings",
+    "lint": "oxlint src tests scripts examples/task-planning examples/feedback-routing --deny-warnings",
+    "lint:fix": "oxlint --fix src tests scripts examples/task-planning examples/feedback-routing --deny-warnings",
     "typecheck": "tsc --project tsconfig.json --noEmit",
     "prebuild": "node scripts/clean-dist.mjs",
     "build": "tsc --project tsconfig.json",

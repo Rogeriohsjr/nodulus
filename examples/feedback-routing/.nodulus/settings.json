@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "defaultWorkflow": "normalize-review",
+  "providerProfiles": {
+    "local-fixture": { "enabled": true, "executable": "node", "model": "controlled-local-fixture", "timeoutMs": 5000 }
+  }
+}

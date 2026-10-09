@@ -172,11 +172,13 @@ export async function executeWorkflow(
   };
   let routingState: FeedbackRegionState = { iteration: 1, generationHistory: [], invalidatedSuffixes: [], reusedPrefix: [], eligibleNodes: [] };
   let feedback: Record<string, unknown> | undefined;
-  if (route) {
-    try {
-      const checkpoint = JSON.parse(await storage.readRunFile(request.projectRoot, runId, "run.json")) as { feedbackRouting?: { regions?: Record<string, FeedbackRegionState> } };
+    if (route) {
+      let checkpoint: { feedbackRouting?: { regions?: Record<string, FeedbackRegionState> } };
+      try { checkpoint = JSON.parse(await storage.readRunFile(request.projectRoot, runId, "run.json")) as typeof checkpoint; }
+      catch (error) { return finishError(request.projectRoot, runId, storage, "FEEDBACK_STATE_INVALID", `Saved feedback checkpoint cannot be read: ${messageOf(error)}`, undefined, undefined, completedNodes); }
       const saved = checkpoint.feedbackRouting?.regions?.[route.regionId];
-      if (saved && Number.isInteger(saved.iteration) && Array.isArray(saved.generationHistory)) routingState = saved;
+      if (saved) routingState = saved;
+      else if (state.startNodeId) return finishError(request.projectRoot, runId, storage, "FEEDBACK_STATE_INVALID", "Saved feedback checkpoint is missing during resume.", undefined, undefined, completedNodes);
       feedback = routingState.feedback;
       providerCalls = routingState.providerCalls ?? 0;
       for (const record of routingState.generationHistory) {
@@ -194,7 +196,6 @@ export async function executeWorkflow(
           attempts.set(event.nodeId, Math.max(attempts.get(event.nodeId) ?? 0, event.attempt as number));
         }
       }
-    } catch { /* a new run has no prior routing checkpoint */ }
   }
   for (let index = 0; index < context.nodes.length; index += 1) {
     const node = context.nodes[index];
@@ -214,6 +215,7 @@ export async function executeWorkflow(
     if (route && index === routeStartIndex && routingState.enteredAtMs === undefined) {
       routingState.enteredAtMs = Date.now();
       routingState.deadlineAtMs = routingState.enteredAtMs + route.limits.maxElapsedMs;
+      await appendEvent(request.projectRoot, runId, storage, { event: "feedback.region.started", runId, regionId: route.regionId, enteredAtMs: routingState.enteredAtMs, deadlineAtMs: routingState.deadlineAtMs });
       await persistRoutingElapsed();
     }
     if (inFeedbackRegion && route && routingState.deadlineAtMs !== undefined && Date.now() >= routingState.deadlineAtMs) {
@@ -616,9 +618,18 @@ export async function executeWorkflow(
       persisted[`nodes/${node.id}/artifacts/${artifact.name}.json`] = json(artifact);
     }
     if (route && context.nodes.findIndex(({ id }) => id === node.id) < context.nodes.findIndex(({ id }) => id === route.decisionNode)) {
-      for (const artifact of parsed.outcome.artifacts) routingState.generationHistory.push({ runId, nodeId: node.id, outputName: artifact.name, contract: artifact.contract, generationId: randomUUID(), sha256: createHash("sha256").update(JSON.stringify(artifact.data)).digest("hex"), iteration: routingState.iteration, attemptPath: `${attemptRoot}/result.json`, status: "accepted" });
+      for (const artifact of parsed.outcome.artifacts) {
+        const generation = { runId, nodeId: node.id, outputName: artifact.name, contract: artifact.contract, generationId: randomUUID(), sha256: createHash("sha256").update(JSON.stringify(artifact.data)).digest("hex"), iteration: routingState.iteration, attemptPath: `${attemptRoot}/result.json`, status: "accepted" };
+        routingState.generationHistory.push(generation);
+        persisted[`feedback/${route.regionId}/generations/${generation.generationId}.json`] = json({ ...generation, regionId: route.regionId });
+      }
     }
     await storage.writeRunFiles(request.projectRoot, runId, persisted);
+    if (route && context.nodes.findIndex(({ id }) => id === node.id) < context.nodes.findIndex(({ id }) => id === route.decisionNode)) {
+      for (const generation of routingState.generationHistory.filter((entry) => entry.attemptPath === `${attemptRoot}/result.json`)) {
+        await appendEvent(request.projectRoot, runId, storage, { event: "feedback.generation.created", runId, regionId: route.regionId, generationId: generation.generationId, nodeId: generation.nodeId, outputName: generation.outputName, iteration: generation.iteration, attemptPath: generation.attemptPath });
+      }
+    }
     await recordValidationEvent(request.projectRoot, runId, storage, attemptRoot);
     acceptedOutputs.set(node.id, new Map(parsed.outcome.artifacts.map((artifact) => [artifact.name, artifact])));
     completedNodes.push(node.id);
@@ -630,13 +641,18 @@ export async function executeWorkflow(
         const targetIndex = context.nodes.findIndex(({ id }) => id === target);
         routingState.reusedPrefix = context.nodes.slice(0, targetIndex).map(({ id }) => id);
         const suffix = context.nodes.slice(targetIndex, context.nodes.findIndex(({ id }) => id === route.decisionNode) + 1).map(({ id }) => id);
-        for (const generation of routingState.generationHistory) if (suffix.includes(String(generation.nodeId)) && generation.iteration === routingState.iteration) generation.status = "invalidated";
+        const invalidatedGenerationIds: string[] = [];
+        for (const generation of routingState.generationHistory) if (suffix.includes(String(generation.nodeId)) && generation.status === "accepted") {
+          generation.status = "invalidated";
+          invalidatedGenerationIds.push(String(generation.generationId));
+        }
         routingState.invalidatedSuffixes.push({ iteration: routingState.iteration + 1, target, nodeIds: suffix });
         routingState.eligibleNodes = suffix;
         routingState.iteration += 1;
         const revisionNodes = new Set(suffix.slice(0, -1));
         feedback = { originalRequest: inputs.request, decisionCode: code, reason: decision.reason, findings: decision.findings, resolvedArtifacts: (expectedDecisionReferences ?? []).filter((reference) => revisionNodes.has(reference.nodeId)).map((reference) => ({ ...reference, data: acceptedOutputs.get(reference.nodeId)?.get(reference.outputName)?.data })) };
         routingState.feedback = feedback;
+        await appendEvent(request.projectRoot, runId, storage, { event: "feedback.route.transition", runId, regionId: route.regionId, iteration: routingState.iteration, target, nodeIds: suffix, invalidatedGenerationIds, feedback });
         for (const id of suffix) { acceptedOutputs.delete(id); const at = completedNodes.lastIndexOf(id); if (at >= 0) completedNodes.splice(at, 1); }
         index = targetIndex - 1;
         await persistRoutingElapsed();
@@ -645,6 +661,13 @@ export async function executeWorkflow(
       }
       routingState.eligibleNodes = [];
       routingState.completedAtMs = Date.now();
+      await appendEvent(request.projectRoot, runId, storage, {
+        event: "feedback.region.completed",
+        runId,
+        regionId: route.regionId,
+        completedAtMs: routingState.completedAtMs,
+        elapsedMs: routingState.completedAtMs - (routingState.enteredAtMs ?? routingState.completedAtMs),
+      });
       await persistRoutingElapsed();
     }
 

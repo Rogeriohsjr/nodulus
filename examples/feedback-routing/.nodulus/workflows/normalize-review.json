@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "normalize-review",
+  "inputs": { "sourceText": { "contract": "text.v1" } },
+  "nodes": ["prepare", "normalize", "review", "report"],
+  "feedbackRouting": {
+    "schemaVersion": 1,
+    "regionId": "normalization",
+    "startNode": "normalize",
+    "decisionNode": "review",
+    "decisionOutput": { "name": "decision", "contract": "workflow-decision.v1" },
+    "continuationNode": "report",
+    "routes": { "FIX_TEXT": "normalize", "ACCEPT": "report" },
+    "reentrySafeNodes": ["normalize", "review"],
+    "limits": { "maxIterations": 2, "maxProviderCalls": 8, "maxElapsedMs": 30000 }
+  }
+}

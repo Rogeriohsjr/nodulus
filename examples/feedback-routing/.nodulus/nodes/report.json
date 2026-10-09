@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "report",
+  "providerProfile": "local-fixture",
+  "instructions": [".nodulus/instructions/report.md"],
+  "inputs": { "text": { "from": "normalize.text", "contract": "text.v1" } },
+  "expectedOutputs": [{ "name": "report", "contract": "text.v1" }]
+}

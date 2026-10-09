@@ -27,6 +27,8 @@ Repository skills: `$nodulus-scenario-tdd` and `$nodulus-delivery-validation`.
 
 For development, use Node.js 24, run `npm ci`, then `npm run check` to run lint, typecheck, scenarios and package checks.
 
+For a local bounded feedback-routing walkthrough, see [the normalization and review example](examples/feedback-routing/README.md). It uses a controlled child-process fixture and the exported API without calling a live provider.
+
 ## Contribute and license
 
 Issues and pull requests are welcome. See the [contribution guide](https://github.com/Rogeriohsjr/nodulus/blob/main/CONTRIBUTING.md) for the development workflow and test expectations.
