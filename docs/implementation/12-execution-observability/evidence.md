@@ -238,7 +238,6 @@ Declared the optional `diagnosticPath` property used by the installed smoke help
 - Final `npm run check` after source and documentation edits: **PASS**; lint, source typecheck, 74 scenario files / 321 tests, then installed archive **15 tests**. Markdown local links: **PASS**, 4 files. `git diff --check`: **PASS**.
 
 Ready for final focused Sol review. No live providers were invoked; no commit or push was made.
-
 ## OBS-012 outcome protocol regression: frozen RED checkpoint
 
 Added `tests/scenarios/obs-012-outcome-protocol.test.ts` for Codex, Cursor, and OpenCode through the real `createProviderScenario` and `runDefaultProviderCli` path. The named-outputs fixture always returns the same valid fixed response with `primary` and `secondary` artifacts, both using `example.v1`; it does not inspect or condition its answer on the prompt. The scenario configures both expected outputs in the real node file, verifies one launched provider call and successful transport, checks the CLI's accepted artifacts plus saved valid validation/result and both persisted artifacts, then inspects the saved prompt and effective captured stdin for the exact output name/contract pairs and package schemas for all three outcome types. Ajv assertions exercise valid and invalid samples using the parsed schemas.
