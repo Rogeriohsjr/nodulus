@@ -8,6 +8,7 @@ import type { IntakeStorage, RunFiles } from "./ports/intake-storage.js";
 import { NodulusError } from "./shared/nodulus-error.js";
 import { createPricingSnapshot } from "./pricing-snapshot.js";
 import type { PricingSnapshot } from "./cost-estimate.js";
+import { feedbackRoutingSchema, validateFeedbackRouting, validateFeedbackRuntimeInputs, type FeedbackRoutingDefinition } from "./feedback-definition.js";
 
 export type RequestSource =
   | { kind: "inline"; text: string }
@@ -25,7 +26,7 @@ export type IntakeRequest = {
 
 export type IntakeResult = { runId: string; runDirectory: string };
 
-type WorkflowDefinition = { schemaVersion: 1; id: string; nodes: string[]; inputs?: Record<string, { contract: string }> };
+type WorkflowDefinition = { schemaVersion: 1; id: string; nodes: string[]; inputs?: Record<string, { contract: string }>; feedbackRouting?: FeedbackRoutingDefinition };
 type NodeDefinition = {
   schemaVersion: 1;
   id: string;
@@ -70,6 +71,7 @@ export const workflowDefinitionSchema = {
         additionalProperties: false,
       },
     },
+    feedbackRouting: feedbackRoutingSchema,
   },
   additionalProperties: false,
 };
@@ -162,6 +164,11 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
     }
   }
 
+  if (workflow.feedbackRouting !== undefined) {
+    validateFeedbackRouting(workflow.feedbackRouting, nodes.map((node) => ({ id: node.id, outputs: node.expectedOutputs.map(({ name, contract }) => ({ name, contract })) })), contracts);
+    validateFeedbackRuntimeInputs(workflow.feedbackRouting, nodes.map((node) => ({ id: node.id, inputs: node.inputs })));
+  }
+
   const references = request.referencesFile
     ? await readReferences(request.referencesFile, cwd, projectRoot, storage)
     : [];
@@ -170,7 +177,7 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
     "request.md": text,
     "inputs.json": json({ schemaVersion: 1, workflow: workflow.id, request: text, callerInputs: request.callerInputs ?? {}, instructions }),
     "references.json": json(references),
-    "context/definitions.json": json({ schemaVersion: 1, engineVersion: "1.0.0", workflow, nodes, contracts, providerProfiles }),
+    "context/definitions.json": json({ schemaVersion: 1, engineVersion: "1.0.0", workflow, nodes, contracts, providerProfiles, ...(workflow.feedbackRouting ? { feedbackRouting: workflow.feedbackRouting } : {}) }),
     "run.json": json({ schemaVersion: 1, runId, phase: "intake", workflow: workflow.id }),
     "events.jsonl": `${JSON.stringify({ event: "run.intake.completed", runId, workflow: workflow.id, timestamp: new Date().toISOString(), sequence: 1 })}\n`,
     ...(pricingSnapshot === null ? {} : { "pricing.json": json(pricingSnapshot) }),

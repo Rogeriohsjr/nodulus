@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "review",
+  "providerProfile": "local-fixture",
+  "instructions": [".nodulus/instructions/review.md"],
+  "inputs": { "text": { "from": "normalize.text", "contract": "text.v1" } },
+  "expectedOutputs": [{ "name": "decision", "contract": "workflow-decision.v1" }]
+}

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "prepare",
+  "providerProfile": "local-fixture",
+  "instructions": [".nodulus/instructions/prepare.md"],
+  "inputs": { "source": { "from": "caller.sourceText", "contract": "text.v1" } },
+  "expectedOutputs": [{ "name": "source", "contract": "text.v1" }]
+}

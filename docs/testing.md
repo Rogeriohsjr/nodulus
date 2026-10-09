@@ -36,6 +36,8 @@ Use fresh application instances for resume and at least one separate-process res
 
 Slice 00 establishes `npm run typecheck`, `npm run build`, `npm run test:scenarios`. These foundation commands now exist. Slice 08 separates `npm run test:package` from `npm run test:scenarios` because archive tests perform a clean build; `npm test` runs both sequentially. For one focused file, run `npm run build` followed by `npx vitest run tests/scenarios/<test-file>`; appending a file to the full scenario script does not narrow its existing directory argument.
 
+The checked-in Vitest config retains file parallelism and caps worker processes at `max(1, min(4, availableParallelism() - 1))`. This bounds concurrent child-process and temporary-project load on high-core hosts while scaling down on smaller or quota-limited runners; it does not change per-test timeouts. An intentional one-off override can use Vitest's `--maxWorkers` CLI option, for example `npx vitest run tests/scenarios/<test-file> --maxWorkers=1`.
+
 `npm run check` is the final local quality gate: lint, typecheck, then the sequential runtime and package suites. See [code quality](code-quality.md) for rule scope and the AI handoff checklist. Use `npm run lint:fix` only for changes you will inspect.
 
 Live provider smokes are separate because they install a freshly built local archive into an isolated prefix, require an authenticated provider CLI, and may consume provider usage. Each smoke uses the installed Nodulus CLI, a tiny known artifact request, captured request/transport/telemetry and validation records, and a bounded provider timeout. Every test is skipped unless its explicit flag equals `1`; live tests are outside `npm test` and `npm run check`. See the OBS-012 commands below.
