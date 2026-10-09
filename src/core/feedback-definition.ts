@@ -22,9 +22,9 @@ export const feedbackRoutingSchema = {
     limits: {
       type: "object", required: ["maxIterations", "maxProviderCalls", "maxElapsedMs"],
       properties: {
-        maxIterations: { type: "integer", minimum: 1 },
-        maxProviderCalls: { type: "integer", minimum: 1 },
-        maxElapsedMs: { type: "integer", minimum: 1 },
+        maxIterations: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+        maxProviderCalls: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+        maxElapsedMs: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
       }, additionalProperties: false,
     },
   }, additionalProperties: false,

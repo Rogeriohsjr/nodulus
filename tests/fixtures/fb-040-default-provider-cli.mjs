@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const args = process.argv.slice(2);
@@ -23,8 +23,10 @@ if (args[0] === "exec") {
   if (existsSync(slowInvocation)) {
     const started = path.join(process.cwd(), ".nodulus", "provider-invocation-started");
     const completed = path.join(process.cwd(), ".nodulus", "provider-invocation-completed");
+    const delayPath = path.join(process.cwd(), ".nodulus", "slow-provider-invocation-delay-ms");
+    const delayMs = existsSync(delayPath) ? Number(readFileSync(delayPath, "utf8")) : 3500;
     writeFileSync(started, "started\n", "utf8");
-    await new Promise((resolve) => setTimeout(resolve, 3500));
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
     writeFileSync(completed, "completed\n", "utf8");
   }
   const outputIndex = args.indexOf("--output-last-message");

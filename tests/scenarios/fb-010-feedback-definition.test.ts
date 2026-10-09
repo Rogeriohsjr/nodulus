@@ -5,6 +5,8 @@ import { afterEach, expect, test } from "vitest";
 import { createIntake } from "../../src/core/intake-request.js";
 import { inspectWorkflowDefinition } from "../../src/core/inspect-workflow.js";
 import { LocalIntakeStorage } from "../../src/adapters/storage/local-intake-storage.js";
+import { inspectWorkflow } from "../../src/application/inspect-workflow.js";
+import { runWorkflow } from "../../src/application/run-workflow.js";
 
 const projects: string[] = [];
 afterEach(() => { for (const project of projects.splice(0)) rmSync(project, { recursive: true, force: true }); });
@@ -72,4 +74,39 @@ test("FB-010 rejects malformed definitions before creating a run", async () => {
     await expect(createIntake({ projectRoot: root, cwd: root, workflow: "example", sources: [{ kind: "inline", text: "request" }] }, new LocalIntakeStorage())).rejects.toThrow();
     expect((await import("node:fs")).readdirSync(path.join(root, ".nodulus/runs"))).toEqual([]);
   }
+});
+
+const oversizedFeedbackLimits = (["maxIterations", "maxProviderCalls", "maxElapsedMs"] as const)
+  .flatMap((field) => [2 ** 53, 1e100].map((value) => [field, value] as const));
+
+test.each(oversizedFeedbackLimits)("FB-010 rejects unsafe integer %s=%s before intake writes", async (field, value) => {
+  const root = project();
+  const workflowPath = path.join(root, ".nodulus/workflows/example.json");
+  const workflow = JSON.parse(readFileSync(workflowPath, "utf8")) as { feedbackRouting: typeof definition };
+  workflow.feedbackRouting = { ...definition, limits: { ...definition.limits, [field]: value } };
+  writeJson(root, ".nodulus/workflows/example.json", workflow);
+  const runs = path.join(root, ".nodulus/runs");
+  await expect(inspectWorkflow(root, "example")).rejects.toMatchObject({ code: "CONFIGURATION_INVALID" });
+  await expect(createIntake({ projectRoot: root, cwd: root, workflow: "example", sources: [{ kind: "inline", text: "request" }] }, new LocalIntakeStorage()))
+    .rejects.toMatchObject({ code: "CONFIGURATION_INVALID" });
+  let providerCalls = 0;
+  await expect(runWorkflow({ projectRoot: root, cwd: root, workflow: "example", sources: [{ kind: "inline", text: "request" }] }, {
+    async invoke() { providerCalls += 1; return "{}"; },
+    async isAvailable() { providerCalls += 1; return true; },
+  })).rejects.toMatchObject({ code: "CONFIGURATION_INVALID" });
+  expect(providerCalls).toBe(0);
+  expect((await import("node:fs")).readdirSync(runs)).toEqual([]);
+});
+
+test("FB-010 accepts Number.MAX_SAFE_INTEGER for every feedback limit", async () => {
+  const root = project();
+  const workflowPath = path.join(root, ".nodulus/workflows/example.json");
+  const workflow = JSON.parse(readFileSync(workflowPath, "utf8")) as { feedbackRouting: typeof definition };
+  const limit = Number.MAX_SAFE_INTEGER;
+  workflow.feedbackRouting = { ...definition, limits: { maxIterations: limit, maxProviderCalls: limit, maxElapsedMs: limit } };
+  writeJson(root, ".nodulus/workflows/example.json", workflow);
+  const inspected = await inspectWorkflow(root, "example");
+  expect((inspected.workflow as { feedbackRouting: { limits: Record<string, number> } }).feedbackRouting.limits)
+    .toEqual({ maxIterations: limit, maxProviderCalls: limit, maxElapsedMs: limit });
+  expect((await import("node:fs")).readdirSync(path.join(root, ".nodulus/runs"))).toEqual([]);
 });

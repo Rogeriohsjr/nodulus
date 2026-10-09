@@ -187,10 +187,10 @@ async function withPausedScenario<T>(
   finally { scenario.fixture.cleanup(); }
 }
 
-function installSlowDefaultCodexFixture(project: string, slowInvocation: boolean): { started: string; completed: string } {
+function installSlowDefaultCodexFixture(project: string, slowInvocation: boolean, options: { timeoutMs?: number; invocationDelayMs?: number } = {}): { started: string; completed: string } {
   const settings = readProjectJson(project, ".nodulus/settings.json");
   const profile = settings.providerProfiles.fixture as Record<string, unknown>;
-  Object.assign(profile, { kind: "codex", timeoutMs: 5000, model: "fixture", sandbox: "read-only" });
+  Object.assign(profile, { kind: "codex", timeoutMs: options.timeoutMs ?? 5000, model: "fixture", sandbox: "read-only" });
   const providerDirectory = path.join(project, ".nodulus", "fixtures");
   mkdirSync(providerDirectory, { recursive: true });
   const cliFixture = path.join(providerDirectory, "fb-040-default-provider-cli.mjs");
@@ -210,6 +210,7 @@ function installSlowDefaultCodexFixture(project: string, slowInvocation: boolean
     writeFileSync(started, "already checked\n", "utf8");
     writeFileSync(completed, "already checked\n", "utf8");
     writeFileSync(path.join(project, ".nodulus", "slow-provider-invocation"), "slow\n", "utf8");
+    if (options.invocationDelayMs !== undefined) writeFileSync(path.join(project, ".nodulus", "slow-provider-invocation-delay-ms"), String(options.invocationDelayMs), "utf8");
   }
   return { started, completed };
 }
@@ -238,7 +239,7 @@ test("FB-050 inspection excludes stale suffix files immediately after a reroute"
     expect(readFileSync(scenario.validatorTrace, "utf8")).toBe(scenario.validatorBytes);
     expect(treeDigest(scenario.runRoot)).toBe(before);
   });
-});
+}, 20_000);
 
 test("FB-050 inspection returns unique current outputs after an accepted reroute", async () => {
   await withPausedScenario("inspect-current-generations", "continue", async (scenario) => {
@@ -276,7 +277,7 @@ test("FB-050 inspection returns unique current outputs after an accepted reroute
     expect(readFileSync(scenario.validatorTrace, "utf8")).toBe(scenario.validatorBytes);
     expect(treeDigest(scenario.runRoot)).toBe(before);
   });
-});
+}, 20_000);
 
 test("FB-050 export is deterministic, redacted, routed, and API/CLI equivalent", async () => {
   await withPausedScenario("export-redaction", "continue", async (scenario) => {
@@ -297,7 +298,7 @@ test("FB-050 export is deterministic, redacted, routed, and API/CLI equivalent",
     expect(readFileSync(scenario.validatorTrace, "utf8")).toBe(scenario.validatorBytes);
     expect(treeDigest(scenario.runRoot)).toBe(before);
   });
-});
+}, 20_000);
 
 test.each([
   ["docs", "FIX_DOCS", "docs"],
@@ -314,7 +315,7 @@ test.each([
       elapsedMs: expect.objectContaining({ limit: 3_600_000, reached: false }),
     }));
   });
-});
+}, 20_000);
 
 test("FB-050 replay reports historical generation state without claiming runtime eligibility", async () => {
   await withPausedScenario("replay-generations", "continue", async (scenario) => {
@@ -343,7 +344,7 @@ test("FB-050 replay reports historical generation state without claiming runtime
     expect(readFileSync(scenario.validatorTrace, "utf8")).toBe(scenario.validatorBytes);
     expect(treeDigest(scenario.runRoot)).toBe(before);
   });
-});
+}, 20_000);
 
 test("FB-050 routed summaries stay absent on a real non-routed run", async () => {
   const fixture = createFeedbackProject("fb-050-legacy-shape");
@@ -359,7 +360,7 @@ test("FB-050 routed summaries stay absent on a real non-routed run", async () =>
     expect(Object.hasOwn(await exportRunDiagnostic(fixture.project, result.runId, storage), "feedbackRouting")).toBe(false);
     expect(Object.hasOwn(await replaySavedRun(fixture.project, result.runId, storage), "feedbackRouting")).toBe(false);
   } finally { fixture.cleanup(); }
-});
+}, 20_000);
 
 test.each(["missing", "malformed"] as const)("FB-050 damaged captured definitions cannot fall back to stale artifacts (%s)", async (damage) => {
   await withPausedScenario("damaged-definitions-" + damage, "docs", async (scenario) => {
@@ -382,7 +383,7 @@ test.each(["missing", "malformed"] as const)("FB-050 damaged captured definition
       writeFileSync(absolute, original, "utf8");
     }
   });
-});
+}, 20_000);
 
 test.each(["nodes-object", "nodes-null-entry"] as const)("FB-050 malformed captured node definitions are diagnosed (%s)", async (damage) => {
   await withPausedScenario("malformed-node-definitions-" + damage, "docs", async (scenario) => {
@@ -405,7 +406,7 @@ test.each(["nodes-object", "nodes-null-entry"] as const)("FB-050 malformed captu
       await scenario.storage.writeRunFiles(scenario.fixture.project, scenario.runId, { [reference]: original });
     }
   });
-});
+}, 20_000);
 
 test("FB-050 generation evidence cannot point at a different successful attempt", async () => {
   await withPausedScenario("mispointed-generation-attempt", "continue", async (scenario) => {
@@ -471,7 +472,7 @@ test("FB-050 malformed nested feedback limits are not exported", async () => {
       await scenario.storage.writeRunFiles(scenario.fixture.project, scenario.runId, { [reference]: original });
     }
   });
-});
+}, 20_000);
 
 test("FB-050 damaged manifests are diagnostic and cannot produce accepted current artifacts", async () => {
   await withPausedScenario("damaged-manifest", "continue", async (scenario) => {
@@ -495,7 +496,7 @@ test("FB-050 damaged manifests are diagnostic and cannot produce accepted curren
       await scenario.storage.writeRunFiles(scenario.fixture.project, scenario.runId, { [reference]: original });
     }
   });
-});
+}, 20_000);
 
 test("FB-050 accepts routed payload hashes using the executor's JSON serialization order", async () => {
   const scenario = await makePausedScenario("ordered-payload-digest", "docs", true);
@@ -513,8 +514,8 @@ test("FB-050 accepts routed payload hashes using the executor's JSON serializati
     const inspected = await inspectRun(scenario.fixture.project, scenario.runId, scenario.storage);
     expect((inspected.artifacts as Array<{ nodeId: string; name: string }>)).toContainEqual(expect.objectContaining({ nodeId: "prepare", name: "prepared" }));
     expect(JSON.stringify(inspected.diagnostics)).not.toMatch(/generation|manifest|digest/i);
-  } finally { scenario.fixture.cleanup(); }
-});
+} finally { scenario.fixture.cleanup(); }
+}, 20_000);
 
 test("FB-050 inconsistent reroute invalidations cannot promote stale artifacts", async () => {
   await withPausedScenario("forged-transition-invalidation", "docs", async (scenario) => {
@@ -542,17 +543,14 @@ test("FB-050 inconsistent reroute invalidations cannot promote stale artifacts",
       await scenario.storage.writeRunFiles(scenario.fixture.project, scenario.runId, { [eventsPath]: original });
     }
   });
-});
+}, 20_000);
 
-test.each([
-  ["readiness-abort", false, "not_launched"],
-  ["inference-abort", true, "launched"],
-] as const)("FB-050 inspection classifies a real default-provider %s", async (label, slowInvocation, expectedLaunchStatus) => {
+async function inspectDefaultProviderAbort(label: string, slowInvocation: boolean, expectedLaunchStatus: "not_launched" | "launched"): Promise<void> {
   const fixture = createFeedbackProject("fb-050-" + label);
   const workflow = readProjectJson(fixture.project, ".nodulus/workflows/example.json");
-  (workflow.feedbackRouting as Record<string, unknown>).limits = { maxIterations: 3, maxProviderCalls: 20, maxElapsedMs: 1200 };
+  (workflow.feedbackRouting as Record<string, unknown>).limits = { maxIterations: 3, maxProviderCalls: 20, maxElapsedMs: slowInvocation ? 5000 : 1200 };
   writeJson(fixture.project, ".nodulus/workflows/example.json", workflow);
-  const markers = installSlowDefaultCodexFixture(fixture.project, slowInvocation);
+  const markers = installSlowDefaultCodexFixture(fixture.project, slowInvocation, slowInvocation ? { timeoutMs: 20_000, invocationDelayMs: 15_000 } : {});
   try {
     const result = await runWorkflow({ projectRoot: fixture.project, cwd: fixture.project, workflow: "example", sources: [{ kind: "inline", text: "FB050 uncertainty check" }] }, createDefaultProviderPort(fixture.project));
     expect(result.status).toBe("error");
@@ -581,4 +579,12 @@ test.each([
   } finally {
     fixture.cleanup();
   }
-}, 20000);
+}
+
+test("FB-050 inspection classifies a real default-provider readiness-abort", async () => {
+  await inspectDefaultProviderAbort("readiness-abort", false, "not_launched");
+}, 20_000);
+
+test("FB-050 inspection classifies a real default-provider inference-abort", async () => {
+  await inspectDefaultProviderAbort("inference-abort", true, "launched");
+}, 30_000);

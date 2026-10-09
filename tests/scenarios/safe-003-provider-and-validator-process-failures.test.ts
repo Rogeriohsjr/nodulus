@@ -73,9 +73,21 @@ test("SAFE-003 cancels the production validator process on AbortSignal", async (
       const pid = Number(readFileSync(descendantPidPath, "utf8"));
       if (Number.isFinite(pid) && isProcessAlive(pid)) process.kill(pid);
     } catch { /* child already exited or was reaped */ }
-    cleanupClarificationProject(project);
+    await cleanupClarificationProjectAfterExitProof(project);
   }
 });
+
+async function cleanupClarificationProjectAfterExitProof(project: string): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      cleanupClarificationProject(project);
+      return;
+    } catch (error) {
+      if (process.platform !== "win32" || getErrorCode(error) !== "EPERM" || attempt >= 4) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+}
 
 test("SAFE-003 persists provider crashes as runtime errors without starting successors", async () => {
   const { project } = createRecoveryProject("safe-003-provider");

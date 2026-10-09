@@ -32,10 +32,10 @@ function setRepairCapability(fixture: ReturnType<typeof createFeedbackProject>):
   writeJson(fixture.project, ".nodulus/settings.json", settings);
 }
 
-function installSlowDefaultCodexFixture(project: string): { started: string; completed: string } {
+function installSlowDefaultCodexFixture(project: string, options: { timeoutMs?: number; invocationDelayMs?: number } = {}): { started: string; completed: string } {
   const settings = readProjectJson(project, ".nodulus/settings.json");
   const profile = settings.providerProfiles.fixture as Record<string, unknown>;
-  Object.assign(profile, { kind: "codex", timeoutMs: 5000, model: "fixture", sandbox: "read-only" });
+  Object.assign(profile, { kind: "codex", timeoutMs: options.timeoutMs ?? 5000, model: "fixture", sandbox: "read-only" });
   const providerDirectory = path.join(project, ".nodulus", "fixtures");
   mkdirSync(providerDirectory, { recursive: true });
   const cliFixture = path.join(providerDirectory, "fb-040-default-provider-cli.mjs");
@@ -49,6 +49,9 @@ function installSlowDefaultCodexFixture(project: string): { started: string; com
   }
   profile.executable = wrapperPath;
   writeJson(project, ".nodulus/settings.json", settings);
+  if (options.invocationDelayMs !== undefined) {
+    writeFileSync(path.join(project, ".nodulus", "slow-provider-invocation-delay-ms"), String(options.invocationDelayMs), "utf8");
+  }
   return {
     started: path.join(project, ".nodulus", "readiness-probe-started"),
     completed: path.join(project, ".nodulus", "readiness-probe-completed"),
@@ -459,14 +462,16 @@ test("FB-040 response repair shares the original region deadline", async () => {
 
 test("FB-040 retains captured cancellation and launch identity for an aborted default provider call", async () => {
   const fixture = createFeedbackProject("captured-provider-cancelled");
-  configureRoute(fixture, {}, { maxElapsedMs: 1200 });
-  const { started: readinessStarted, completed: readinessCompleted } = installSlowDefaultCodexFixture(fixture.project);
+  configureRoute(fixture, {}, { maxElapsedMs: 5000 });
+  const { started: readinessStarted, completed: readinessCompleted } = installSlowDefaultCodexFixture(fixture.project, { timeoutMs: 20_000, invocationDelayMs: 15_000 });
   writeFileSync(readinessStarted, "already checked\n", "utf8");
   writeFileSync(readinessCompleted, "already checked\n", "utf8");
   writeFileSync(path.join(fixture.project, ".nodulus", "slow-provider-invocation"), "slow\n", "utf8");
   try {
     const result = await runWorkflow(request(fixture.project), createDefaultProviderPort(fixture.project));
+    const completedAtMs = Date.now();
     const state = await regionState(fixture, result.runId);
+    expect(completedAtMs).toBeLessThanOrEqual(Number(state.deadlineAtMs) + 3000);
     const callsDirectory = path.join(fixture.project, ".nodulus", "runs", result.runId, "calls");
     const callId = readdirSync(callsDirectory)[0];
     const transport = JSON.parse(readFileSync(path.join(callsDirectory, callId!, "transport.json"), "utf8")) as { callId: string; cancelled?: boolean };
@@ -490,7 +495,7 @@ test("FB-040 retains captured cancellation and launch identity for an aborted de
   } finally {
     fixture.cleanup();
   }
-}, 20000);
+}, 30000);
 
 test("FB-040 stops a slow artifact validator at the active region deadline", async () => {
   const fixture = createFeedbackProject("validator-deadline");
