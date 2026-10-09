@@ -108,3 +108,133 @@ On base `1f5ddba`, branch `codex/observability-completion`, missing launch class
 `npm run check` passed on Windows Node 24.15.0: lint, typecheck, **260 scenarios and 9 installed-package tests** (`.nodulus/phase-f/obs-c-check.txt`). Real fixture processes cover timeout, truncation, output cap, prelaunch failure and killed-process read-only status. Invalid usage never retries a valid artifact. GPT-5.6 Sol accepted after a documentation-only scope correction. Hosted acceptance is separate and pending for this revision.
 
 The [completion report](qwen-completion-report.md) records exact Qwen runs, supervisor fixes, tuning, failed attempts and improvement scenarios. The [lifecycle guide](obs-006-lifecycle.md) describes nullable launch evidence. OBS008–012 remain pending; no release or merge was performed.
+
+## OBS-012 checkpoint A test review: 2026-10-08
+
+Base: `2ae0153` (`codex/obs-012-live-provider-evidence`), Windows, Node v24.15.0. Work is frozen at the test-review checkpoint; no collector behavior beyond the faithful existing-field extraction is implemented. No live provider, install, authentication, commit, or push was performed.
+
+- Behavior-preserving baseline: `npm run build` then `npx vitest run tests/scenarios/obs-012-live-evidence.test.ts` passed, 1 test. The real OpenCode fixture runs through `runDefaultProviderCli`, production adapter and status; the extracted collector emits the prior schemaVersion/packageVersion/archiveSha256/runId/callId/model/optional endpointOrigin/cliVersion/coverage/reported/normalized keys.
+- Expanded behavioral RED: same build and focused command after adding OBS-012 assertions failed, 6 tests. The positive case fails because `os` and `nodeVersion` are absent. Five negative cases show no throw for tampered telemetry and missing/invalid validation or result records. These are collector-behavior failures, not setup failures.
+- The frozen scenario also asserts call-relative paths for request/stdin/transport/telemetry and prompt/response/validation/result; fixture-captured stdin equality; valid validation and successful expected artifact; persisted telemetry equality; and evidence JSON exclusion of the unique request sentinel, raw transport stdout, profile credential sentinel and diagnostics.
+- This is offline fixture evidence only. The already recorded live Windows OpenCode/Ollama cell is unchanged; all other provider/platform cells remain pending.
+
+### OBS-012 checkpoint A test-review correction 1: 2026-10-08
+
+The initial review requested a stricter frozen test contract. The live OpenCode path now passes the installed CLI's existing `statusEnvelope.result` directly to the collector; it no longer performs an additional repository `getRunStatus` read. The offline scenario exact allowlist now requires provider, nullable reportedModel, platform/architecture/OS release, Node version and all eight relative references. Requested model metadata accepts null for future unknown-model cells.
+
+- Corrected focused run: `npm run build` passed; `npx vitest run tests/scenarios/obs-012-live-evidence.test.ts` produced **8 failed, 1 passed**. The positive test fails because the extracted baseline collector lacks the required provider/model/OS/Node/refs fields. Seven negative cases fail because it accepts telemetry tampering, missing/invalid validation/result, and request.json references escaping the run root or using an absolute path.
+- The unavailable-usage case passes: a real Cursor fixture reports unavailable coverage and all-null counters, and collection succeeds. The positive scenario hashes the run tree around collection to assert read-only behavior when the positive assertions reach that check.
+- Baseline extraction's original 1-test GREEN remains historical evidence above. No new collector behavior has been implemented; this checkpoint remains frozen for review. No provider was invoked live and no package was installed.
+
+### OBS-012 checkpoint A test-review correction 2: collection read-only snapshot ordering
+
+Moved the run-tree hash snapshot to immediately before `collectLiveEvidence`; the unchanged post-collection hash comparison now brackets the collector call directly. No other scenario, helper, or behavior changes were made.
+
+- Validation: `npm run build` passed; `npx vitest run tests/scenarios/obs-012-live-evidence.test.ts` produced **8 failed, 1 passed**. The positive test reaches the expected RED at missing provider/nullable model/OS/Node/reference evidence. The seven integrity-negative cases remain RED because the baseline collector accepts tampered telemetry, missing/invalid validation/result, and escaped/absolute request references. The unavailable-usage case passes with null counters and successful collection.
+- The pre-collection run-tree snapshot and post-collection comparison now directly prove read-only behavior once the positive metadata assertions pass. No collector implementation was added. `git diff --check` passed.
+
+## OBS-012 checkpoint A collector implementation: local GREEN
+
+Implemented the accepted frozen contract in `tests/support/live-provider-observability.ts`; the frozen scenario at SHA-256 `6AA0FCEC08D3ACB2B1BAD21E5F28C6D936EFEFA306BE3E1BEB657FB60E71614D` is unchanged. The collector reads only the selected run's real files, checks request/run/call/provider identity and exact safe relative refs, rejects path escape/absolute refs, requires successful transport, matches persisted telemetry against status, and requires valid saved validation plus a successful nonempty result. The emitted evidence contains the allowlisted provider/model/version/OS fields and relative refs; it excludes raw prompt, response, transport, profile data and diagnostics. The installed OpenCode harness hands the CLI status result into the same collector.
+
+- `npm run build`: **PASS**.
+- `npx vitest run tests/scenarios/obs-012-live-evidence.test.ts`: **PASS, 9 tests**. This includes unavailable optional usage with null counters, exact captured stdin, evidence redaction/allowlist, read-only run-tree hash, and rejection of telemetry tampering, missing/invalid validation/result, and escaped/absolute request refs.
+- `npm run lint`: **PASS**, zero warnings.
+- `npm run typecheck`: **PASS**.
+- `git diff --check`: **PASS**.
+
+Windows, Node v24.15.0. Offline provider fixtures only; no live provider, package install, or full quality gate was run. This is the implementation checkpoint awaiting focused Sol review.
+
+## OBS-012 checkpoint B installed-smoke harness: local validation
+
+Added a shared installed-archive provider smoke path for Codex, Cursor, and OpenCode/Ollama. It sequentially builds, packs, installs into a temporary prefix, initializes a fresh project, configures a tiny artifact-only request, runs/statuses the installed Nodulus CLI, validates the exact saved artifact and captured call evidence, and optionally writes only the collector's sanitized allowlist. Codex uses an initialized isolated Git repository, read-only sandbox, low reasoning effort and no extra capabilities. OpenCode preserves the loopback-only Ollama configuration, exact model/small_model, Ollama-only enablement, denied tools and disabled compaction. Cursor model and all provider reported-model/usage fields may remain null.
+
+- `npx vitest run tests/scenarios/obs-012-live-evidence.test.ts`: **9 passed**; frozen test SHA-256 remains `6AA0FCEC08D3ACB2B1BAD21E5F28C6D936EFEFA306BE3E1BEB657FB60E71614D`.
+- `npm run test:live:codex`, `npm run test:live:cursor`, `npm run test:live:opencode`: each **1 skipped** with opt-in unset. No live CLI was invoked.
+- `npm run check`: **PASS**; lint, typecheck, **74 scenario files / 321 tests**, installed archive **10 tests**. The build/package phases ran sequentially.
+- Changed Markdown local-link check: **PASS**, 4 files. `git diff --check`: **PASS**.
+
+Windows, Node v24.15.0. This validates harness wiring and offline gates, not live provider compatibility. No additional OBS-012 matrix cell is claimed. The earlier Windows OpenCode/Ollama PASS remains the sole recorded live cell. Current provider readiness (standalone Codex 0.156.1, Cursor 2026.09.23-86fc751, OpenCode 1.18.32/Ollama 0.35.0/model available) is not inference proof. No live provider, authenticated session, or explicit-opt-in archive installation occurred. Ready for focused Sol review.
+
+### OBS-012 harness correction 1: enabled-path setup failure reproduced
+
+Before changing the harness, the persistent PKG-010 enabled-path test was run with local child-process fixtures and no live provider. Command: npx vitest run tests/scenarios/pkg-001-installed-archive.test.ts -t PKG-010. It failed in runInstalledProviderSmoke with initialized settings must be an object. The helper supplied UTF-8 JSON text directly to its object validator instead of parsing it. The failure occurred before the configured fixture provider executable was called. This is a harness setup failure, not a live-provider or Nodulus runtime behavioral RED; no usage, authentication, or provider compatibility conclusion is drawn.
+
+Enabled local-fixture rerun after parsing correction advanced beyond initialization and invoked the installed CLI with the real Codex child fixture. It failed the harness assertion that captured stdin contain the known request: the initializer's starter node has inputs empty, so the CLI did not map --request into provider stdin. This is an enabled-path fixture setup gap, not live Codex evidence or a Nodulus runtime regression; only the scripted local provider boundary was invoked.
+
+### OBS-012 harness correction 2 test-review checkpoint: fixture evidence overwrite
+
+Added PKG-011 with a real marker file and the actual NODULUS_LIVE_EVIDENCE environment variable, saving and restoring its prior value around an enabled offline fixture run. Before changing the helper, command npx vitest run tests/scenarios/pkg-001-installed-archive.test.ts -t PKG-011 failed because the local Codex fixture overwrote the marker with generated evidence JSON. The subprocess was the scripted local fixture, not a live provider. This is a harness separation/data-preservation defect, not product behavioral RED. The helper implementation remains unchanged at this checkpoint.
+
+The scenarios now state that all provider smokes send a tiny artifact-only request; only Codex applies Nodulus's read-only sandbox. Cursor relies on the request and does not receive a Codex sandbox policy; OpenCode separately denies tools in its configured project.
+
+### OBS-012 harness correction 2: explicit evidence destination accepted
+
+Sol accepted the PKG-011 marker-overwrite failure as the focused RED. The helper now accepts an optional explicit evidencePath and never reads NODULUS_LIVE_EVIDENCE itself. Only the three opt-in live tests pass process.env.NODULUS_LIVE_EVIDENCE; offline archive fixtures omit the destination. PKG-011 sets the actual environment variable while preserving a pre-existing marker and verifies the file remains byte-for-byte unchanged after the local fixture run.
+
+The correction-1 setup failures above were observed and corrected before the reviewer requested a frozen test checkpoint; their actual ordering is retained here. They were not presented as accepted behavioral REDs. No frozen OBS-012 collector scenario was changed.
+
+- Sol accepted PKG-011 RED; `tests/scenarios/pkg-001-installed-archive.test.ts` SHA-256 is `4CFE77EF94F9395248F22ABD29F78DB4B694A184E1882258B5186483233CA4ED`.
+- `npx vitest run tests/scenarios/pkg-001-installed-archive.test.ts -t 'PKG-010|PKG-011'`: **2 passed, 10 skipped**. The three sequential local child-process provider fixtures pass; the evidence marker stays unchanged; invalid executable errors are bounded and sanitized.
+- `npm run test:live:codex`, `npm run test:live:cursor`, `npm run test:live:opencode`: each **1 skipped** with opt-in unset; no provider was called.
+- Final `npm run check`: **PASS**; lint and typecheck passed, **74 scenario files / 321 tests**, installed archive **12 tests**. Build and package phases ran sequentially.
+- Changed Markdown local-link check: **PASS**; `git diff --check`: **PASS**.
+
+Windows, Node v24.15.0. These are local fixture and repository checks, not live provider evidence. No live provider, package installation for a live smoke, authentication, commit, or push occurred. Ready for final focused Sol code review.
+
+## OBS-012 failure-diagnostics fixture checkpoint: RED
+
+Added installed-archive regression cases for a local Codex-protocol child process that exits 23 while writing credential/prompt markers to stderr and stdin, and for a configured executable that does not exist. Both pass an explicit diagnosticPath and require a fixed-schema classification with stage, CLI exit code, envelope status/error code, run/call/request/transport availability and timeout/output-limit fields. Exact object assertions also ensure that stdout/stderr, prompt, credential, executable path, and other diagnostics are not serialized.
+
+- `npx vitest run tests/scenarios/pkg-001-installed-archive.test.ts -t 'PKG-012|PKG-013'`: **2 failed, 12 skipped**. Both cases reach the intended assertion after the installed run throws: the requested diagnostic file does not exist (`ENOENT` while opening `provider failure diagnostic.json` and `prelaunch failure diagnostic.json`). The current harness discards the run's stdout and removes its scratch project, so it cannot classify either failure or retain safe run evidence. This is the observed RED; no implementation changes have been made.
+- Frozen OBS-012 collector contract remains unchanged at SHA-256 `6AA0FCEC08D3ACB2B1BAD21E5F28C6D936EFEFA306BE3E1BEB657FB60E71614D`.
+
+Local fixture subprocesses only; no live providers were invoked. Stop for focused test review before implementing diagnostics.
+
+### OBS-012 diagnostics checkpoint correction: prelaunch request availability
+
+Sol's RED review identified that PKG-013's missing Codex executable fails the adapter's version probe before the provider request capture exists. Corrected only the expected `requestAvailable` value from true to false; `callLaunched` and `transportAvailable` remain false. PKG-012 remains unchanged.
+
+- Focused rerun: `npx vitest run tests/scenarios/pkg-001-installed-archive.test.ts -t 'PKG-012|PKG-013'`: **2 failed, 12 skipped**, both at the intended missing diagnostic JSON assertion. The failure-diagnostics behavior remains unimplemented.
+- Frozen OBS-012 collector test remains unchanged at SHA-256 `6AA0FCEC08D3ACB2B1BAD21E5F28C6D936EFEFA306BE3E1BEB657FB60E71614D`.
+
+## OBS-012 failure diagnostics: local implementation and live evidence update
+
+Implemented the accepted failure-diagnostics contract in the installed-archive helper. It captures the installed CLI's bounded exit status and machine envelope, and when a safe run ID is present asks the installed CLI for status before cleanup. It uses the status call ID only after validating it, then checks request/transport availability and reads only the owned call's transport status fields. Parse failures become missing/null fields without surfacing JSON contents. Optional JSON is written only to the caller's explicit `diagnosticPath`; the helper does not read environment variables. Each opt-in live caller derives a separate `.failure.json` path only when the sanitized success evidence path is configured. Provider stderr, stdout, prompt, credentials, profile, command arguments, paths and envelope messages are never exported. `PROVIDER_FAILURE` is a generic workflow classification and is not evidence of a specific vendor cause.
+
+- `npx vitest run tests/scenarios/pkg-001-installed-archive.test.ts -t 'PKG-010|PKG-011|PKG-012|PKG-013'`: **4 passed, 10 skipped**. The local provider exit-23 case reports transport exit 23 and includes no fixture credential/prompt markers or executable path; the missing-executable case reports no request or transport capture; earlier successful fixture and evidence-marker cases remain green.
+- Live evidence reported by the coordinator from Windows 10.0.26300 x64, Node v24.15.0: OpenCode 1.18.32 with Ollama 0.35.0 and requested `ollama/qwen3.5:9b` passed **1/1** (26.86s). Archive version 1.0.0, SHA-256 `fa192de85143d3bc49699ab24bac3f74a9a42b519e8d08e7cd74344ee052bcb6`; run `6b88cad7-ab57-47ec-ae31-265bf6d538d1`; call `378525c0-6391-4ae9-aefc-d04429546c85`; coverage complete, input 502, output 193, cache read 0, reasoning 0, provider cost 0; reported model null. Evidence file: `.nodulus/pilot/obs-012-2026-10-08/opencode.json`. Captures and results were checked before temporary cleanup; relative references do not mean raw capture files were retained.
+- The same Windows live attempts failed for Codex standalone 0.156.1 (1/1, 8.35s) and Cursor 2026.09.23-86fc751 (1/1, 42.57s), both installed run exit 1 with prior harness classification `cause unknown`; these are failures, not compatibility passes. The new safe diagnostic fixture contract addresses the lost classification on future explicitly authorized attempts; this task performed no live retry.
+- macOS and Linux live compatibility remain pending. Three-OS fixture CI is separate evidence and is not live-provider proof.
+- `npm run lint` and `npm run typecheck`: **PASS**. Final `npm run check`: **PASS**; 74 scenario files / 321 tests passed, then installed archive **14 tests passed**. Build and package test stages ran sequentially.
+- Changed Markdown local-link check: **PASS**, 4 files. `git diff --check`: **PASS**.
+
+No live provider was called in this diagnostics implementation task. Previously reported live attempts above are retained as separate facts, not rerun or upgraded by the local fixture suite. Ready for focused Sol implementation review.
+
+### OBS-012 diagnostics classifier sanitization: focused test-review RED
+
+Extracted the existing diagnostic mapping into `classifyInstalledFailure` so its output contract can be checked using a real temporary envelope JSON file and the real classifier, without a fake Nodulus executable or mocked APIs. PKG-014 provides a valid JSON envelope with an unrecognized status sentinel and a private message sentinel, with no status observation. It requires unknown statuses and unobserved launch/request/transport/timeout/limit facts to remain null and excludes both sentinels.
+
+- `npx vitest run tests/scenarios/pkg-001-installed-archive.test.ts -t PKG-014`: **1 failed, 14 skipped**. The focused assertion shows the current classifier echoes the unknown status sentinel and reports missing call/request/transport/timeout/limit observations as false. This is a diagnostics-helper contract RED only; it does not demonstrate Nodulus runtime or live-provider behavior. No behavior fix has been applied after this result.
+- The accepted PKG-012/013 test bodies and frozen collector test are unchanged. No live provider was called.
+
+### OBS-012 diagnostics classifier correction 1: local GREEN
+
+Restricted envelope status to the three recognized CLI values. Launch status is emitted only from an observed boolean metric. Request and transport availability are null until a valid status call ID identifies a call directory within a real run tree contained by the project; existing request/transport paths are checked after realpath containment. Transport timeout and output-limit values are emitted only from validated boolean fields. Malformed or unavailable status/transport JSON remains unobserved without exposing its contents.
+
+- `npx vitest run tests/scenarios/pkg-001-installed-archive.test.ts -t 'PKG-010|PKG-011|PKG-012|PKG-013|PKG-014'`: **5 passed, 10 skipped**. Existing successful/offline-preservation and provider-exit/missing-executable classification tests remain green; PKG-014 now confirms an unknown status and unavailable observations are null and sentinel values are not emitted.
+- Frozen collector scenario remains SHA-256 `6AA0FCEC08D3ACB2B1BAD21E5F28C6D936EFEFA306BE3E1BEB657FB60E71614D`; frozen package scenario test checkpoint `1678C408BB30696E6E58E367D8B1DC7AD4570231BEC3A0A4C0026440E60DE323` is unchanged.
+- `npm run check`: **PASS** after source and documentation edits; lint, typecheck, 74 scenario files / 321 tests, then installed archive **15 tests**. Changed Markdown local-link check: **PASS**, 4 files; `git diff --check`: **PASS**.
+
+No live providers were invoked. Ready for final focused Sol implementation review.
+
+### OBS-012 diagnostics declaration correction 2: typed harness validation
+
+Declared the optional `diagnosticPath` property used by the installed smoke helper and its three opt-in callers. A focused TypeScript check also exposed five pre-existing helper typing issues that the repository's source-only `npm run typecheck` does not compile: cross-spawn `Error.code` access and an optional metric call ID used as a path. Replaced those with a guarded unknown-property reader and required call-ID validation; no rules or compiler configuration were changed.
+
+- `npm run lint`: **PASS**.
+- `npx vitest run tests/scenarios/pkg-001-installed-archive.test.ts -t 'PKG-010|PKG-011|PKG-012|PKG-013|PKG-014'`: **5 passed, 10 skipped**.
+- `.\node_modules\.bin\tsc.cmd --ignoreConfig --noEmit --strict --skipLibCheck --module NodeNext --moduleResolution NodeNext --target ES2023 --types node tests/support/live-provider-observability.ts tests/live/codex-observability.live.test.ts tests/live/cursor-adapter.live.test.ts tests/live/opencode-observability.live.test.ts`: **PASS**.
+- Final `npm run check` after source and documentation edits: **PASS**; lint, source typecheck, 74 scenario files / 321 tests, then installed archive **15 tests**. Markdown local links: **PASS**, 4 files. `git diff --check`: **PASS**.
+
+Ready for final focused Sol review. No live providers were invoked; no commit or push was made.

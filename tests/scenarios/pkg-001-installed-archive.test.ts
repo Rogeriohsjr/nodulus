@@ -5,6 +5,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rm
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { classifyInstalledFailure, runInstalledProviderSmoke } from "../support/live-provider-observability.js";
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const scratch = mkdtempSync(path.join(tmpdir(), "nodulus-package-"));
@@ -104,6 +105,141 @@ test("PKG-001 installs and runs the actual archive CLI, initializer, and fixture
   expect(replayRun.status, String(replayRun.stderr)).toBe(0);
   expect(JSON.parse(replayRun.stdout)).toMatchObject({ status: "success", result: { mode: "schema-only", runId: parsedResponse.runId } });
   expect(readFileSync(fixture.logPath, "utf8")).toBe(callsBeforeInspection);
+});
+
+test("PKG-010 shared installed provider smokes run sequentially with real child-process fixtures", () => {
+  for (const provider of ["codex", "cursor", "opencode"] as const) {
+    const fixture = createInstalledSmokeFixture(provider);
+    const model = provider === "opencode" ? "ollama/qwen3.5:9b" : null;
+    const evidence = runInstalledProviderSmoke({
+      provider,
+      executable: fixture.executable,
+      model,
+      timeoutMs: 10_000,
+      prepareProject: fixture.prepareProject,
+    });
+    expect(evidence).toMatchObject({ provider, model, reportedModel: null, runId: expect.any(String), callId: expect.any(String) });
+    expect(evidence.coverage).toBe(provider === "cursor" ? "unavailable" : "complete");
+  }
+  const codexFixture = createInstalledSmokeFixture("codex");
+  const unavailableExecutable = path.join(scratch, "private executable path that must not escape");
+  expect(() => runInstalledProviderSmoke({
+    provider: "codex",
+    executable: unavailableExecutable,
+    model: null,
+    timeoutMs: 10_000,
+    prepareProject: codexFixture.prepareProject,
+  })).toThrow(/^Installed smoke run installed CLI failed \(exit 1, code unknown\)\.$/);
+}, 360_000);
+
+test("PKG-011 offline installed smoke fixtures do not overwrite saved live evidence", () => {
+  const markerPath = path.join(scratch, "preserved live evidence.json");
+  const marker = JSON.stringify({ source: "previous live run", marker: "must-remain-unchanged" });
+  writeFileSync(markerPath, marker, "utf8");
+  const previousEvidencePath = process.env.NODULUS_LIVE_EVIDENCE;
+  process.env.NODULUS_LIVE_EVIDENCE = markerPath;
+  try {
+    const fixture = createInstalledSmokeFixture("codex");
+    runInstalledProviderSmoke({
+      provider: "codex",
+      executable: fixture.executable,
+      model: null,
+      timeoutMs: 10_000,
+      prepareProject: fixture.prepareProject,
+    });
+    expect(readFileSync(markerPath, "utf8")).toBe(marker);
+  } finally {
+    if (previousEvidencePath === undefined) delete process.env.NODULUS_LIVE_EVIDENCE;
+    else process.env.NODULUS_LIVE_EVIDENCE = previousEvidencePath;
+  }
+}, 120_000);
+
+test("PKG-012 installed smoke failure diagnostics classify a provider exit without exposing output", () => {
+  const fixture = createFailingInstalledSmokeFixture();
+  const diagnosticPath = path.join(scratch, "provider failure diagnostic.json");
+  expect(() => runInstalledProviderSmoke({
+    provider: "codex",
+    executable: fixture.executable,
+    model: null,
+    timeoutMs: 10_000,
+    diagnosticPath,
+    prepareProject: fixture.prepareProject,
+  })).toThrow();
+
+  const diagnostic = JSON.parse(readFileSync(diagnosticPath, "utf8"));
+  expect(diagnostic).toEqual({
+    stage: "run",
+    cliExitCode: 1,
+    envelopeStatus: "error",
+    errorCode: "PROVIDER_FAILURE",
+    runIdPresent: true,
+    callLaunched: true,
+    requestAvailable: true,
+    transportAvailable: true,
+    transportExitCode: 23,
+    timedOut: false,
+    outputLimitExceeded: false,
+  });
+  const serialized = JSON.stringify(diagnostic);
+  expect(serialized).not.toContain("FIXTURE-SECRET-CREDENTIAL");
+  expect(serialized).not.toContain("FIXTURE-PRIVATE-PROMPT");
+  expect(serialized).not.toContain(fixture.executable);
+}, 120_000);
+
+test("PKG-013 prelaunch installed smoke diagnostics report unavailable call evidence", () => {
+  const fixture = createInstalledSmokeFixture("codex");
+  const diagnosticPath = path.join(scratch, "prelaunch failure diagnostic.json");
+  const executable = path.join(scratch, "missing provider executable");
+  expect(() => runInstalledProviderSmoke({
+    provider: "codex",
+    executable,
+    model: null,
+    timeoutMs: 10_000,
+    diagnosticPath,
+    prepareProject: fixture.prepareProject,
+  })).toThrow();
+
+  const diagnostic = JSON.parse(readFileSync(diagnosticPath, "utf8"));
+  expect(diagnostic).toEqual({
+    stage: "run",
+    cliExitCode: 1,
+    envelopeStatus: "error",
+    errorCode: "PROVIDER_FAILURE",
+    runIdPresent: true,
+    callLaunched: false,
+    requestAvailable: false,
+    transportAvailable: false,
+    transportExitCode: null,
+    timedOut: false,
+    outputLimitExceeded: false,
+  });
+  expect(JSON.stringify(diagnostic)).not.toContain(executable);
+}, 120_000);
+
+test("PKG-014 failure diagnostic classifier redacts unknown envelope statuses and unavailable observations", () => {
+  const project = path.join(scratch, "failure classification fixture");
+  mkdirSync(project, { recursive: true });
+  const envelopePath = path.join(project, "malformed-status-envelope.json");
+  writeFileSync(envelopePath, JSON.stringify({
+    schemaVersion: 1,
+    status: "SECRET-UNRECOGNIZED-ENVELOPE-STATUS",
+    runId: "runfixture123",
+    result: { error: { code: "PROVIDER_FAILURE", message: "SECRET-PRIVATE-DIAGNOSTIC" } },
+  }), "utf8");
+
+  const diagnostic = classifyInstalledFailure(readFileSync(envelopePath, "utf8"), null, project);
+  expect(diagnostic).toMatchObject({
+    envelopeStatus: null,
+    runIdPresent: true,
+    callLaunched: null,
+    requestAvailable: null,
+    transportAvailable: null,
+    transportExitCode: null,
+    timedOut: null,
+    outputLimitExceeded: null,
+  });
+  expect(JSON.stringify(diagnostic)).not.toContain("SECRET-UNRECOGNIZED-ENVELOPE-STATUS");
+  expect(JSON.stringify(diagnostic)).not.toContain("SECRET-PRIVATE-DIAGNOSTIC");
 });
 
 test("PKG-002 includes the user guide and starter assets while excluding development files", () => {
@@ -323,6 +459,78 @@ function stageBuiltPackage(source: string, destination: string): void {
   for (const item of ["package.json", "README.md", "NOTICE", "LICENSE", "dist", "docs"]) {
     cpSync(path.join(source, item), path.join(destination, item), { recursive: true });
   }
+}
+
+function createInstalledSmokeFixture(kind: "codex" | "cursor" | "opencode"): {
+  executable: string;
+  prepareProject: (project: string) => void;
+} {
+  const fixtureDirectory = path.join(scratch, "installed smoke fixtures");
+  mkdirSync(fixtureDirectory, { recursive: true });
+  const scriptPath = path.join(fixtureDirectory, "usage-provider.mjs");
+  cpSync(path.join(repository, "tests", "fixtures", "observability", "usage-provider.mjs"), scriptPath);
+  const executable = path.join(fixtureDirectory, process.platform === "win32" ? `${kind}-smoke.cmd` : `${kind}-smoke.sh`);
+  if (process.platform === "win32") {
+    writeFileSync(executable, `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\nexit /b %ERRORLEVEL%\r\n`, "utf8");
+  } else {
+    const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+    writeFileSync(executable, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(scriptPath)} "$@"\n`, "utf8");
+    chmodSync(executable, 0o755);
+  }
+  const message = `LIVE-${kind}-artifact`;
+  const outcome = JSON.stringify({ status: "success", artifacts: [{ name: "example", contract: "example.v1", data: { message } }] });
+  const version = kind === "codex" ? "0.144.4" : kind === "cursor" ? "2026.09.23-86fc751" : "1.18.32";
+  const stdout = kind === "codex"
+    ? JSON.stringify({ type: "turn.started" }) + "\n" + JSON.stringify({ type: "turn.completed", usage: { input_tokens: 8, output_tokens: 3 } }) + "\n"
+    : kind === "cursor"
+      ? JSON.stringify({ type: "result", subtype: "success", is_error: false, result: outcome })
+      : [
+          { type: "text", part: { messageID: "fixture-live-message", text: outcome } },
+          { type: "step_finish", part: { id: "fixture-live-step", sessionID: "fixture-live-session", messageID: "fixture-live-message", reason: "stop", tokens: { input: 8, output: 3, reasoning: 0, cache: { read: 0, write: 0 } }, cost: 0 } },
+        ].map(event => JSON.stringify(event)).join("\n") + "\n";
+
+  return {
+    executable,
+    prepareProject(project) {
+      const directory = path.join(project, ".nodulus", "fixtures");
+      mkdirSync(directory, { recursive: true });
+      writeFileSync(path.join(directory, "usage-control.json"), JSON.stringify({ kind, stdout, version, outcome }), "utf8");
+    },
+  };
+}
+
+function createFailingInstalledSmokeFixture(): {
+  executable: string;
+  prepareProject: (project: string) => void;
+} {
+  const fixtureDirectory = path.join(scratch, "failure diagnostics fixture");
+  mkdirSync(fixtureDirectory, { recursive: true });
+  const scriptPath = path.join(fixtureDirectory, "provider.mjs");
+  writeFileSync(scriptPath, [
+    "import { writeFileSync } from 'node:fs';",
+    "const args = process.argv.slice(2);",
+    "if (args[0] === '--version') { process.stdout.write('codex-cli 0.156.1\\n'); process.exit(0); }",
+    "if (args[0] === 'login' && args[1] === 'status') process.exit(0);",
+    "const flag = (name) => { const index = args.indexOf(name); return index < 0 ? undefined : args[index + 1]; };",
+    "let stdin = ''; for await (const chunk of process.stdin) stdin += chunk;",
+    "process.stderr.write('FIXTURE-SECRET-CREDENTIAL FIXTURE-PRIVATE-PROMPT ' + stdin);",
+    "const output = flag('--output-last-message'); if (output) writeFileSync(output, JSON.stringify({ response: JSON.stringify({ status: 'success', artifacts: [] }) }));",
+    "process.exit(23);",
+  ].join("\n"), "utf8");
+  const executable = path.join(fixtureDirectory, process.platform === "win32" ? "failing-codex.cmd" : "failing-codex.sh");
+  if (process.platform === "win32") {
+    writeFileSync(executable, `@echo off\r\n"${process.execPath}" "%~dp0provider.mjs" %*\r\nexit /b %ERRORLEVEL%\r\n`, "utf8");
+  } else {
+    writeFileSync(executable, `#!/bin/sh\nexec '${process.execPath}' '${scriptPath}' "$@"\n`, "utf8");
+    chmodSync(executable, 0o755);
+  }
+  return {
+    executable,
+    prepareProject(project) {
+      const directory = path.join(project, ".nodulus", "fixtures");
+      mkdirSync(directory, { recursive: true });
+    },
+  };
 }
 
 test("PKG-005 packs the scoped public package with Apache-2.0 notices in the archive", () => {
