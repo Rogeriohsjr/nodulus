@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "pong",
+  "providerProfile": "claude-sonnet",
+  "instructions": [
+    ".nodulus/instructions/claude-pong.md"
+  ],
+  "inputs": {
+    "ping": {
+      "from": "ping.ping",
+      "contract": "ping.v1"
+    }
+  },
+  "expectedOutputs": [
+    {
+      "name": "pong",
+      "contract": "pong.v1",
+      "validator": ".nodulus/validators/expect-pong.mjs"
+    }
+  ]
+}

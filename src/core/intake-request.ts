@@ -36,7 +36,7 @@ type NodeDefinition = {
 };
 type ResolvedReference = { path: string; mode: "snapshot" | "workspace"; sha256: string; content?: string };
 type ResolvedProviderProfile = {
-  kind?: "codex" | "cursor" | "opencode";
+  kind?: "codex" | "cursor" | "opencode" | "claude";
   enabled: boolean;
   executable: string;
   model?: string;
@@ -45,6 +45,10 @@ type ResolvedProviderProfile = {
   capabilities?: string[];
   sandbox?: "read-only" | "workspace-write";
   reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  maxTurns?: number;
+  maxBudgetUsd?: number;
+  tools?: string;
+  safeMode?: boolean;
 };
 
 const idPattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -279,6 +283,16 @@ export function validateProvider(settings: ProjectSettings, profileName: string,
   if (profile.kind === "opencode" && profile.arguments !== undefined) {
     configError(`OpenCode provider profile '${profileName}' does not permit arbitrary arguments.`);
   }
+  if (profile.kind === "claude") {
+    if (profile.maxTurns !== undefined && (typeof profile.maxTurns !== "number" || !Number.isInteger(profile.maxTurns) || profile.maxTurns <= 0)) {
+      configError(`Provider profile '${profileName}' maxTurns must be a positive integer.`);
+    }
+    if (profile.maxBudgetUsd !== undefined && (typeof profile.maxBudgetUsd !== "number" || !Number.isFinite(profile.maxBudgetUsd) || profile.maxBudgetUsd <= 0)) {
+      configError(`Provider profile '${profileName}' maxBudgetUsd must be a positive finite number.`);
+    }
+    if (profile.tools !== undefined && typeof profile.tools !== "string") configError(`Provider profile '${profileName}' tools must be a string.`);
+    if (profile.safeMode !== undefined && typeof profile.safeMode !== "boolean") configError(`Provider profile '${profileName}' safeMode must be a boolean.`);
+  }
   return profile;
 }
 
@@ -287,7 +301,7 @@ function safeProfileSnapshot(profile: ProjectSettings["providerProfiles"][string
     enabled: profile.enabled,
     executable: profile.executable,
   };
-  if (profile.kind === "codex" || profile.kind === "cursor" || profile.kind === "opencode") snapshot.kind = profile.kind;
+  if (profile.kind === "codex" || profile.kind === "cursor" || profile.kind === "opencode" || profile.kind === "claude") snapshot.kind = profile.kind;
   if (typeof profile.model === "string") snapshot.model = profile.model;
   if (typeof profile.timeout === "number") snapshot.timeout = profile.timeout;
   if (typeof profile.timeoutMs === "number") snapshot.timeoutMs = profile.timeoutMs;
@@ -297,6 +311,12 @@ function safeProfileSnapshot(profile: ProjectSettings["providerProfiles"][string
   if (profile.kind === "codex") {
     snapshot.sandbox = profile.sandbox === undefined ? "read-only" : profile.sandbox as ResolvedProviderProfile["sandbox"];
     if (isCodexReasoningEffort(profile.reasoningEffort)) snapshot.reasoningEffort = profile.reasoningEffort;
+  }
+  if (profile.kind === "claude") {
+    if (typeof profile.maxTurns === "number") snapshot.maxTurns = profile.maxTurns;
+    if (typeof profile.maxBudgetUsd === "number") snapshot.maxBudgetUsd = profile.maxBudgetUsd;
+    if (typeof profile.tools === "string") snapshot.tools = profile.tools;
+    if (typeof profile.safeMode === "boolean") snapshot.safeMode = profile.safeMode;
   }
   return snapshot;
 }

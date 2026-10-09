@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "ping",
+  "providerProfile": "claude-haiku",
+  "instructions": [
+    ".nodulus/instructions/claude-ping.md"
+  ],
+  "inputs": {
+    "request": {
+      "from": "request",
+      "contract": "request.v1"
+    }
+  },
+  "expectedOutputs": [
+    {
+      "name": "ping",
+      "contract": "ping.v1",
+      "validator": ".nodulus/validators/expect-ping.mjs"
+    }
+  ]
+}

@@ -8,7 +8,7 @@ import { runCapturedProcess } from "./captured-process.js";
 
 type Capture = typeof runCapturedProcess;
 
-type Kind = "codex" | "cursor" | "opencode";
+type Kind = "codex" | "cursor" | "opencode" | "claude";
 const invocationTimeout = 10 * 60 * 1000;
 const outcomeSchema = {
   type: "object",
@@ -17,6 +17,7 @@ const outcomeSchema = {
   additionalProperties: false,
 };
 const openCodeTransportSuffix = "OpenCode transport instruction: Return exactly one complete Nodulus system outcome JSON object as your final assistant response. Do not return an artifact data value alone or write the outcome to a file. A success outcome has this shape: {\"status\":\"success\",\"artifacts\":[{\"name\":\"node-supplied name\",\"contract\":\"node-supplied contract\",\"data\":{}}]}. The node prompt supplies the actual expected names and contracts.";
+const claudeTransportSuffix = "Claude Code transport instruction: The JSON schema requires an outer object with exactly one string property named response. Set response to the complete serialized Nodulus system outcome JSON object. Do not return the Nodulus outcome as the outer object, return artifact data alone, or write the outcome to a file. A success outcome has this shape: {\"status\":\"success\",\"artifacts\":[{\"name\":\"node-supplied name\",\"contract\":\"node-supplied contract\",\"data\":{}}]}. The node prompt supplies the actual expected names and contracts.";
 
 export function createDefaultProviderPort(projectRoot: string): ProviderPort {
   const openCodeRepairSessions = new Map<string, { sessionID: string; count: number }>();
@@ -47,13 +48,12 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
         versions.set(repairSessionKey(invocation), version);
         const capture = captureWithVersion(version);
         await checkReadiness(kind, executable, profile, projectRoot, readinessTimeout);
-        return await (kind === "codex"
-          ? invokeCodex(executable, projectRoot, invocation, timeout, capture)
-          : kind === "cursor"
-            ? invokeCursor(executable, projectRoot, invocation, timeout, capture)
-            : invokeOpenCode(executable, projectRoot, invocation, timeout, openCodeRepairSessions, capture));
+        if (kind === "claude") return await invokeClaude(executable, projectRoot, invocation, timeout, capture);
+        if (kind === "codex") return await invokeCodex(executable, projectRoot, invocation, timeout, capture);
+        if (kind === "cursor") return await invokeCursor(executable, projectRoot, invocation, timeout, capture);
+        return await invokeOpenCode(executable, projectRoot, invocation, timeout, openCodeRepairSessions, capture);
       } catch (error) {
-        if (kind === "opencode" && error instanceof NodulusError) return providerError(error);
+        if ((kind === "opencode" || kind === "claude") && error instanceof NodulusError) return providerError(error);
         throw error;
       }
     },
@@ -91,8 +91,8 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
 }
 
 function requireKind(profile: Record<string, unknown>): Kind {
-  if (profile.kind === "codex" || profile.kind === "cursor" || profile.kind === "opencode") return profile.kind;
-  throw new NodulusError("PROVIDER_KIND_REQUIRED", "The default provider adapter requires an explicit provider kind: 'codex', 'cursor', or 'opencode'.");
+  if (profile.kind === "codex" || profile.kind === "cursor" || profile.kind === "opencode" || profile.kind === "claude") return profile.kind;
+  throw new NodulusError("PROVIDER_KIND_REQUIRED", "The default provider adapter requires an explicit provider kind: 'codex', 'cursor', 'opencode', or 'claude'.");
 }
 
 async function checkVersion(kind: Kind, executable: string, cwd: string, timeoutMs: number): Promise<string> {
@@ -108,6 +108,9 @@ async function checkVersion(kind: Kind, executable: string, cwd: string, timeout
   if (kind === "opencode" && compareVersion(match.slice(1).map(Number), [1, 18, 32]) < 0) {
     throw new NodulusError("PROVIDER_VERSION_UNSUPPORTED", `OpenCode CLI version ${match[0].trim()} is unsupported; the verified minimum is 1.18.32.`);
   }
+  if (kind === "claude" && compareVersion(match.slice(1).map(Number), [2, 1, 294]) < 0) {
+    throw new NodulusError("PROVIDER_VERSION_UNSUPPORTED", `Claude Code version ${match[0].trim()} is unsupported; the verified minimum is 2.1.294.`);
+  }
   return match[0].trim();
 }
 
@@ -118,6 +121,7 @@ function compareVersion(actual: number[], required: number[]): number {
 
 async function checkReadiness(kind: Kind, executable: string, profile: Record<string, unknown>, cwd: string, timeoutMs: number): Promise<void> {
   if (kind === "opencode") return checkOpenCodeModel(executable, profile, cwd, timeoutMs);
+  if (kind === "claude") return checkClaudeReadiness(executable, cwd, timeoutMs);
   const args = kind === "codex" ? ["login", "status"] : ["status", "--format", "json"];
   let result;
   try { result = await runProcess(executable, args, { cwd, timeoutMs: Math.min(timeoutMs, 30_000) }); }
@@ -136,6 +140,22 @@ async function checkReadiness(kind: Kind, executable: string, profile: Record<st
       throw new NodulusError("PROVIDER_AUTH_REQUIRED", "cursor authentication is required. Sign in using the provider's documented CLI command.");
     }
   }
+}
+
+async function checkClaudeReadiness(executable: string, cwd: string, timeoutMs: number): Promise<void> {
+  let result;
+  try { result = await runProcess(executable, ["auth", "status"], { cwd, timeoutMs: Math.min(timeoutMs, 30_000) }); }
+  catch (error) { throw new NodulusError("PROVIDER_AUTH_UNAVAILABLE", `claude authentication status could not be checked: ${messageOf(error)}`); }
+  if (result.timedOut || result.exitCode !== 0) {
+    throw new NodulusError("PROVIDER_AUTH_REQUIRED", `claude authentication check failed${detail(result.stderr)}. Sign in using the provider's documented CLI command.`);
+  }
+  let status: unknown;
+  try { status = JSON.parse(result.stdout) as unknown; }
+  catch (error) { throw new NodulusError("PROVIDER_AUTH_UNAVAILABLE", `claude authentication status returned malformed JSON: ${messageOf(error)}${detail(result.stderr)}.`); }
+  if (!isRecord(status) || typeof status.loggedIn !== "boolean") {
+    throw new NodulusError("PROVIDER_AUTH_UNAVAILABLE", "claude authentication status did not include the expected loggedIn boolean.");
+  }
+  if (!status.loggedIn) throw new NodulusError("PROVIDER_AUTH_REQUIRED", "claude authentication is required. Sign in using the provider's documented CLI command.");
 }
 
 async function checkOpenCodeModel(executable: string, profile: Record<string, unknown>, cwd: string, timeoutMs: number): Promise<void> {
@@ -212,6 +232,48 @@ async function invokeCursor(executable: string, cwd: string, invocation: Provide
   if (result.outputLimitExceeded) throw new NodulusError("PROVIDER_OUTPUT_LIMIT", "Cursor CLI exceeded the 2 MiB transport output limit.");
   if (result.exitCode !== 0) throw new NodulusError("PROVIDER_PROCESS_FAILED", `Cursor CLI exited with code ${result.exitCode}${detail(result.stderr)}.`);
   return parseCursorStreamOutcome(result.stdout, result.stderr);
+}
+
+async function invokeClaude(executable: string, cwd: string, invocation: ProviderInvocation, timeoutMs: number, capture: Capture): Promise<string> {
+  const directory = await attemptDirectory(cwd, invocation);
+  const profile = invocation.providerProfile;
+  if (profile.maxTurns !== undefined && (typeof profile.maxTurns !== "number" || !Number.isInteger(profile.maxTurns) || profile.maxTurns <= 0)) {
+    throw new NodulusError("CONFIGURATION_INVALID", "Claude maxTurns must be a positive integer.");
+  }
+  if (profile.maxBudgetUsd !== undefined && (typeof profile.maxBudgetUsd !== "number" || !Number.isFinite(profile.maxBudgetUsd) || profile.maxBudgetUsd <= 0)) {
+    throw new NodulusError("CONFIGURATION_INVALID", "Claude maxBudgetUsd must be a positive finite number.");
+  }
+  if (profile.tools !== undefined && typeof profile.tools !== "string") throw new NodulusError("CONFIGURATION_INVALID", "Claude tools must be a string.");
+  if (profile.safeMode !== undefined && typeof profile.safeMode !== "boolean") throw new NodulusError("CONFIGURATION_INVALID", "Claude safeMode must be a boolean.");
+
+  const args = ["-p", "--output-format", "json", "--json-schema", JSON.stringify(outcomeSchema), "--no-session-persistence"];
+  if (typeof profile.model === "string") args.push("--model", profile.model);
+  if (typeof profile.maxTurns === "number") args.push("--max-turns", String(profile.maxTurns));
+  if (typeof profile.maxBudgetUsd === "number") args.push("--max-budget-usd", String(profile.maxBudgetUsd));
+  if (typeof profile.tools === "string") {
+    args.push("--tools", profile.tools);
+    if (profile.tools === "") args.push("--mcp-config", "{}", "--strict-mcp-config");
+  }
+  if (profile.safeMode === true) args.push("--safe-mode");
+  const transportPrompt = `${invocation.prompt}\n\n${claudeTransportSuffix}`;
+  const result = await capture(executable, args, { cwd, stdin: transportPrompt, timeoutMs }, invocation);
+  await saveTransport(directory, "claude", result);
+  if (result.timedOut) throw new NodulusError("PROVIDER_TIMEOUT", "Claude Code CLI exceeded its configured invocation timeout.");
+  if (result.outputLimitExceeded) throw new NodulusError("PROVIDER_OUTPUT_LIMIT", "Claude Code CLI exceeded the 2 MiB transport output limit.");
+  if (result.exitCode !== 0) throw new NodulusError("PROVIDER_PROCESS_FAILED", `Claude Code CLI exited with code ${result.exitCode}${detail(result.stderr)}.`);
+  let envelope: unknown;
+  try { envelope = JSON.parse(result.stdout) as unknown; }
+  catch (error) { throw new NodulusError("PROVIDER_TRANSPORT_INVALID", `Claude Code CLI returned malformed JSON: ${messageOf(error)}${detail(result.stderr)}.`); }
+  if (!isRecord(envelope) || envelope.type !== "result" || envelope.subtype !== "success" || envelope.is_error !== false) {
+    const subtype = isRecord(envelope) && typeof envelope.subtype === "string" ? envelope.subtype : "unknown";
+    const errors = isRecord(envelope) && Array.isArray(envelope.errors) ? envelope.errors.filter((item): item is string => typeof item === "string").join("; ") : "";
+    throw new NodulusError("PROVIDER_PROCESS_FAILED", `Claude Code CLI reported ${subtype}${errors ? `: ${errors}` : ""}${detail(result.stderr)}.`);
+  }
+  if (!isRecord(envelope.structured_output)) throw new NodulusError("PROVIDER_RESPONSE_MISSING", `Claude Code CLI did not return structured_output${detail(result.stderr)}.`);
+  if (Object.keys(envelope.structured_output).length !== 1 || typeof envelope.structured_output.response !== "string") {
+    throw new NodulusError("PROVIDER_TRANSPORT_INVALID", "Claude Code structured_output did not match the requested response-string schema.");
+  }
+  return envelope.structured_output.response;
 }
 
 function parseCursorStreamOutcome(stdout: string, stderr: string): string {

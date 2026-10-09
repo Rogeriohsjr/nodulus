@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pong.v1",
+  "title": "Claude smoke pong",
+  "type": "object",
+  "properties": {
+    "message": {
+      "const": "pong"
+    }
+  },
+  "required": [
+    "message"
+  ],
+  "additionalProperties": false
+}

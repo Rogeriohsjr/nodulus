@@ -13,7 +13,7 @@ Read [architecture](../architecture.md) and [testing policy](../testing.md). Wor
 | [x] | [04-workflow-sequence](04-workflow-sequence/README.md) | Connect validated nodes in sequence | TDD |
 | [x] | [05-clarification-resume](05-clarification-resume/README.md) | Pause, answer, and resume | TDD |
 | [x] | [06-repair-recovery](06-repair-recovery/README.md) | Repair responses and recover safely | TDD |
-| [x] | [07-provider-adapters](07-provider-adapters/README.md) | Integrate Codex and Cursor | TDD for adapters; live compatibility verification is separate |
+| [x] | [07-provider-adapters](07-provider-adapters/README.md) | Integrate Codex, Cursor, OpenCode, and Claude Code | Current-main Claude adapter accepted locally after Sol review; Claude live proof remains pending |
 | [x] | [08-package-install](08-package-install/README.md) | Install and upgrade the package | TDD for package behavior; docs/metadata review is non-TDD |
 | [ ] | [09-ci-release](09-ci-release/README.md) | Validate platforms (verified); publish releases (in progress) | Non-TDD hosted configuration; test-first for any custom decision code |
 
