@@ -1,6 +1,6 @@
 # Evidence: 09-ci-release
 
-Status: public versions 1.0.0 and 1.0.1, automated OIDC publishing and registry upgrade are verified. Remaining external release-guard exercises stay open. Historical preparation statuses below are superseded by the latest checkpoint.
+Status: public version 2.3.1 and automated OIDC publishing are verified. The clean registry upgrade evidence is historical and covers 1.0.0 to 1.0.1; no registry upgrade to 2.3.1 is claimed. Remaining external release-guard exercises stay open. Historical preparation statuses below are superseded by the latest checkpoint.
 
 ## Environment
 
@@ -9,6 +9,14 @@ Status: public versions 1.0.0 and 1.0.1, automated OIDC publishing and registry 
 - Owner/date: builder / 2026-09-24.
 - `semantic-release@25.0.9`, `@semantic-release/commit-analyzer@13.0.1`, and `conventional-changelog-conventionalcommits@9.3.1` are developer dependencies; no runtime package dependency was added. The analyzer and notes generator use the same preset. Preset v9.3.1 is compatible with semantic-release v25's writer v8; preset v10.4.0 failed the dry run because it requires writer v9.
 - No repository release/tag, registry mutation, paid service, or live provider call.
+
+## Current main release status and stacked PR filters (2026-10-08)
+
+The current public version is 2.3.1. GitHub release metadata records publication at `2026-10-08T19:35:57Z`; main commit `dcdd202` passed [workflow run 37832619378](https://github.com/Rogeriohsjr/nodulus/actions/runs/37832619378). The earlier v1.0.1 OIDC publication and clean upgrade evidence below remains historical proof of that release path; it is not the current package version.
+
+Updated `.github/workflows/ci-release.yml` and `.github/workflows/pr-title.yml` pull-request base filters to include `main` and `codex/**`. Push filters and all release predicates, permissions, pinned actions, exact-SHA checkout, validation matrix, Node/npm environment and publication concurrency settings are unchanged. For `pull_request_target`, GitHub loads the workflow file from the base repository's default branch (`main` here), not from the PR's target branch. Therefore the `codex/**` title filter becomes active after this update reaches `main`; hosted stacked-PR title validation remains pending. Main branch protection still requires `Validate PR title`; this change does not alter protection settings.
+
+Verification on Windows, Node `v24.15.0`, npm `11.12.1`: inline Node assertions parsed both workflow files through `js-yaml` and passed checks for both PR filters, unchanged push filters, release guard expressions, permissions, action pins, three-OS matrix, exact-SHA references, Node setup and non-canceling concurrency. `npm run lint` and `npm run typecheck` passed. The first `npm run check` attempt failed in scenarios after 311 passed: PROV-003 timed out at the unchanged 5-second limit. The package suite was not reached on that attempt. A separate folder 07 harness-only correction replaced per-byte delayed writes with a few asynchronous slices that split inside `Ω` and `🦊`; the original scenario test and deadline were preserved. After that correction, `npx vitest run tests/scenarios/prov-001-protocol-translation.test.ts -t 'split UTF-8'` passed 1/1, the full protocol file passed 15/15, and `npm run check` passed lint, typecheck, build, all 312 scenario tests and all 10 installed-package tests. The failure is historical harness timeout evidence, not a product behavior RED. No hosted workflow was rerun and no provider or publication job was invoked. REL-003 remains open for external fork, failed-enabled-check, published-commit rerun and concurrency proof.
 
 ## Scenario evidence
 
