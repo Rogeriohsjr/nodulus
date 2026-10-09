@@ -20,7 +20,7 @@ test("PROV-005 reports Claude JSON usage through the shared telemetry contract",
     provider: "claude",
     reportedModel: "claude-sonnet-fixture",
     coverage: "complete",
-    reported: { inputTokens: 17, outputTokens: 8, cacheReadTokens: 3, cacheWriteTokens: 0, costUsd: 0.001 },
+    reported: { inputTokens: 17, outputTokens: 8, cacheReadTokens: 3, cacheWriteTokens: 0, reasoningTokens: null, costUsd: 0.001 },
     normalized: { inputTokens: 20, outputTokens: 8 },
   });
 });
@@ -36,9 +36,22 @@ test("PROV-005 does not infer zero cache creation when Claude omits that counter
   expect(telemetry).toMatchObject({
     provider: "claude",
     coverage: "partial",
-    reported: { inputTokens: 17, outputTokens: 8, cacheReadTokens: 3, cacheWriteTokens: null, costUsd: 0.001 },
+    reported: { inputTokens: 17, outputTokens: 8, cacheReadTokens: 3, cacheWriteTokens: null, reasoningTokens: null, costUsd: 0.001 },
     normalized: { inputTokens: null, outputTokens: 8 },
   });
+});
+
+test("PROV-005 prefers a valid top-level Claude model over modelUsage metadata", () => {
+  const telemetry = parseProviderTelemetry("claude", JSON.stringify({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    model: "claude-haiku-5-5",
+    modelUsage: { "claude-sonnet-4-5": { canonicalModel: "claude-sonnet-4-5" } },
+    usage: { input_tokens: 2, output_tokens: 3, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    total_cost_usd: 0.001,
+  }), "2.1.295");
+  expect(telemetry.reportedModel).toBe("claude-haiku-5-5");
 });
 
 test("PROV-005 keeps Claude normalization unknown outside the verified CLI version", () => {
@@ -49,14 +62,139 @@ test("PROV-005 keeps Claude normalization unknown outside the verified CLI versi
     model: "claude-sonnet-fixture",
     usage: { input_tokens: 17, output_tokens: 8, cache_read_input_tokens: 3, cache_creation_input_tokens: 0 },
     total_cost_usd: 0.001,
-  }), "2.1.295");
+  }), "2.1.296");
   expect(telemetry).toMatchObject({
     provider: "claude",
-    cliVersion: "2.1.295",
+    cliVersion: "2.1.296",
     coverage: "complete",
     reported: { inputTokens: 17, outputTokens: 8, cacheReadTokens: 3, cacheWriteTokens: 0, costUsd: 0.001 },
     normalized: { inputTokens: null, outputTokens: null },
     semantics: { inputCache: "unknown", outputReasoning: "unknown", evidence: null },
+  });
+});
+
+test.each([
+  ["missing", undefined],
+  ["empty", {}],
+  ["multiple", {
+    "claude-haiku-5-5": { canonicalModel: "claude-haiku-5-5" },
+    "claude-sonnet-4-5": { canonicalModel: "claude-sonnet-4-5" },
+  }],
+] as const)("PROV-005 keeps the reported Claude model null when modelUsage is %s", (_label, modelUsage) => {
+  const telemetry = parseProviderTelemetry("claude", JSON.stringify({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    ...(modelUsage === undefined ? {} : { modelUsage }),
+    usage: { input_tokens: 2, output_tokens: 3, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    total_cost_usd: 0.001,
+  }), "2.1.296");
+  expect(telemetry.reportedModel).toBeNull();
+});
+
+test("PROV-005 replays captured Haiku success through the compiled CLI with observed usage", async () => {
+  const { project, logPath } = await createProviderScenario("claude", "observed-success", { model: "haiku", maxTurns: 3, maxBudgetUsd: 0.05, tools: "", safeMode: true });
+  try {
+    const result = runCompiledCli(project, ["run", "--project", project, "--request", "Replay captured Haiku success", "--json"]);
+    expect(result.status).toBe(0);
+    const envelope = JSON.parse(result.stdout);
+    expect(envelope.status).toBe("success");
+    expect(envelope.result.artifacts[0].data.message).toBe("CLAUDE-HAIKU-PING");
+    const calls = readProviderCalls(logPath);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].argv[calls[0].argv.indexOf("--model") + 1]).toBe("haiku");
+    expect(calls[0].argv[calls[0].argv.indexOf("--max-turns") + 1]).toBe("3");
+    expect(calls[0].argv[calls[0].argv.indexOf("--max-budget-usd") + 1]).toBe("0.05");
+    expect(calls[0].argv[calls[0].argv.indexOf("--tools") + 1]).toBe("");
+    expect(calls[0].argv[calls[0].argv.indexOf("--mcp-config") + 1]).toBe(JSON.stringify({ mcpServers: {} }));
+    expect(calls[0].argv).toContain("--strict-mcp-config");
+    expect(calls[0].argv).toContain("--safe-mode");
+    const status = await getRunStatus(project, envelope.runId);
+    expect(status.metrics?.calls[0]?.telemetry).toMatchObject({
+      cliVersion: "2.1.295",
+      reportedModel: "claude-haiku-5-5",
+      reported: { inputTokens: 2, outputTokens: 106, cacheReadTokens: 0, cacheWriteTokens: 5208, reasoningTokens: 0, costUsd: 0.0007042 },
+      normalized: { inputTokens: 5210, outputTokens: 106 },
+      semantics: { inputCache: "excluded", outputReasoning: "included" },
+    });
+    expect(status.metrics?.calls[0]?.usage).toEqual({ inputTokens: 5210, outputTokens: 106, cacheReadTokens: 0, costUsd: 0.0007042 });
+  } finally {
+    cleanupProviderProject(project);
+  }
+});
+
+test("PROV-005 replays captured Haiku controlled error and reports inclusive reasoning without successor", async () => {
+  const { project, logPath } = await createProviderScenario("claude", "observed-controlled-error", { model: "haiku", maxTurns: 3, maxBudgetUsd: 0.05, tools: "", safeMode: true });
+  configureTwoNodes(project);
+  try {
+    const result = runCompiledCli(project, ["run", "--project", project, "--request", "Replay captured controlled Haiku error", "--json"]);
+    expect(result.status).toBe(1);
+    const envelope = JSON.parse(result.stdout);
+    expect(envelope.result.error).toEqual({ code: "SMOKE_EXPECTED_FAILURE", message: "ControlledHaiku failurefixture" });
+    expect(envelope.result.artifacts).toBeUndefined();
+    expect(readProviderCalls(logPath)).toHaveLength(1);
+    expect(existsSync(path.join(project, ".nodulus", "runs", envelope.runId, "nodes", "second", "attempt-001"))).toBe(false);
+    expect(existsSync(path.join(project, ".nodulus", "runs", envelope.runId, "nodes", "second", "artifacts", "example.json"))).toBe(false);
+    const status = await getRunStatus(project, envelope.runId);
+    expect(status.metrics?.calls[0]?.telemetry).toMatchObject({
+      cliVersion: "2.1.295",
+      reportedModel: "claude-haiku-5-5",
+      reported: { inputTokens: 2, outputTokens: 273, cacheReadTokens: 2477, cacheWriteTokens: 2931, reasoningTokens: 170, costUsd: 0.000527845 },
+      normalized: { inputTokens: 5410, outputTokens: 273 },
+      semantics: { inputCache: "excluded", outputReasoning: "included" },
+    });
+    expect(status.metrics?.calls[0]?.usage).toEqual({ inputTokens: 5410, outputTokens: 273, cacheReadTokens: 2477, costUsd: 0.000527845 });
+    const [call] = readProviderCalls(logPath);
+    expect(call.argv[call.argv.indexOf("--model") + 1]).toBe("haiku");
+    expect(call.argv[call.argv.indexOf("--max-turns") + 1]).toBe("3");
+    expect(call.argv[call.argv.indexOf("--max-budget-usd") + 1]).toBe("0.05");
+    expect(call.argv[call.argv.indexOf("--tools") + 1]).toBe("");
+    expect(call.argv[call.argv.indexOf("--mcp-config") + 1]).toBe(JSON.stringify({ mcpServers: {} }));
+    expect(call.argv).toContain("--strict-mcp-config");
+    expect(call.argv).toContain("--safe-mode");
+  } finally {
+    cleanupProviderProject(project);
+  }
+});
+
+test("PROV-005 replays captured Claude MCP startup failure and starts no successor", async () => {
+  const { project, logPath } = await createProviderScenario("claude", "observed-mcp-startup-failure", { model: "haiku", maxTurns: 3, maxBudgetUsd: 0.05, tools: "", safeMode: true });
+  configureTwoNodes(project);
+  try {
+    const result = runCompiledCli(project, ["run", "--project", project, "--request", "Replay captured MCP startup error", "--json"]);
+    expect(result.status).toBe(1);
+    const envelope = JSON.parse(result.stdout);
+    expect(envelope.status).toBe("error");
+    expect(envelope.result.error.code).toBe("PROVIDER_PROCESS_FAILED");
+    expect(envelope.result.error.message).toContain("Invalid MCP configuration");
+    expect(envelope.result.error.message).toContain("mcpServers: Invalid input: expected record, received undefined");
+    expect(readProviderCalls(logPath)).toHaveLength(1);
+    expect(existsSync(path.join(project, ".nodulus", "runs", envelope.runId, "nodes", "second", "attempt-001"))).toBe(false);
+    const [call] = readProviderCalls(logPath);
+    expect(call.argv[call.argv.indexOf("--model") + 1]).toBe("haiku");
+    expect(call.argv[call.argv.indexOf("--max-turns") + 1]).toBe("3");
+    expect(call.argv[call.argv.indexOf("--max-budget-usd") + 1]).toBe("0.05");
+    expect(call.argv[call.argv.indexOf("--tools") + 1]).toBe("");
+    expect(call.argv[call.argv.indexOf("--mcp-config") + 1]).toBe(JSON.stringify({ mcpServers: {} }));
+    expect(call.argv).toContain("--strict-mcp-config");
+    expect(call.argv).toContain("--safe-mode");
+    const status = await getRunStatus(project, envelope.runId);
+    expect(status.metrics?.calls[0]?.telemetry?.coverage).toBe("unavailable");
+    expect(status.metrics?.calls[0]?.usage).toBeNull();
+  } finally {
+    cleanupProviderProject(project);
+  }
+});
+
+test("PROV-005 captured Haiku API counters normalize from actual CLI payload shape", () => {
+  const fixture = JSON.parse(readFileSync(path.resolve("tests/fixtures/providers/claude/haiku-controlled-error.json"), "utf8"));
+  const telemetry = parseProviderTelemetry("claude", JSON.stringify(fixture.payload), fixture.cliVersion);
+  expect(telemetry).toMatchObject({
+    cliVersion: "2.1.295",
+    reportedModel: "claude-haiku-5-5",
+    reported: { inputTokens: 2, outputTokens: 273, cacheReadTokens: 2477, cacheWriteTokens: 2931, reasoningTokens: 170, costUsd: 0.000527845 },
+    normalized: { inputTokens: 5410, outputTokens: 273 },
+    semantics: { inputCache: "excluded", outputReasoning: "included" },
   });
 });
 
@@ -79,9 +217,22 @@ test("PROV-005 Claude maps Haiku to Sonnet across a two-node compiled CLI workfl
   writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
   try {
     const result = runCompiledCli(project, ["run", "--project", project, "--request", "Run both Claude nodes", "--json"]);
-    expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout).status).toBe("success");
+    const capturedRunId = JSON.parse(result.stdout).runId;
+    const startup = JSON.parse(readFileSync(path.join(project, ".nodulus", "runs", capturedRunId, "provider", "example", "attempt-001", "transport.json"), "utf8"));
+    const observedTransport = { exitCode: startup.exitCode, stdout: startup.stdout, stderr: startup.stderr };
+    const actualFailure = JSON.parse(readFileSync(path.resolve("tests/fixtures/providers/claude/mcp-empty-config-startup-failure.json"), "utf8"));
+    expect(actualFailure).toEqual({
+      cliVersion: "2.1.295",
+      exitCode: 1,
+      stdout: "",
+      stderr: "Error: Invalid MCP configuration:\nmcpServers: Invalid input: expected record, received undefined\n",
+    });
+    expect(observedTransport).not.toEqual({ exitCode: actualFailure.exitCode, stdout: actualFailure.stdout, stderr: actualFailure.stderr });
     const calls = readProviderCalls(logPath);
+    const mcpConfigIndex = calls[0].argv.indexOf("--mcp-config");
+    expect(calls[0].argv[mcpConfigIndex + 1], JSON.stringify({ status: result.status, transport: observedTransport })).toBe(JSON.stringify({ mcpServers: {} }));
+    expect(result.status, JSON.stringify(JSON.parse(result.stdout))).toBe(0);
+    expect(JSON.parse(result.stdout).status).toBe("success");
     expect(calls).toHaveLength(2);
     expect(calls[0].argv).toContain("--model");
     expect(calls[0].argv[calls[0].argv.indexOf("--model") + 1]).toBe("haiku");
@@ -96,7 +247,7 @@ test("PROV-005 Claude maps Haiku to Sonnet across a two-node compiled CLI workfl
       expect(call.argv[call.argv.indexOf("--tools") + 1]).toBe("");
       expect(call.argv).toContain("--safe-mode");
       expect(call.argv).toContain("--mcp-config");
-      expect(call.argv[call.argv.indexOf("--mcp-config") + 1]).toBe("{}");
+      expect(call.argv[call.argv.indexOf("--mcp-config") + 1]).toBe(JSON.stringify({ mcpServers: {} }));
       expect(call.argv).toContain("--strict-mcp-config");
     }
     const captured = JSON.parse(readFileSync(path.join(project, ".nodulus", "runs", JSON.parse(result.stdout).runId, "context", "definitions.json"), "utf8"));

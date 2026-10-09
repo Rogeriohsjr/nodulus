@@ -252,7 +252,7 @@ async function invokeClaude(executable: string, cwd: string, invocation: Provide
   if (typeof profile.maxBudgetUsd === "number") args.push("--max-budget-usd", String(profile.maxBudgetUsd));
   if (typeof profile.tools === "string") {
     args.push("--tools", profile.tools);
-    if (profile.tools === "") args.push("--mcp-config", "{}", "--strict-mcp-config");
+    if (profile.tools === "") args.push("--mcp-config", JSON.stringify({ mcpServers: {} }), "--strict-mcp-config");
   }
   if (profile.safeMode === true) args.push("--safe-mode");
   const transportPrompt = `${invocation.prompt}\n\n${claudeTransportSuffix}`;

@@ -1,6 +1,6 @@
 # 07-provider-adapters: Integrate Codex, Cursor and OpenCode
 
-**Status:** Codex/Cursor/OpenCode behavior and the current-main Claude source are accepted locally on Windows after focused Sol review. Provider tests use executable fixtures; prior Windows live proof covers Codex, OpenCode/Ollama, and Cursor. Claude live inference and macOS/Linux live compatibility remain unverified. **Prerequisite:** 06-repair-recovery. **Method:** TDD for adapters; live compatibility verification is separate.
+**Status:** Claude adapter and observed-usage parser are accepted by Sol; the local `npm run check` passes on Windows. A bounded installed-archive run captured Haiku success and a controlled Nodulus error with Claude Code CLI 2.1.295. Sonnet live smoke and macOS/Linux compatibility remain pending. **Prerequisite:** 06-repair-recovery. **Method:** TDD for adapters; live compatibility verification is separate.
 
 A caller selects a supported installed provider without changing the workflow engine.
 
@@ -39,7 +39,8 @@ Given provider usage is missing or structured output/response-only correction is
 Given a captured Claude profile and supported CLI, when a workflow invokes Claude, then readiness, bounded JSON transport, structured outcomes, safe options, and observed usage use the shared provider capture path; missing usage stays unknown and transport failures do not replay or start successor nodes.
 
 - [x] PROV-005 current-main implementation source reviewed and accepted; historical acceptance evidence is retained in [evidence.md](evidence.md).
-- [ ] Live Claude compatibility verified separately after authenticated bounded smoke.
+- [x] Bounded Windows Haiku smoke evidence captured with installed archive and Claude Code CLI 2.1.295 (success plus controlled Nodulus error).
+- [ ] Sonnet live smoke and macOS/Linux compatibility verified; these cells remain pending.
 
 ### PROV-008: Select Cursor's final complete outcome
 

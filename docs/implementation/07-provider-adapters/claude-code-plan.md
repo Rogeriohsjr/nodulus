@@ -1,6 +1,6 @@
 # Claude Code provider extension
 
-Status: Claude source implemented and accepted by Sol on 2026-10-08; 50 focused provider tests and 7 package tests pass. Full gate remains open at the existing Windows NODE-003 cleanup failure; live inference awaits Claude authentication. Scope: folder 07 maintenance, prerequisites 00–06 accepted in their evidence. Existing Codex/Cursor behavior and the repository's `develop` workflow remain in place.
+Status: Claude adapter and observed-usage parser are accepted by Sol. A bounded installed-archive Windows run captured Haiku success and a controlled inner Nodulus error with CLI 2.1.295; Sonnet and macOS/Linux live compatibility remain pending. The final local `npm run check` passes on Windows; this is not new hosted CI or publish proof. Scope: folder 07 maintenance, prerequisites 00–06 accepted in their evidence. Existing Codex/Cursor behavior and the repository's `develop` workflow remain in place.
 
 ## Execution and review
 
@@ -42,9 +42,9 @@ Workflow `claude-smoke`: Haiku emits `{message: "ping"}` under a tiny schema; So
 3. Run `npm run check` sequentially (runtime tests then package tests), record exact local results. Hosted platform proof remains separate.
 4. Coordinator runs the two-process live smoke only after fixture acceptance and authentication readiness. Exercise remaining error/model variants via fixtures at no Claude inference cost. If a live call fails, stop and retain diagnostics; no automatic live retries.
 
-Installed executable verified: `C:\Users\Admin\.local\bin\claude.exe`, version 2.1.294. It is absent from this process PATH. Initial auth status: loggedIn=false; live verification awaits login. No credentials are stored in project configuration.
+At the initial setup checkpoint, the installed executable was `C:\Users\Admin\.local\bin\claude.exe`, version 2.1.294, absent from this process PATH, and auth status was `loggedIn=false`; live verification awaited login then. A later bounded installed-archive Haiku capture is recorded below. No credentials are stored in project configuration.
 
-Official sources inspected: [CLI reference](https://code.claude.com/docs/en/cli-reference), [programmatic execution](https://code.claude.com/docs/en/headless), [model selection](https://code.claude.com/docs/en/model-config). Local installed help confirmed print, JSON schema, model, budget, tools, safe mode and no-session-persistence flags. Fixtures and local checks do not establish live vendor or hosted platform compatibility.
+Official sources inspected: [CLI reference](https://code.claude.com/docs/en/cli-reference), [programmatic execution](https://code.claude.com/docs/en/headless), [model selection](https://code.claude.com/docs/en/model-config). Local installed help confirmed print, JSON schema, model, budget, tools, safe mode and no-session-persistence flags. Fixture checks do not establish compatibility beyond the bounded Windows Haiku result captured later, or hosted platform compatibility.
 
 Plan review: Sol requested clarification that two CLI processes can contain multiple model requests. Corrected to two provider process invocations, maxTurns=3 and an estimated budget per process; no exact two-inference claim.
 
@@ -65,10 +65,16 @@ Sol accepted the corrected plan. Setup runs e34e7066-5577-4025-9349-0d74c71d7683
 Auth evidence correction: the initial batched shell exit code reflected a later command. An explicit LASTEXITCODE check confirmed Claude auth status exits 1 while loggedIn=false. Exit-0/loggedIn=false remains a defensive fixture case, not an observed local vendor response.
 
 
-## Final coordinator verification
+## Historical coordinator verification (before the 2026-10-09 Haiku capture)
 
-- Package/doc correction run `3531e8d6-405e-4fbf-8054-d253ec2561d8`: Nodulus success receipt; Sol accepted the scoped correction. Lint/typecheck pass; `npm run test:package` passes 7/7 after correcting the packaged guide link and isolating the dry-run test version in an owned scratch directory. No actual publication or production version change.
-- Reduced-worker diagnostic: `npx vitest run tests/scenarios --exclude tests/scenarios/pkg-*.test.ts --maxWorkers 2` still fails only NODE-003 (146/147 pass). This is not a green replacement for `npm run check`.
+These results describe the state at that earlier checkpoint; the later bounded Windows Haiku capture and final local full-check result are recorded below.
+
+- Package/doc correction run `3531e8d6-405e-4fbf-8054-d253ec2561d8`: Nodulus success receipt; Sol accepted the scoped correction. Lint/typecheck passed; `npm run test:package` passed 7/7 after correcting the packaged guide link and isolating the dry-run test version in an owned scratch directory. No actual publication or production version change occurred.
+- Reduced-worker diagnostic `npx vitest run tests/scenarios --exclude tests/scenarios/pkg-*.test.ts --maxWorkers 2` failed only NODE-003 at that time (146/147 passed). It was not a green replacement for `npm run check`.
 - Timestamped real-process diagnostic in local `.nodulus/diagnostics/validator-cQx9b6/diagnostic.json`: timeout fired at 159ms, taskkill spawned at 166ms, exited at 404ms, validator closed at 406ms. The single diagnostic marker was absent but within milliseconds of its 350ms-after-fixture-start window. Sol identified asynchronous Windows tree-kill latency and recommended separate process supervision; no cleanup assertion or production validator code was changed.
-- Installed smoke run `610c67c0-9579-43a3-bfdd-11745df9cc10`: error at Claude auth check, before print/inference. No Sonnet node ran, no accepted artifacts, no Claude inference tokens consumed. Login remains required before the two-process live smoke.
-- Existing `develop` workflow, defaultWorkflow and original Codex profile retained. Claude definitions/profiles are additive. Changes remain uncommitted; hosted/live-provider proof is not claimed. Windows supervision scope clarification was requested; it has not been expanded into this Claude change.
+- Installed smoke run `610c67c0-9579-43a3-bfdd-11745df9cc10` errored at Claude auth before print/inference. No Sonnet node ran, no accepted artifacts were produced, and no Claude inference tokens were consumed in that run. Login was still required for the planned two-process live smoke at that checkpoint; the later Haiku capture is recorded separately below.
+- At that checkpoint the existing `develop` workflow, defaultWorkflow, and original Codex profile were retained; Claude definitions/profiles were additive. No publish or hosted validation was performed. Windows supervision scope clarification had not been expanded into this Claude change.
+
+### Captured Windows Haiku follow-up (2026-10-09)
+
+The parent made three bounded local CLI calls after installing archive SHA-256 `e1fbaab2cb620a91b8dceeb9360bc995a5dd29829ceb310f34028bd06c76ecab` (package 1.0.0, Claude Code CLI 2.1.295). Haiku success and a controlled outer-CLI-success/inner-Nodulus-error payload were captured; all three calls, including the `maxTurns: 1` turn probe, reported aggregate CLI cost `$0.001666765`. The first two costs were `$0.0007042` and `$0.000527845`; these are not verified invoices. Sanitized fixture replays and parser findings are recorded in [folder evidence](evidence.md#sanitized-haiku-observation-replay-2026-10-09). This is Windows Haiku proof only; no Sonnet success or macOS/Linux compatibility is claimed. The `maxTurns: 1` probe returned SDK success with `num_turns: 2` and a non-LLM successor probe, not a live provider error.
