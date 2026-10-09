@@ -8,7 +8,7 @@ import type { IntakeStorage, RunFiles } from "./ports/intake-storage.js";
 import { NodulusError } from "./shared/nodulus-error.js";
 import { createPricingSnapshot } from "./pricing-snapshot.js";
 import type { PricingSnapshot } from "./cost-estimate.js";
-import { feedbackRoutingSchema, validateFeedbackRouting, type FeedbackRoutingDefinition } from "./feedback-definition.js";
+import { feedbackRoutingSchema, validateFeedbackRouting, validateFeedbackRuntimeInputs, type FeedbackRoutingDefinition } from "./feedback-definition.js";
 
 export type RequestSource =
   | { kind: "inline"; text: string }
@@ -166,6 +166,7 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
 
   if (workflow.feedbackRouting !== undefined) {
     validateFeedbackRouting(workflow.feedbackRouting, nodes.map((node) => ({ id: node.id, outputs: node.expectedOutputs.map(({ name, contract }) => ({ name, contract })) })), contracts);
+    validateFeedbackRuntimeInputs(workflow.feedbackRouting, nodes.map((node) => ({ id: node.id, inputs: node.inputs })));
   }
 
   const references = request.referencesFile

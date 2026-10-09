@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-async function runCapturedProcess(executable: string, args: string[], options: { cwd: string; stdin: string; timeoutMs: number }, invocation: ProviderInvocation, operation: 'invoke' | 'repair_response' = 'invoke', cliVersion: string | null = null) {
+async function runCapturedProcess(executable: string, args: string[], options: { cwd: string; stdin: string; timeoutMs: number; signal?: AbortSignal }, invocation: ProviderInvocation, operation: 'invoke' | 'repair_response' = 'invoke', cliVersion: string | null = null) {
   const callId = invocation.call?.callId ?? randomUUID();
   const attempt = invocation.call?.attempt ?? invocation.attempt;
   const runRoot = path.join(options.cwd, '.nodulus', 'runs', invocation.runId);
@@ -56,6 +56,7 @@ async function runCapturedProcess(executable: string, args: string[], options: {
     stderr: runProcessResult.stderr,
     exitCode: runProcessResult.exitCode,
     timedOut: runProcessResult.timedOut,
+    cancelled: runProcessResult.cancelled,
     outputLimitExceeded: runProcessResult.outputLimitExceeded,
     startedAt: request.startedAt,
     endedAt: new Date().toISOString(),

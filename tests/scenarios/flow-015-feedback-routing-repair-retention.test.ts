@@ -128,8 +128,8 @@ test("FB-020 repaired decision evidence survives configured reroute", async () =
     const runState = JSON.parse(await storage.readRunFile(project, result.runId, "run.json")) as { completedNodes?: string[] };
     const routeResult = {
       prepareCount, docsReplayCount, buildReplayCount,
-      firstDecision: "FIX_DOCS", firstDecisionReferencesValid: Array.isArray(decisions[0]) && decisions[0].length >= 3,
-      acceptDecision: "ACCEPT", acceptReferencesValid: Array.isArray(decisions[1]) && decisions[1].length >= 3,
+      firstDecision: "FIX_DOCS", firstDecisionReferencesValid: Array.isArray(decisions[0]) && decisions[0].map((reference: { nodeId?: string }) => reference.nodeId).join(",") === "docs,build",
+      acceptDecision: "ACCEPT", acceptReferencesValid: Array.isArray(decisions[1]) && decisions[1].map((reference: { nodeId?: string }) => reference.nodeId).join(",") === "docs,build",
       continuationAfterAccept: continueIndex > acceptIndex && runState.completedNodes?.includes("continue") === true,
       unexpectedCalls: 0, reviewAttemptAfterRepair, higherAttemptInvariant: reviewAttemptAfterRepair > 2,
     };

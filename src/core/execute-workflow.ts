@@ -9,7 +9,8 @@ import type { IntakeStorage, RunFiles } from "./ports/intake-storage.js";
 import type { ProviderCallContext, ProviderCallMetric, ProviderInvocation, ProviderPort, ProviderUsage } from "./ports/provider.js";
 import { resolveOutputReference } from "./workflow-mapping.js";
 import { appendRunEvent, recordValidationEvent, traceProviderCall } from "./execution-events.js";
-import { feedbackArtifactReferences, type FeedbackRegionState } from "./feedback-routing.js";
+import { feedbackArtifactReferences, validateFeedbackArtifactReferences, type FeedbackArtifactReference, type FeedbackRegionState } from "./feedback-routing.js";
+import { createFeedbackDeadline, feedbackDeadlineError } from "./feedback-deadline.js";
 
 type Node = {
   id: string;
@@ -152,16 +153,17 @@ export async function executeWorkflow(
   }
 
   const route = context.workflow.feedbackRouting;
-  let routingSegmentStartedAt = performance.now();
+  const routeStartIndex = route ? context.nodes.findIndex(({ id }) => id === route.startNode) : -1;
+  const routeDecisionIndex = route ? context.nodes.findIndex(({ id }) => id === route.decisionNode) : -1;
   const attempts = new Map<string, number>();
   let providerCalls = 0;
-  let elapsedBeforeSegment = 0;
   const persistRoutingElapsed = async (): Promise<void> => {
     if (!route) return;
-    elapsedBeforeSegment += performance.now() - routingSegmentStartedAt;
-    routingState.elapsedMs = elapsedBeforeSegment;
+    if (routingState.enteredAtMs !== undefined) {
+      const stopAt = routingState.completedAtMs ?? Date.now();
+      routingState.elapsedMs = Math.max(0, stopAt - routingState.enteredAtMs);
+    }
     routingState.providerCalls = providerCalls;
-    routingSegmentStartedAt = performance.now();
     try {
       const checkpoint = JSON.parse(await storage.readRunFile(request.projectRoot, runId, "run.json")) as Record<string, unknown>;
       const feedbackRouting = checkpoint.feedbackRouting as { regions?: Record<string, FeedbackRegionState> } | undefined;
@@ -177,8 +179,6 @@ export async function executeWorkflow(
       if (saved && Number.isInteger(saved.iteration) && Array.isArray(saved.generationHistory)) routingState = saved;
       feedback = routingState.feedback;
       providerCalls = routingState.providerCalls ?? 0;
-      elapsedBeforeSegment = routingState.elapsedMs ?? 0;
-      routingSegmentStartedAt = performance.now();
       for (const record of routingState.generationHistory) {
         const nodeId = String(record.nodeId);
         const attempt = /attempt-(\d+)/.exec(String(record.attemptPath))?.[1];
@@ -210,7 +210,19 @@ export async function executeWorkflow(
       acceptedOutputs.set(node.id, new Map(priorArtifacts.map((artifact) => [artifact.name, artifact])));
       continue;
     }
+    const inFeedbackRegion = !!route && index >= routeStartIndex && index <= routeDecisionIndex;
+    if (route && index === routeStartIndex && routingState.enteredAtMs === undefined) {
+      routingState.enteredAtMs = Date.now();
+      routingState.deadlineAtMs = routingState.enteredAtMs + route.limits.maxElapsedMs;
+      await persistRoutingElapsed();
+    }
+    if (inFeedbackRegion && route && routingState.deadlineAtMs !== undefined && Date.now() >= routingState.deadlineAtMs) {
+      await persistRoutingElapsed();
+      return finishError(request.projectRoot, runId, storage, "FEEDBACK_LIMIT_EXCEEDED", "Feedback routing elapsed-time limit was reached.", undefined, { valid: false, code: "FEEDBACK_LIMIT_EXCEEDED", errors: ["Feedback routing elapsed-time limit was reached."] }, completedNodes, node.id);
+    }
     const profile = context.providerProfiles[node.providerProfile];
+    let expectedDecisionReferences: FeedbackArtifactReference[] | undefined;
+    let routeDecision: { code: string; target: string; data: Record<string, unknown> } | undefined;
     if (route && node.id === route.startNode && routingState.iteration === 1) routingState.reusedPrefix = context.nodes.slice(0, index).map(({ id }) => id);
     const mapped = resolveMappedInputs(node, inputs.request, callerInputs, context.nodes.slice(0, index), acceptedOutputs, contracts);
     if (!mapped.valid) {
@@ -219,8 +231,17 @@ export async function executeWorkflow(
     const nodeInstructions = inputs.instructions.filter((item) =>
       node.instructions.some((instruction) => path.resolve(request.projectRoot, instruction) === path.resolve(item.path)),
     );
-    if (route && node.id === route.decisionNode) mapped.values.artifactReferences = feedbackArtifactReferences(runId, route, context.nodes, acceptedOutputs, routingState.iteration, routingState);
-    if (route && feedback && node.id === route.routes[(feedback.decisionCode as string)] ) mapped.values.feedback = feedback;
+    if (route && node.id === route.decisionNode) {
+      const referenceResult = feedbackArtifactReferences(runId, route, context.nodes, acceptedOutputs, routingState);
+      if (!referenceResult.valid) {
+        const validation = { valid: false, code: "FEEDBACK_REFERENCES_INVALID", errors: referenceResult.errors };
+        await appendRunEvent(request.projectRoot, runId, storage, { event: "node.rejected", runId, nodeId: node.id, code: validation.code });
+        return finishError(request.projectRoot, runId, storage, validation.code, validation.errors.join("; "), undefined, validation, completedNodes, node.id);
+      }
+      expectedDecisionReferences = referenceResult.references;
+      mapped.values.artifactReferences = expectedDecisionReferences;
+    }
+    if (route && feedback && typeof feedback.decisionCode === "string" && Object.hasOwn(route.routes, feedback.decisionCode) && node.id === route.routes[feedback.decisionCode]) mapped.values.feedback = feedback;
     const nodeAnswers = state.startNodeId === node.id ? state.answers ?? {} : {};
     const prompt = buildPrompt(context, node, nodeInstructions, mapped.values, nodeAnswers);
     let attempt = state.startNodeId === node.id ? state.attempt ?? 2 : (attempts.get(node.id) ?? 0) + 1;
@@ -267,18 +288,31 @@ export async function executeWorkflow(
     let raw: string;
     const callStartedAt = performance.now();
     try {
-      if (route && (providerCalls >= route.limits.maxProviderCalls || elapsedBeforeSegment + performance.now() - routingSegmentStartedAt > route.limits.maxElapsedMs)) return finishError(request.projectRoot, runId, storage, "FEEDBACK_LIMIT_EXCEEDED", "Feedback routing provider-call or elapsed-time limit was reached.", undefined, undefined, completedNodes, node.id);
-      providerCalls += 1;
-      if (route) { routingState.providerCalls = providerCalls; await persistRoutingElapsed(); }
+      if (inFeedbackRegion && route && (providerCalls >= route.limits.maxProviderCalls || (routingState.deadlineAtMs !== undefined && Date.now() >= routingState.deadlineAtMs))) return finishError(request.projectRoot, runId, storage, "FEEDBACK_LIMIT_EXCEEDED", "Feedback routing provider-call or elapsed-time limit was reached.", undefined, { valid: false, code: "FEEDBACK_LIMIT_EXCEEDED", errors: ["Feedback routing provider-call or elapsed-time limit was reached."] }, completedNodes, node.id);
+      if (inFeedbackRegion) {
+        providerCalls += 1;
+        routingState.providerCalls = providerCalls;
+        await persistRoutingElapsed();
+      }
       raw = await traceProviderCall(request.projectRoot, runId, storage, { nodeId: node.id, ...activeCall }, async () => {
-        const response = await provider.invoke(invocation);
-        if (typeof response !== "string") throw new Error("Provider returned a non-string response.");
-        return response;
+        const deadline = inFeedbackRegion && routingState.deadlineAtMs !== undefined ? createFeedbackDeadline(routingState.deadlineAtMs) : undefined;
+        try {
+          const response = await provider.invoke({ ...invocation, ...(deadline ? { deadlineAtMs: routingState.deadlineAtMs, signal: deadline.signal } : {}) });
+          if (deadline?.expired()) throw feedbackDeadlineError();
+          if (typeof response !== "string") throw new Error("Provider returned a non-string response.");
+          return response;
+        } finally { deadline?.dispose(); }
       });
     } catch (error) {
       await persistRoutingElapsed();
       await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, attempt, performance.now() - callStartedAt, activeCall);
-      const diagnostic = { code: "PROVIDER_FAILURE", message: messageOf(error) };
+      const deadlineReached = inFeedbackRegion && routingState.deadlineAtMs !== undefined && Date.now() >= routingState.deadlineAtMs;
+      const errorCode = isFeedbackLimitError(error) || deadlineReached ? "FEEDBACK_LIMIT_EXCEEDED" : "PROVIDER_FAILURE";
+      if (errorCode === "FEEDBACK_LIMIT_EXCEEDED" && route && inFeedbackRegion) {
+        recordUncertainCall(routingState, activeCall, node.id, provider.launchForCall?.(activeCall.callId));
+        await persistRoutingElapsed();
+      }
+      const diagnostic = { code: errorCode, message: messageOf(error) };
       const validation = { valid: false, code: diagnostic.code, errors: [diagnostic.message] };
       await storage.writeRunFiles(request.projectRoot, runId, {
         [`${attemptRoot}/response.raw.txt`]: "",
@@ -316,7 +350,7 @@ export async function executeWorkflow(
         const message = "The provider response remained invalid after two response-only repairs.";
         return finishError(request.projectRoot, runId, storage, "REPAIR_EXHAUSTED", message, currentAttemptRoot, validation, completedNodes, node.id);
       }
-      if (route && (providerCalls >= route.limits.maxProviderCalls || elapsedBeforeSegment + performance.now() - routingSegmentStartedAt > route.limits.maxElapsedMs)) {
+      if (inFeedbackRegion && route && (providerCalls >= route.limits.maxProviderCalls || (routingState.deadlineAtMs !== undefined && Date.now() >= routingState.deadlineAtMs))) {
         await persistRoutingElapsed();
         return finishError(request.projectRoot, runId, storage, "FEEDBACK_LIMIT_EXCEEDED", "Feedback routing provider-call or elapsed-time limit was reached before response repair.", currentAttemptRoot, validation, completedNodes, node.id);
       }
@@ -326,7 +360,7 @@ export async function executeWorkflow(
       activeCall = { callId: randomUUID(), attempt: currentAttempt, operation: "repair_response", parentCallId: activeCall.callId };
       currentAttemptRoot = `nodes/${node.id}/attempt-${String(currentAttempt).padStart(3, "0")}`;
       attempts.set(node.id, currentAttempt);
-      if (route) { providerCalls += 1; routingState.providerCalls = providerCalls; await persistRoutingElapsed(); }
+      if (inFeedbackRegion && route) { providerCalls += 1; routingState.providerCalls = providerCalls; await persistRoutingElapsed(); }
       const repairRecord = {
         ...invocationRecord,
         callId: activeCall.callId,
@@ -351,7 +385,12 @@ export async function executeWorkflow(
       try {
         const previousRaw = raw;
         raw = await traceProviderCall(request.projectRoot, runId, storage, { nodeId: node.id, ...activeCall }, async () => {
-          const response = await repair({ ...invocation, call: activeCall }, previousRaw, errors);
+          const deadline = inFeedbackRegion && routingState.deadlineAtMs !== undefined ? createFeedbackDeadline(routingState.deadlineAtMs) : undefined;
+          let response: string;
+          try {
+            response = await repair({ ...invocation, call: activeCall, ...(deadline ? { deadlineAtMs: routingState.deadlineAtMs, signal: deadline.signal } : {}) }, previousRaw, errors);
+            if (deadline?.expired()) throw feedbackDeadlineError();
+          } finally { deadline?.dispose(); }
           if (typeof response !== "string") throw new Error("Provider repair returned a non-string response.");
           return response;
         });
@@ -359,13 +398,19 @@ export async function executeWorkflow(
         await persistRoutingElapsed();
         await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, currentAttempt, performance.now() - repairStartedAt, activeCall);
         const message = messageOf(error);
-        const repairValidation = { valid: false, code: "RESPONSE_REPAIR_FAILED", errors: [message] };
+        const deadlineReached = inFeedbackRegion && routingState.deadlineAtMs !== undefined && Date.now() >= routingState.deadlineAtMs;
+        const failureCode = isFeedbackLimitError(error) || deadlineReached ? "FEEDBACK_LIMIT_EXCEEDED" : "RESPONSE_REPAIR_FAILED";
+        if (failureCode === "FEEDBACK_LIMIT_EXCEEDED" && route && inFeedbackRegion) {
+          recordUncertainCall(routingState, activeCall, node.id, provider.launchForCall?.(activeCall.callId));
+          await persistRoutingElapsed();
+        }
+        const repairValidation = { valid: false, code: failureCode, errors: [message] };
         await storage.writeRunFiles(request.projectRoot, runId, {
           [`${currentAttemptRoot}/response.raw.txt`]: "",
           [`${currentAttemptRoot}/stderr.log`]: message,
           [`${currentAttemptRoot}/validation.json`]: json(repairValidation),
         });
-        return finishError(request.projectRoot, runId, storage, "RESPONSE_REPAIR_FAILED", message, currentAttemptRoot, repairValidation, completedNodes, node.id);
+        return finishError(request.projectRoot, runId, storage, failureCode, message, currentAttemptRoot, repairValidation, completedNodes, node.id);
       }
       await persistRoutingElapsed();
       await recordProviderMetric(request.projectRoot, runId, storage, provider, node.id, currentAttempt, performance.now() - repairStartedAt, activeCall);
@@ -456,17 +501,26 @@ export async function executeWorkflow(
       if (!expected.validator) continue;
       const scriptPath = path.resolve(request.projectRoot, expected.validator);
       let processResult;
+      const validatorDeadline = inFeedbackRegion && routingState.deadlineAtMs !== undefined ? createFeedbackDeadline(routingState.deadlineAtMs) : undefined;
       try {
         processResult = await artifactValidator.execute(
           request.projectRoot,
           scriptPath,
           json(artifact.data),
-          expected.validatorTimeoutMs ?? 5000,
+          validatorDeadline ? Math.max(1, Math.min(expected.validatorTimeoutMs ?? 5000, validatorDeadline.remainingMs())) : expected.validatorTimeoutMs ?? 5000,
+          validatorDeadline?.signal,
         );
+        if (validatorDeadline?.expired()) throw feedbackDeadlineError();
       } catch (error) {
-        const validation = { valid: false, code: "VALIDATOR_EXECUTION_FAILED", errors: [messageOf(error)] };
+        const code = isFeedbackLimitError(error) || (inFeedbackRegion && routingState.deadlineAtMs !== undefined && Date.now() >= routingState.deadlineAtMs)
+          ? "FEEDBACK_LIMIT_EXCEEDED"
+          : "VALIDATOR_EXECUTION_FAILED";
+        const validation = { valid: false, code, errors: [messageOf(error)] };
+        if (code === "FEEDBACK_LIMIT_EXCEEDED") await persistRoutingElapsed();
         await storeValidation(request.projectRoot, runId, storage, attemptRoot, validation);
         return finishError(request.projectRoot, runId, storage, validation.code, validation.errors.join("; "), attemptRoot, validation, completedNodes, node.id);
+      } finally {
+        validatorDeadline?.dispose();
       }
       if (processResult.timedOut) {
         const validation = { valid: false, code: "VALIDATOR_TIMEOUT", errors: [`Validator '${expected.validator}' exceeded its timeout.`] };
@@ -518,6 +572,41 @@ export async function executeWorkflow(
       attemptRoot = currentAttemptRoot;
     }
 
+    if (inFeedbackRegion && routingState.deadlineAtMs !== undefined && Date.now() >= routingState.deadlineAtMs) {
+      const validation = { valid: false, code: "FEEDBACK_LIMIT_EXCEEDED", errors: ["Feedback routing elapsed-time limit was reached before accepting node output."] };
+      await storeValidation(request.projectRoot, runId, storage, attemptRoot, validation);
+      return finishError(request.projectRoot, runId, storage, validation.code, validation.errors.join("; "), attemptRoot, validation, completedNodes, node.id);
+    }
+
+    if (route && node.id === route.decisionNode) {
+      const decisionArtifact = parsed.outcome.artifacts.find(({ name }) => name === route.decisionOutput.name);
+      const data = decisionArtifact?.data;
+      const code = isRecord(data) && typeof data.decisionCode === "string" ? data.decisionCode : "";
+      const target = code && Object.hasOwn(route.routes, code) ? route.routes[code] : undefined;
+      if (typeof target !== "string") {
+        const validation = { valid: false, code: "FEEDBACK_DECISION_INVALID", errors: ["The decision output does not select a declared feedback route."] };
+        await appendRunEvent(request.projectRoot, runId, storage, { event: "node.rejected", runId, nodeId: node.id, code: validation.code });
+        return finishError(request.projectRoot, runId, storage, validation.code, validation.errors.join("; "), attemptRoot, validation, completedNodes, node.id);
+      }
+      const referenceErrors = validateFeedbackArtifactReferences(
+        isRecord(data) ? data.artifactRefs : undefined,
+        expectedDecisionReferences ?? [],
+      );
+      if (referenceErrors.length > 0) {
+        const validation = { valid: false, code: "FEEDBACK_REFERENCES_INVALID", errors: referenceErrors };
+        await appendRunEvent(request.projectRoot, runId, storage, { event: "node.rejected", runId, nodeId: node.id, code: validation.code });
+        return finishError(request.projectRoot, runId, storage, validation.code, validation.errors.join("; "), attemptRoot, validation, completedNodes, node.id);
+      }
+      if (isRecord(data)) routeDecision = { code, target, data };
+    }
+
+    if (inFeedbackRegion && routingState.deadlineAtMs !== undefined && Date.now() >= routingState.deadlineAtMs) {
+      const validation = { valid: false, code: "FEEDBACK_LIMIT_EXCEEDED", errors: ["Feedback routing elapsed-time limit was reached before accepting node output."] };
+      await persistRoutingElapsed();
+      await storeValidation(request.projectRoot, runId, storage, attemptRoot, validation);
+      return finishError(request.projectRoot, runId, storage, validation.code, validation.errors.join("; "), attemptRoot, validation, completedNodes, node.id);
+    }
+
     const validation = { valid: true, outcome: "success", validators: validatorResults, errors: [] };
     const persisted: RunFiles = {
       [`${attemptRoot}/validation.json`]: json(validation),
@@ -526,7 +615,7 @@ export async function executeWorkflow(
     for (const artifact of parsed.outcome.artifacts) {
       persisted[`nodes/${node.id}/artifacts/${artifact.name}.json`] = json(artifact);
     }
-    if (route && context.nodes.findIndex(({ id }) => id === node.id) >= context.nodes.findIndex(({ id }) => id === route.startNode) && context.nodes.findIndex(({ id }) => id === node.id) < context.nodes.findIndex(({ id }) => id === route.decisionNode)) {
+    if (route && context.nodes.findIndex(({ id }) => id === node.id) < context.nodes.findIndex(({ id }) => id === route.decisionNode)) {
       for (const artifact of parsed.outcome.artifacts) routingState.generationHistory.push({ runId, nodeId: node.id, outputName: artifact.name, contract: artifact.contract, generationId: randomUUID(), sha256: createHash("sha256").update(JSON.stringify(artifact.data)).digest("hex"), iteration: routingState.iteration, attemptPath: `${attemptRoot}/result.json`, status: "accepted" });
     }
     await storage.writeRunFiles(request.projectRoot, runId, persisted);
@@ -534,12 +623,8 @@ export async function executeWorkflow(
     acceptedOutputs.set(node.id, new Map(parsed.outcome.artifacts.map((artifact) => [artifact.name, artifact])));
     completedNodes.push(node.id);
 
-    if (route && node.id === route.decisionNode) {
-      const decisionArtifact = parsed.outcome.artifacts.find(({ name }) => name === route.decisionOutput.name);
-      const decision = decisionArtifact?.data as { decisionCode?: unknown; reason?: unknown; findings?: unknown } | undefined;
-      const code = typeof decision?.decisionCode === "string" ? decision.decisionCode : "";
-      const target = route.routes[code];
-      if (!target) return finishError(request.projectRoot, runId, storage, "FEEDBACK_DECISION_INVALID", `Feedback decision code '${code}' has no declared route.`, attemptRoot, { valid: false, code: "FEEDBACK_DECISION_INVALID", errors: [`Unknown decision code '${code}'.`] }, completedNodes, node.id);
+    if (route && node.id === route.decisionNode && routeDecision) {
+      const { code, target, data: decision } = routeDecision;
       if (target !== route.continuationNode) {
         if (routingState.iteration >= route.limits.maxIterations) return finishError(request.projectRoot, runId, storage, "FEEDBACK_LIMIT_EXCEEDED", "Feedback routing iteration limit was reached.", attemptRoot, { valid: false, code: "FEEDBACK_LIMIT_EXCEEDED", errors: ["Feedback routing iteration limit was reached."] }, completedNodes, node.id);
         const targetIndex = context.nodes.findIndex(({ id }) => id === target);
@@ -550,7 +635,7 @@ export async function executeWorkflow(
         routingState.eligibleNodes = suffix;
         routingState.iteration += 1;
         const revisionNodes = new Set(suffix.slice(0, -1));
-        feedback = { originalRequest: inputs.request, decisionCode: code, reason: decision?.reason, findings: decision?.findings, resolvedArtifacts: feedbackArtifactReferences(runId, route, context.nodes, acceptedOutputs, routingState.iteration - 1, routingState).filter((reference) => revisionNodes.has(String(reference.nodeId))).map((reference) => ({ ...reference, data: acceptedOutputs.get(String(reference.nodeId))?.get(String(reference.outputName))?.data })) };
+        feedback = { originalRequest: inputs.request, decisionCode: code, reason: decision.reason, findings: decision.findings, resolvedArtifacts: (expectedDecisionReferences ?? []).filter((reference) => revisionNodes.has(reference.nodeId)).map((reference) => ({ ...reference, data: acceptedOutputs.get(reference.nodeId)?.get(reference.outputName)?.data })) };
         routingState.feedback = feedback;
         for (const id of suffix) { acceptedOutputs.delete(id); const at = completedNodes.lastIndexOf(id); if (at >= 0) completedNodes.splice(at, 1); }
         index = targetIndex - 1;
@@ -559,6 +644,8 @@ export async function executeWorkflow(
         continue;
       }
       routingState.eligibleNodes = [];
+      routingState.completedAtMs = Date.now();
+      await persistRoutingElapsed();
     }
 
     if (index < context.nodes.length - 1) {
@@ -826,6 +913,21 @@ function finiteOrNull(value: unknown): number | null {
 
 function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isFeedbackLimitError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "FEEDBACK_LIMIT_EXCEEDED";
+}
+
+function recordUncertainCall(state: FeedbackRegionState, call: ProviderCallContext, nodeId: string, launched: boolean | null | undefined): void {
+  state.uncertainCalls ??= [];
+  state.uncertainCalls.push({
+    callId: call.callId,
+    nodeId,
+    attempt: call.attempt,
+    operation: call.operation,
+    launchStatus: launched === false ? "not_launched" : launched === true ? "launched" : "uncertain",
+  });
 }
 
 function messageOf(error: unknown): string {

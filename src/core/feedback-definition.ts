@@ -38,6 +38,7 @@ export type FeedbackRoutingDefinition = {
 };
 
 export type FeedbackOutputNode = { id: string; outputs: Array<{ name: string; contract: string }> };
+export type FeedbackInputNode = { id: string; inputs: Record<string, unknown> };
 
 /** Validate the author declaration against the fully resolved ordered workflow. */
 export function validateFeedbackRouting(value: unknown, orderedNodes: FeedbackOutputNode[], loadedContracts: Record<string, unknown>): FeedbackRoutingDefinition {
@@ -71,6 +72,25 @@ export function validateFeedbackRouting(value: unknown, orderedNodes: FeedbackOu
     fail(`Feedback decisionOutput contract '${definition.decisionOutput.contract}' must match the loaded contract declared on '${definition.decisionNode}.${definition.decisionOutput.name}'.`);
   }
   return definition;
+}
+
+/** Keep runtime-owned decision metadata out of author-authored node mappings. */
+export function validateFeedbackRuntimeInputs(definition: FeedbackRoutingDefinition, nodes: FeedbackInputNode[]): void {
+  const reserved = new Map<string, Set<string>>();
+  const reserve = (nodeId: string, inputName: string): void => {
+    const names = reserved.get(nodeId) ?? new Set<string>();
+    names.add(inputName);
+    reserved.set(nodeId, names);
+  };
+  reserve(definition.decisionNode, "artifactReferences");
+  for (const target of Object.values(definition.routes)) {
+    if (target !== definition.continuationNode) reserve(target, "feedback");
+  }
+  for (const node of nodes) {
+    for (const inputName of reserved.get(node.id) ?? []) {
+      if (Object.hasOwn(node.inputs, inputName)) fail("Node '" + node.id + "' input '" + inputName + "' is reserved for feedback runtime metadata.");
+    }
+  }
 }
 
 function fail(message: string): never { throw new NodulusError("CONFIGURATION_INVALID", message); }
