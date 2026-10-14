@@ -3,3 +3,6 @@ dist/
 coverage/
 .vitest/
 .nodulus/pilot/
+/.nodulus/runs/
+/.nodulus/checkpoints/
+/.nodulus/tmp/

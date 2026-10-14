@@ -55,6 +55,12 @@ nodulus run --workflow example --request-stdin --json
 
 Machine output is one JSON envelope on stdout. Exit 0 means `success`, exit 2 means `needs_input`, and exit 1 means `error`. A successful result contains validated artifacts with their declared names and contracts. The runtime validates output schemas even when the provider supports structured output.
 
+## Route bounded feedback
+
+A workflow may declare a `feedbackRouting` region with a decision artifact, an allowlist of route codes, reentry-safe nodes, and positive safe-integer limits for iterations, provider calls, and elapsed time. A decision can re-enter an allowed node in that region or continue to the next workflow node. Earlier outputs are reused; outputs in the replayed suffix receive new generation identities. Review nodes should return the exact artifact references supplied by the runtime with their decision. Built-in CLI adapters check the persisted region deadline around version and authentication/model readiness and before inference dispatch; local child-process fixtures verify this behavior without live-provider calls.
+
+The [normalization and review example](../examples/feedback-routing/README.md) shows a `FIX_TEXT` correction route followed by an `ACCEPT` continuation. Its local fixture demonstrates Unicode normalization, empty text, finite limits, and an installed-package runnable flow without contacting a model provider. Feedback routing is part of this source branch; use the branch build or a package release containing the feature.
+
 ## Inspect a workflow
 
 This source change adds a read-only workflow inspection command and API. It reads the workflow, node, contract, instruction and settings files under the selected project and returns the resolved graph, mappings, declared contracts, and allowlisted effective profile policies. It does not start providers or validators, or create or change run records.
@@ -73,7 +79,7 @@ Use the saved checkpoint and event evidence to explain a run without resuming it
 nodulus inspect run <run-id> --project . --json
 ```
 
-The report includes status, attempts, provider-call evidence, accepted artifact references, validation evidence, uncertainty and conservative next actions. If the checkpoint is missing or unreadable, the result reports `status: "unavailable"` with diagnostics. An incomplete provider call blocks actions that could replay uncertain work.
+The report includes status, attempts, provider-call evidence, accepted artifact references, validation evidence, uncertainty and conservative next actions. For routed runs it also reports the captured route policy, last selected route code and target, region budget counters, event-derived generation status, and whether each generation still matches its live artifact file. Active elapsed usage is marked as checkpoint-reported until completion evidence freezes it. Damaged generation or route evidence is diagnostic and is not listed as current. If the checkpoint is missing or unreadable, the result reports `status: "unavailable"` with diagnostics. An incomplete or possibly launched provider call blocks actions that could replay uncertain work.
 
 The public API is `inspectRun(projectRoot, runId)`. Inspection only reads the run. It does not invoke providers or executable validators.
 
@@ -83,7 +89,7 @@ The public API is `inspectRun(projectRoot, runId)`. Inspection only reads the ru
 nodulus inspect export <run-id> --project . --json
 ```
 
-Export returns a deterministic, versioned diagnostic envelope. It includes saved workflow metadata, attempts, timeline, artifact references and validation summaries. It omits request and caller-input text, instructions and prompts, provider responses, credentials, profile names/model identifiers/capabilities, schema literal values and annotations, and absolute machine paths. Captured contract schemas are represented by safe structural summaries. The source run is not changed. The public API is `exportRunDiagnostic(projectRoot, runId)`.
+Export returns a deterministic, versioned diagnostic envelope. It includes saved workflow metadata, attempts, timeline, artifact references and validation summaries. Routed runs add structural policy, last decision code/target, budget usage/reached flags, and generation metadata without feedback text or artifact contents. It omits request and caller-input text, instructions and prompts, provider responses, credentials, profile names/model identifiers/capabilities, schema literal values and annotations, and absolute machine paths. Captured contract schemas are represented by safe structural summaries. The source run is not changed. The public API is `exportRunDiagnostic(projectRoot, runId)`.
 
 ## Replay captured schemas offline
 
@@ -91,7 +97,7 @@ Export returns a deterministic, versioned diagnostic envelope. It includes saved
 nodulus inspect replay <run-id> --project . --json
 ```
 
-Replay revalidates saved provider candidates against the JSON Schemas captured with that run. It reports candidate results, contract and engine-version drift, and executable validators it skipped. It never starts a provider or project validator script; those external checks are not repeated. A candidate with an unknown or mismatched captured contract is reported as unknown rather than treated as valid or invalid. The public API is `replaySavedRun(projectRoot, runId)`.
+Replay revalidates saved provider candidates against the JSON Schemas captured with that run. For routed runs, it can label candidate attempts with their saved generation status; schema validity remains separate from route acceptance. It reports candidate results, contract and engine-version drift, and executable validators it skipped. It never starts a provider or project validator script; those external checks are not repeated. A candidate with an unknown or mismatched captured contract is reported as unknown rather than treated as valid or invalid. The public API is `replaySavedRun(projectRoot, runId)`.
 
 These inspection, export and replay commands are included in this source revision and its tested package archive; they are not claimed to be available in the currently published npm package.
 

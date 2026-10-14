@@ -1,7 +1,7 @@
 import crossSpawn from "cross-spawn";
 import type { ChildProcess } from "node:child_process";
 
-export type ProcessResult = { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean; cancelled: boolean; outputLimitExceeded: boolean };
+export type ProcessResult = { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean; cancelled: boolean; started: boolean; outputLimitExceeded: boolean };
 const OUTPUT_LIMIT = 2 * 1024 * 1024;
 
 /** Runs an executable without shell interpolation and bounds time and captured output. */
@@ -10,7 +10,11 @@ export function runProcess(executable: string, args: string[], options: {
   stdin?: string;
   timeoutMs: number;
   signal?: AbortSignal;
+  deadlineAtMs?: number;
 }): Promise<ProcessResult> {
+  if (options.signal?.aborted || (options.deadlineAtMs !== undefined && Date.now() >= options.deadlineAtMs)) {
+    return Promise.resolve({ stdout: "", stderr: "", exitCode: null, timedOut: false, cancelled: options.signal?.aborted === true, started: false, outputLimitExceeded: false });
+  }
   return new Promise((resolve, reject) => {
     const child = crossSpawn(executable, args, {
       cwd: options.cwd,
@@ -23,6 +27,7 @@ export function runProcess(executable: string, args: string[], options: {
     let size = 0;
     let timedOut = false;
     let cancelled = false;
+    let started = false;
     let outputLimitExceeded = false;
     let settled = false;
     const kill = () => killTree(child);
@@ -30,6 +35,7 @@ export function runProcess(executable: string, args: string[], options: {
     const onAbort = () => { cancelled = true; kill(); };
     options.signal?.addEventListener("abort", onAbort, { once: true });
     if (options.signal?.aborted) onAbort();
+    child.once("spawn", () => { started = true; });
     const receive = (target: "stdout" | "stderr", chunk: Buffer) => {
       size += chunk.length;
       if (size > OUTPUT_LIMIT) { outputLimitExceeded = true; kill(); return; }
@@ -54,6 +60,7 @@ export function runProcess(executable: string, args: string[], options: {
         exitCode,
         timedOut,
         cancelled,
+        started,
         outputLimitExceeded,
       });
     });

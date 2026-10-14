@@ -6,6 +6,7 @@ import { LocalIntakeStorage } from "../adapters/storage/local-intake-storage.js"
 import type { IntakeStorage } from "../core/ports/intake-storage.js";
 import { requestContractSchema } from "../core/intake-request.js";
 import { ENGINE_VERSION } from "./resume-workflow.js";
+import { feedbackGenerationStatusByAttempt, inspectFeedbackEvidence } from "../core/feedback-inspection.js";
 
 type RecordValue = Record<string, unknown>;
 type Attempt = { nodeId: string; attempt: number };
@@ -70,6 +71,10 @@ export async function replaySavedRun(
   const run = await readJson(storage, projectRoot, runId, "run.json", diagnostics);
   const definitions = await readJson(storage, projectRoot, runId, "context/definitions.json", diagnostics);
   const eventsText = await storage.readRunFile(projectRoot, runId, "events.jsonl").catch(() => null);
+  const eventRows = typeof eventsText === "string" ? eventsText.split(/\r?\n/).filter(Boolean).flatMap((line) => { try { const value: unknown = JSON.parse(line); return isRecord(value) ? [value] : []; } catch { return []; } }) : [];
+  const feedback = await inspectFeedbackEvidence(storage, projectRoot, runId, run, definitions, eventRows);
+  diagnostics.push(...feedback.diagnostics);
+  const generationStatus = feedbackGenerationStatusByAttempt(feedback.feedbackRouting);
   const attempts = readAttempts(eventsText, diagnostics);
   const contracts = isRecord(definitions) && isRecord(definitions.contracts) ? definitions.contracts : {};
   const nodes = new Map<string, RecordValue>();
@@ -139,7 +144,8 @@ export async function replaySavedRun(
           errors = ["Captured JSON Schema could not be compiled."];
         }
       }
-      candidates.push({ nodeId: attempt.nodeId, attempt: attempt.attempt, name: artifact.name, contract: artifact.contract, valid, errors });
+      const savedGenerationStatus = generationStatus.get(`${attempt.nodeId}\0${attempt.attempt}`);
+      candidates.push({ nodeId: attempt.nodeId, attempt: attempt.attempt, name: artifact.name, contract: artifact.contract, valid, errors, ...(savedGenerationStatus ? { generationStatus: savedGenerationStatus } : {}) });
     }
   }
 
@@ -170,6 +176,7 @@ export async function replaySavedRun(
     runId,
     mode: "schema-only",
     candidates,
+    ...(feedback.feedbackRouting ? { feedbackRouting: feedback.feedbackRouting } : {}),
     drift,
     skipped: { providerCalls: true, executableValidators: [...skippedValidators].sort() },
     diagnostics,

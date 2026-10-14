@@ -5,6 +5,7 @@ import { parseProjectSettings } from "./project-settings.js";
 import { nodeDefinitionSchema, validateProvider, workflowDefinitionSchema } from "./intake-request.js";
 import { NodulusError } from "./shared/nodulus-error.js";
 import { inputMappingError, type OutputDeclaration } from "./workflow-mapping.js";
+import { validateFeedbackRouting, validateFeedbackRuntimeInputs } from "./feedback-definition.js";
 
 export interface WorkflowInspectionFiles {
   readUtf8(absolutePath: string): Promise<string>;
@@ -97,8 +98,12 @@ export async function inspectWorkflowDefinition(
       outputs: expectedOutputs.map((output) => ({ name: String(output.name), contract: String(output.contract) })),
     });
   }
+  if (workflow.feedbackRouting !== undefined) {
+    const feedbackRouting = validateFeedbackRouting(workflow.feedbackRouting, priorOutputs.map(({ nodeId, outputs }) => ({ id: nodeId, outputs })), contracts);
+    validateFeedbackRuntimeInputs(feedbackRouting, nodes.map((node) => ({ id: String(node.id), inputs: node.inputs as Record<string, unknown> })));
+  }
   return {
-    workflow: { id: workflowId, sourcePath: workflowPath, nodes: workflow.nodes, ...(isRecord(workflow.inputs) ? { inputs: workflow.inputs } : {}) },
+    workflow: { id: workflowId, sourcePath: workflowPath, nodes: workflow.nodes, ...(isRecord(workflow.inputs) ? { inputs: workflow.inputs } : {}), ...(workflow.feedbackRouting === undefined ? {} : { feedbackRouting: workflow.feedbackRouting }) },
     nodes,
     contracts,
   };

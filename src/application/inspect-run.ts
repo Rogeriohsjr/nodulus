@@ -1,6 +1,7 @@
 import { LocalIntakeStorage } from "../adapters/storage/local-intake-storage.js";
 import type { IntakeStorage } from "../core/ports/intake-storage.js";
 import { NodulusError } from "../core/shared/nodulus-error.js";
+import { inspectFeedbackEvidence } from "../core/feedback-inspection.js";
 import { getRunStatus } from "./resume-workflow.js";
 
 type RecordValue = Record<string, unknown>;
@@ -49,16 +50,32 @@ export async function inspectRun(
   const events = status.events ?? [];
   const diagnostics = [...(status.diagnostics?.messages ?? [])];
   const attempts = summarizeAttempts(events);
-  const artifacts = await readArtifacts(projectRoot, runId, storage, events, diagnostics);
+  const definitions = await readCapturedDefinitions(projectRoot, runId, storage);
+  const feedback = await inspectFeedbackEvidence(storage, projectRoot, runId, status.checkpoint, definitions, events);
+  diagnostics.push(...feedback.diagnostics);
+  const routedEvidenceExists = hasRoutedEvidence(status.checkpoint, events);
+  if (routedEvidenceExists && (!isRecord(definitions) || !isRecord(definitions.workflow) || !isRecord(definitions.workflow.feedbackRouting))) {
+    diagnostics.push("Captured feedback-routing definition is missing or invalid; routed artifact acceptance cannot be established.");
+  }
+  const artifacts = feedback.feedbackRouting
+    ? feedback.currentArtifacts
+    : routedEvidenceExists ? [] : await readArtifacts(projectRoot, runId, storage, events, diagnostics);
   const validation = await readValidation(projectRoot, runId, storage, events, diagnostics);
+  const checkpoint = isRecord(status.checkpoint) ? status.checkpoint : {};
+  const routing = isRecord(checkpoint.feedbackRouting) ? checkpoint.feedbackRouting : {};
+  const regions = isRecord(routing.regions) ? routing.regions : {};
+  const uncertainCalls = Object.values(regions).filter(isRecord).flatMap((region) => Array.isArray(region.uncertainCalls) ? region.uncertainCalls.filter(isRecord) : []);
+  const externallyUncertain = uncertainCalls.some((call) => call.launchStatus === "launched" || call.launchStatus === "uncertain");
   const uncertainty = deriveUncertainty(status.status, status.checkpoint, status.callEvidence ?? [], diagnostics);
-  const nextActions = deriveNextActions(status.status, status.pendingRequest, status.callEvidence ?? []);
+  if (externallyUncertain) uncertainty.push("A provider call may have launched without a confirmed completion; its external effect is uncertain.");
+  const nextActions = deriveNextActions(status.status, status.pendingRequest, status.callEvidence ?? [], externallyUncertain);
 
   return {
     ...status,
     timeline: events,
     attempts,
     artifacts,
+    ...(feedback.feedbackRouting ? { feedbackRouting: feedback.feedbackRouting } : {}),
     validation,
     uncertainty,
     nextActions,
@@ -67,6 +84,17 @@ export async function inspectRun(
       messages: diagnostics,
     },
   };
+}
+
+function hasRoutedEvidence(checkpoint: unknown, events: unknown[]): boolean {
+  const savedRegions = isRecord(checkpoint) && isRecord(checkpoint.feedbackRouting) && isRecord(checkpoint.feedbackRouting.regions)
+    ? Object.keys(checkpoint.feedbackRouting.regions).length > 0 : false;
+  return savedRegions || events.some((event) => isRecord(event) && typeof event.event === "string" && event.event.startsWith("feedback."));
+}
+
+async function readCapturedDefinitions(projectRoot: string, runId: string, storage: IntakeStorage): Promise<unknown> {
+  try { return JSON.parse(await storage.readRunFile(projectRoot, runId, "context/definitions.json")) as unknown; }
+  catch { return undefined; }
 }
 
 function summarizeAttempts(events: unknown[]): AttemptSummary[] {
@@ -174,8 +202,8 @@ function deriveUncertainty(status: string, checkpoint: unknown, callEvidence: Ar
   return uncertainty;
 }
 
-function deriveNextActions(status: string, pendingRequest: unknown, callEvidence: Array<{ status: string }>): string[] {
-  if (callEvidence.some((call) => call.status === "incomplete")) {
+function deriveNextActions(status: string, pendingRequest: unknown, callEvidence: Array<{ status: string }>, externallyUncertain: boolean): string[] {
+  if (externallyUncertain || callEvidence.some((call) => call.status === "incomplete")) {
     return ["inspect_attempts", "do_not_replay_uncertain_call"];
   }
   if (status === "success") return [];

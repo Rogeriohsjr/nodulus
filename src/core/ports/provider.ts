@@ -22,6 +22,9 @@ export type ProviderInvocation = {
   providerProfileId?: string;
   /** Validated answers supplied after a node requested clarification. */
   answers?: Record<string, unknown>;
+  /** Optional runtime deadline metadata; custom providers must cooperate with the signal. */
+  deadlineAtMs?: number;
+  signal?: AbortSignal;
 };
 
 export type ProviderUsage = {
@@ -47,5 +50,5 @@ export interface ProviderPort {
   telemetryForCall?(callId: string): ProviderTelemetry | null;
   /** True only with completed process capture; null means launch is uncertain. */
   launchForCall?(callId: string): boolean | null;
-  isAvailable?(profile: Record<string, unknown>): Promise<boolean> | boolean;
+  isAvailable?(profile: Record<string, unknown>, options?: { signal?: AbortSignal; deadlineAtMs?: number }): Promise<boolean> | boolean;
 }

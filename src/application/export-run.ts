@@ -117,6 +117,7 @@ export async function exportRunDiagnostic(
   })) : [];
   const attempts = Array.isArray(inspection.attempts) ? inspection.attempts.filter(isRecord).map((item) => pick(item, ["nodeId", "attempt", "events", "callIds"])) : [];
   const checkpoint = isRecord(inspection.checkpoint) ? inspection.checkpoint : {};
+  const feedbackRouting = isRecord(inspection.feedbackRouting) ? portableFeedbackRouting(inspection.feedbackRouting) : undefined;
 
   return {
     schemaVersion: 1,
@@ -129,6 +130,7 @@ export async function exportRunDiagnostic(
     timeline,
     attempts,
     artifacts,
+    ...(feedbackRouting ? { feedbackRouting } : {}),
     acceptance,
     diagnostics,
     redactions: {
@@ -136,4 +138,79 @@ export async function exportRunDiagnostic(
       omitted: ["caller inputs and request text", "node instructions and prompts", "provider responses and transcripts", "provider profile names, model identifiers, and capabilities", "credentials and executable paths", "absolute machine paths", "validation error text"],
     },
   };
+}
+
+function portableFeedbackRouting(value: RecordValue): RecordValue {
+  const sourcePolicy = isRecord(value.policy) ? value.policy : {};
+  const policy: RecordValue = {};
+  for (const key of ["regionId", "startNode", "decisionNode", "continuationNode"] as const) {
+    const id = safeIdentifier(sourcePolicy[key]);
+    if (id) policy[key] = id;
+  }
+  if (Number.isSafeInteger(sourcePolicy.schemaVersion)) policy.schemaVersion = sourcePolicy.schemaVersion;
+  if (isRecord(sourcePolicy.decisionOutput)) {
+    const decisionOutput = pick(sourcePolicy.decisionOutput, ["name", "contract"]);
+    if (safeIdentifier(decisionOutput.name) && safeIdentifier(decisionOutput.contract)) policy.decisionOutput = decisionOutput;
+  }
+  if (isRecord(sourcePolicy.routes)) {
+    policy.routes = Object.fromEntries(Object.entries(sourcePolicy.routes).flatMap(([code, target]) => {
+      const safeCode = safeIdentifier(code);
+      const safeTarget = safeIdentifier(target);
+      return safeCode && safeTarget ? [[safeCode, safeTarget]] : [];
+    }));
+  }
+  if (Array.isArray(sourcePolicy.reentrySafeNodes)) policy.reentrySafeNodes = sourcePolicy.reentrySafeNodes.map(safeIdentifier).filter((id): id is string => id !== null);
+  if (isRecord(sourcePolicy.limits)) {
+    const sourceLimits = sourcePolicy.limits;
+    const limits = Object.fromEntries(["maxIterations", "maxProviderCalls", "maxElapsedMs"]
+      .filter((key) => Number.isSafeInteger(sourceLimits[key]) && Number(sourceLimits[key]) > 0)
+      .map((key) => [key, sourceLimits[key]]));
+    policy.limits = limits;
+  }
+  const regions: RecordValue = {};
+  if (isRecord(value.regions)) {
+    for (const [id, state] of Object.entries(value.regions)) {
+      const safeId = safeIdentifier(id);
+      if (!safeId || !isRecord(state)) continue;
+      const region = pick(state, ["iteration", "providerCalls", "elapsedMs", "elapsedMsStatus", "enteredAtMs", "deadlineAtMs", "completedAtMs"]);
+      if (isRecord(state.lastRoute)) {
+        const code = safeIdentifier(state.lastRoute.decisionCode);
+        const target = safeIdentifier(state.lastRoute.target);
+        if (code && target && Number.isSafeInteger(state.lastRoute.iteration)) region.lastRoute = { decisionCode: code, target, iteration: state.lastRoute.iteration };
+      }
+      if (isRecord(state.budget)) {
+        const budget: RecordValue = {};
+        for (const name of ["iteration", "providerCalls", "elapsedMs"] as const) {
+          const item = state.budget[name];
+          if (!isRecord(item) || typeof item.reached !== "boolean" || !Number.isSafeInteger(item.limit)) continue;
+          budget[name] = { ...(Number.isSafeInteger(item.used) ? { used: item.used } : {}), limit: item.limit, reached: item.reached,
+            ...(name === "elapsedMs" && (item.usageStatus === "verified" || item.usageStatus === "checkpoint-reported" || item.usageStatus === "unavailable") ? { usageStatus: item.usageStatus } : {}) };
+        }
+        region.budget = budget;
+      }
+      for (const key of ["eligibleNodes", "reusedPrefix"] as const) if (Array.isArray(state[key])) region[key] = state[key].map(safeIdentifier).filter((item): item is string => item !== null);
+      if (Array.isArray(state.invalidatedSuffixes)) region.invalidatedSuffixes = state.invalidatedSuffixes.filter(isRecord).flatMap((row) => {
+        const target = safeIdentifier(row.target);
+        if (!target || !Number.isSafeInteger(row.iteration) || !Array.isArray(row.nodeIds)) return [];
+        return [{ iteration: row.iteration, target, nodeIds: row.nodeIds.map(safeIdentifier).filter((item): item is string => item !== null) }];
+      });
+      regions[safeId] = region;
+    }
+  }
+  const artifactGenerations = Array.isArray(value.artifactGenerations) ? value.artifactGenerations.filter(isRecord).flatMap((row) => {
+    const runId = safeIdentifier(row.runId);
+    const generationId = safeIdentifier(row.generationId);
+    const nodeId = safeIdentifier(row.nodeId);
+    const outputName = safeIdentifier(row.outputName);
+    const contract = safeIdentifier(row.contract);
+    const attemptPath = safeReference(row.attemptPath);
+    const status = row.status === "accepted" || row.status === "invalidated" || row.status === "unverified" ? row.status : undefined;
+    if (!runId || !generationId || !nodeId || !outputName || !contract || !attemptPath || !status || !Number.isSafeInteger(row.iteration) || typeof row.materialized !== "boolean" || typeof row.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(row.sha256)) return [];
+    return [{ runId, generationId, nodeId, outputName, contract, iteration: row.iteration, status, attemptPath, sha256: row.sha256, materialized: row.materialized }];
+  }) : [];
+  return { policy, regions, artifactGenerations };
+}
+
+function safeIdentifier(value: unknown): string | null {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) ? value : null;
 }

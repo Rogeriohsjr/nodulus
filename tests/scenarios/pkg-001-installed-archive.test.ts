@@ -4,7 +4,7 @@ import crossSpawn from "cross-spawn";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { classifyInstalledFailure, runInstalledProviderSmoke } from "../support/live-provider-observability.js";
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -296,6 +296,48 @@ test("PKG-002 includes the user guide and starter assets while excluding develop
   for (const instruction of ["nodulus init", "nodulus run", "needs_input", "nodulus resume", "error", "example.v1", ".nodulus/contracts/"]) {
     expect(guide).toContain(instruction);
   }
+});
+
+test("PKG-060 ships and runs the feedback-routing example from the installed archive", async () => {
+  const installedRoot = installedPackageDirectory(installedPrefix);
+  const expectedFiles = [
+    "README.md",
+    ".nodulus/settings.json",
+    ".nodulus/workflows/normalize-review.json",
+    ".nodulus/nodes/prepare.json",
+    ".nodulus/nodes/normalize.json",
+    ".nodulus/nodes/review.json",
+    ".nodulus/nodes/report.json",
+    ".nodulus/contracts/text.v1.schema.json",
+    ".nodulus/contracts/workflow-decision.v1.schema.json",
+    "provider-fixture.mjs",
+    "run.mjs",
+  ].map((file) => "examples/feedback-routing/" + file);
+  for (const file of expectedFiles) expect(archivedPaths, file).toContain(file);
+
+  const project = path.join(scratch, "feedback example ü", "empty project");
+  mkdirSync(project, { recursive: true });
+  const exampleUrl = pathToFileURL(path.join(installedRoot, "examples", "feedback-routing", "run.mjs")).href;
+  const example = await import(exampleUrl) as { runFeedbackExample(options: { projectRoot: string; text: string }): Promise<{ runId: string; status: string; trace: string[]; report: string }> };
+  const result = await example.runFeedbackExample({ projectRoot: project, text: "  Cafe\u0301\n\n世界 👋  " });
+  expect(result.status).toBe("success");
+  expect(result.trace).toEqual(["prepare", "normalize", "review", "normalize", "review", "report"]);
+  expect(result.report).toBe("Café 世界 👋");
+
+  const runRoot = path.join(project, ".nodulus", "runs", result.runId);
+  const checkpoint = JSON.parse(readFileSync(path.join(runRoot, "run.json"), "utf8"));
+  const generations = checkpoint.feedbackRouting.regions.normalization.generationHistory.filter((entry: { nodeId: string }) => entry.nodeId === "normalize");
+  expect(generations).toHaveLength(2);
+  expect(generations.map((entry: { status: string }) => entry.status)).toEqual(["invalidated", "accepted"]);
+  expect(generations.map((entry: { attemptPath: string }) => entry.attemptPath)).toEqual([
+    "nodes/normalize/attempt-001/result.json",
+    "nodes/normalize/attempt-002/result.json",
+  ]);
+  for (const generation of generations) {
+    expect(existsSync(path.join(runRoot, "feedback", "normalization", "generations", generation.generationId + ".json"))).toBe(true);
+  }
+  const report = JSON.parse(readFileSync(path.join(runRoot, "nodes", "report", "attempt-001", "result.json"), "utf8"));
+  expect(report.artifacts[0].data).toBe("Café 世界 👋");
 });
 
 test("PKG-002 resolves every local link in the installed package Markdown", () => {
