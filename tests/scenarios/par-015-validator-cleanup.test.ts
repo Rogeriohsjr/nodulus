@@ -208,7 +208,93 @@ async function runValidatorScenario(mode: Mode): Promise<void> {
       }
     }
   } else {
-    cleanupErrors.push(new Error(`P15C3 project retained because run/process cleanup is uncertain: ${path.basename(project)}; validator=${String(validatorRootPid)}, intermediate=${String(intermediatePid)}, descendant=${String(descendantPid)}`));
+    const retainedMessage = `P15C3 project retained because run/process cleanup is uncertain: ${path.basename(project)}; validator=${String(validatorRootPid)}, intermediate=${String(intermediatePid)}, descendant=${String(descendantPid)}`;
+    try {
+      const events = readFixtureEvents(eventsAbsolute);
+      const firstAndLastByPid = new Map<number, { firstRole: string; firstStage: string; firstAtMs: number; lastRole: string; lastStage: string; lastAtMs: number }>();
+      for (const event of events) {
+        if (!Number.isSafeInteger(event.pid) || event.pid <= 0) continue;
+        const prior = firstAndLastByPid.get(event.pid);
+        if (prior) {
+          prior.lastRole = event.role.slice(0, 80);
+          prior.lastStage = event.stage.slice(0, 80);
+          prior.lastAtMs = event.atMs;
+        } else {
+          firstAndLastByPid.set(event.pid, {
+            firstRole: event.role.slice(0, 80),
+            firstStage: event.stage.slice(0, 80),
+            firstAtMs: event.atMs,
+            lastRole: event.role.slice(0, 80),
+            lastStage: event.stage.slice(0, 80),
+            lastAtMs: event.atMs,
+          });
+        }
+      }
+      const namedPids = [validatorRootPid, intermediatePid, descendantPid].filter((pid): pid is number => pid !== undefined);
+      const allKnownPids = [...new Set([...namedPids, ...knownPids, ...firstAndLastByPid.keys()])];
+      const maximumPidRows = 64;
+      const pidRows = allKnownPids.slice(0, maximumPidRows).map((pid) => {
+        let liveness: string;
+        try {
+          process.kill(pid, 0);
+          liveness = "kill0-success-alive";
+        } catch (error) {
+          const code = typeof error === "object" && error !== null && "code" in error
+            ? String((error as NodeJS.ErrnoException).code).slice(0, 32)
+            : "unknown";
+          liveness = code === "ESRCH" ? "ESRCH-absent" : `unknown-${code}`;
+        }
+        const eventsForPid = firstAndLastByPid.get(pid);
+        const fixtureRole = eventsForPid?.firstRole ?? (pid === validatorRootPid ? "validator-root" : pid === intermediatePid ? "intermediate" : pid === descendantPid ? "descendant" : "known-without-event");
+        return {
+          pid,
+          fixtureRole,
+          membership: {
+            namedValidatorRoot: pid === validatorRootPid,
+            namedIntermediate: pid === intermediatePid,
+            namedDescendant: pid === descendantPid,
+            initialCleanupRecords: knownPids.includes(pid),
+          },
+          firstEvent: eventsForPid ? { role: eventsForPid.firstRole, stage: eventsForPid.firstStage, atMs: eventsForPid.firstAtMs } : null,
+          lastEvent: eventsForPid ? { role: eventsForPid.lastRole, stage: eventsForPid.lastStage, atMs: eventsForPid.lastAtMs } : null,
+          liveness,
+        };
+      });
+      const snapshotNow = Date.now();
+      const remainingMs = Math.max(0, cleanupDeadline - snapshotNow);
+      const snapshot = {
+        checks: {
+          runSettled,
+          processesExited,
+          processIdentityKnown,
+          noPriorCleanupErrors: cleanupErrors.length === 0,
+        },
+        cleanupTime: { elapsedMs: Math.max(0, cleanupBudgetMs - (cleanupDeadline - snapshotNow)), remainingMs },
+        priorCleanupErrors: cleanupErrors.slice(0, 16).map((error) => ({
+          code: typeof (error as NodeJS.ErrnoException).code === "string" ? (error as NodeJS.ErrnoException).code?.slice(0, 32) : null,
+          message: safeDiagnostic(error),
+        })),
+        priorCleanupErrorsTruncated: cleanupErrors.length > 16,
+        outcome: (outcome ? describeOutcome(outcome) : "unavailable").slice(0, 600),
+        releaseMarkers: {
+          validatorRoot: existsSync(path.join(project, paths.validatorRootReleasePath)),
+          descendant: existsSync(path.join(project, paths.descendantReleasePath)),
+          stopper: existsSync(path.join(project, paths.stopperReleasePath)),
+        },
+        pids: pidRows,
+        pidsTruncated: allKnownPids.length > maximumPidRows,
+        fixtureEventsTruncated: false,
+      };
+      let serializedSnapshot = JSON.stringify(snapshot);
+      while (serializedSnapshot.length > 12000 && snapshot.pids.length > 0) {
+        snapshot.pids.pop();
+        snapshot.pidsTruncated = true;
+        serializedSnapshot = JSON.stringify(snapshot);
+      }
+      if (serializedSnapshot.length > 12000) serializedSnapshot = JSON.stringify({ snapshotTruncated: true, checks: snapshot.checks });
+      process.stderr.write(`${retainedMessage}; P15C3 bounded retained-state snapshot: ${serializedSnapshot}\n`);
+    } catch { /* The original retained-project error remains authoritative if diagnostics fail. */ }
+    cleanupErrors.push(new Error(retainedMessage));
   }
   if (hasPrimaryError && cleanupErrors.length > 0) throw new AggregateError([toError(primaryError), ...cleanupErrors], "P15C3 scenario and owned cleanup both failed.");
   if (hasPrimaryError) throw primaryError;
