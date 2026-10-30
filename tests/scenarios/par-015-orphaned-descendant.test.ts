@@ -1,4 +1,5 @@
 import { copyFileSync, existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { rm as rmAsync } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -162,6 +163,7 @@ test.skipIf(process.platform !== "win32")("P15C1 reports a settled cancelled roo
   catch (error) { cleanupErrors.push(toError(error)); }
 
   let runSettled = run === undefined || outcome !== undefined;
+  let initialKnownPids: number[] = [];
   if (run) {
     try { outcome ??= await withDeadline(run, cleanupDeadline, "owned graph run cleanup"); runSettled = true; }
     catch (error) { cleanupErrors.push(toError(error)); }
@@ -169,6 +171,7 @@ test.skipIf(process.platform !== "win32")("P15C1 reports a settled cancelled roo
   let processesExited = false;
   try {
     const pids = await readAllOwnedPids(project, eventsAbsolute, paths);
+    initialKnownPids = pids;
     if (rootPid !== undefined && !pids.includes(rootPid)) throw new Error("Captured root PID was not present in the owned fixture identity records.");
     if (intermediatePid !== undefined && !pids.includes(intermediatePid)) throw new Error("Intermediate PID was not present in the owned fixture identity records.");
     if (descendantPid !== undefined && !pids.includes(descendantPid)) throw new Error("Descendant PID was not present in the owned fixture identity records.");
@@ -181,7 +184,63 @@ test.skipIf(process.platform !== "win32")("P15C1 reports a settled cancelled roo
     try {
       assertOwnedProject(project, projectIdentity);
       rmSync(project, { recursive: true, force: true });
-    } catch (error) { cleanupErrors.push(toError(error)); }
+    } catch (syncError) {
+      const synchronousRemovalError = toError(syncError);
+      const code = typeof syncError === "object" && syncError !== null && "code" in syncError
+        ? (syncError as NodeJS.ErrnoException).code
+        : undefined;
+      if (code !== "EPERM" && code !== "EBUSY") {
+        cleanupErrors.push(synchronousRemovalError);
+      } else {
+        let removalState = "P15C1 removal state could not be captured.";
+        let stateCaptureError: unknown;
+        let stateCaptureFailed = false;
+        let pidsNow: number[] = [];
+        let recheckError: unknown;
+        try {
+          assertOwnedProject(project, projectIdentity);
+          pidsNow = await readAllOwnedPids(project, eventsAbsolute, paths);
+        } catch (error) { recheckError = error; }
+        const requiredPids = [rootPid, intermediatePid, descendantPid].filter((pid): pid is number => pid !== undefined);
+        const identitiesPresent = requiredPids.every((pid) => pidsNow.includes(pid)) && initialKnownPids.every((pid) => pidsNow.includes(pid));
+        const knownPids = [...new Set([...initialKnownPids, ...pidsNow, ...requiredPids])];
+        const allKnownProcessesAbsent = identitiesPresent && knownPids.every((pid) => !isProcessAlive(pid));
+        const retryDelayBudgetMs = 250;
+        const retryTimeAvailable = Date.now() + retryDelayBudgetMs <= cleanupDeadline;
+        // Capture the most useful state after PID revalidation; this also records state when revalidation failed.
+        try {
+          let currentIdentity: string | null = null;
+          try { currentIdentity = realpathSync.native(project); } catch { currentIdentity = null; }
+          removalState = JSON.stringify({
+            project: project.slice(0, 512),
+            identity: projectIdentity.slice(0, 512),
+            currentIdentity: currentIdentity?.slice(0, 512) ?? null,
+            exists: existsSync(project),
+            pids: knownPids.map((pid) => ({ pid, presentInCurrentRecords: pidsNow.includes(pid), alive: isProcessAlive(pid) })),
+          }).slice(0, 3000);
+        } catch (error) { stateCaptureError = error; stateCaptureFailed = true; }
+        let diagnosticError: unknown;
+        let diagnosticFailed = false;
+        try { process.stderr.write(`${synchronousRemovalError.message}; P15C1 removal state: ${removalState}\n`); }
+        catch (error) { diagnosticError = error; diagnosticFailed = true; }
+        if (diagnosticFailed) {
+          cleanupErrors.push(synchronousRemovalError, toError(diagnosticError), new Error(`P15C1 removal state: ${removalState}`));
+        } else if (stateCaptureFailed) {
+          cleanupErrors.push(synchronousRemovalError, toError(stateCaptureError), new Error(`P15C1 removal state: ${removalState}`));
+        } else if (recheckError !== undefined) {
+          cleanupErrors.push(synchronousRemovalError, toError(recheckError), new Error(`P15C1 removal state: ${removalState}`));
+        } else if (!runSettled || !processesExited || !processIdentityKnown || !identitiesPresent || !allKnownProcessesAbsent || !retryTimeAvailable) {
+          cleanupErrors.push(synchronousRemovalError, new Error(`P15C1 removal fallback preconditions were not confirmed. ${removalState}`));
+        } else {
+          try {
+            await rmAsync(project, { recursive: true, force: true, maxRetries: 4, retryDelay: 25 });
+            if (existsSync(project)) throw new Error("Async removal fallback resolved while the owned project path remained present.");
+          } catch (asyncError) {
+            cleanupErrors.push(synchronousRemovalError, toError(asyncError), new Error(`P15C1 removal state: ${removalState}`));
+          }
+        }
+      }
+    }
   } else {
     cleanupErrors.push(new Error(`P15C1 project retained because run/process cleanup is uncertain: ${path.basename(project)}; root=${String(rootPid)}, intermediate=${String(intermediatePid)}, descendant=${String(descendantPid)}`));
   }

@@ -46,6 +46,8 @@ export function runProcess(executable: string, args: string[], options: {
     let started = false;
     let outputLimitExceeded = false;
     let settled = false;
+    let childExitObserved = false;
+    let windowsExitedRootTermination = false;
     let terminationCause: TerminationCause | undefined;
     let termination: Promise<void> | undefined;
     let windowsTerminationAttempted = false;
@@ -56,6 +58,11 @@ export function runProcess(executable: string, args: string[], options: {
       timedOut = cause === "timedOut";
       outputLimitExceeded = cause === "outputLimitExceeded";
       termination = Promise.resolve().then(() => {
+        if (process.platform === "win32" && child.pid !== undefined && (childExitObserved || child.exitCode !== null || child.signalCode !== null)) {
+          windowsExitedRootTermination = true;
+          destroyOwnedOutputStreams();
+          return;
+        }
         if (process.platform === "win32" && child.pid !== undefined) windowsTerminationAttempted = true;
         return killTree(child, cause);
       });
@@ -68,6 +75,7 @@ export function runProcess(executable: string, args: string[], options: {
     options.signal?.addEventListener("abort", onAbort, { once: true });
     if (options.signal?.aborted) onAbort();
     child.once("spawn", () => { started = true; });
+    child.once("exit", () => { childExitObserved = true; });
     const receive = (target: "stdout" | "stderr", chunk: Buffer) => {
       size += chunk.length;
       if (size > OUTPUT_LIMIT) {
@@ -120,6 +128,13 @@ export function runProcess(executable: string, args: string[], options: {
           operationCause: terminationCause,
         };
       }
+      if (cleanupUnverified === undefined && windowsExitedRootTermination && terminationCause !== undefined) {
+        cleanupUnverified = {
+          code: "PROCESS_TREE_UNVERIFIED",
+          message: "Windows root exit was observed before tree termination; descendant exit could not be verified.",
+          operationCause: terminationCause,
+        };
+      }
       if (!settled) return;
       resolve({
         stdout: Buffer.concat(stdoutChunks).toString("utf8"),
@@ -132,6 +147,10 @@ export function runProcess(executable: string, args: string[], options: {
         ...(terminationCause === undefined ? {} : { terminationCause }),
         ...(cleanupUnverified === undefined ? {} : { cleanupUnverified }),
       });
+    }
+    function destroyOwnedOutputStreams(): void {
+      try { child.stdout?.destroy(); } catch { /* The owned stream is already closing. */ }
+      try { child.stderr?.destroy(); } catch { /* The owned stream is already closing. */ }
     }
   });
 }

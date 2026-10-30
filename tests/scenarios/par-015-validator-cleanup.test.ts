@@ -1,4 +1,5 @@
 import { copyFileSync, existsSync, lstatSync, opendirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { rm as rmAsync } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
@@ -144,6 +145,7 @@ async function runValidatorScenario(mode: Mode): Promise<void> {
   catch (error) { if (!isAlreadyExists(error)) cleanupErrors.push(toError(error)); }
 
   let runSettled = run === undefined || outcome !== undefined;
+  let knownPids: number[] = [];
   if (run) {
     try { outcome ??= await withDeadline(run, cleanupDeadline, "owned graph run cleanup"); runSettled = true; }
     catch (error) { cleanupErrors.push(toError(error)); }
@@ -151,6 +153,7 @@ async function runValidatorScenario(mode: Mode): Promise<void> {
   let processesExited = false;
   try {
     const pids = await readOwnedPids(eventsAbsolute, controlAbsolute);
+    knownPids = pids;
     if (validatorRootPid !== undefined && !pids.includes(validatorRootPid)) throw new Error("Captured validator PID was not present in owned fixture records.");
     if (intermediatePid !== undefined && !pids.includes(intermediatePid)) throw new Error("Captured validator intermediate PID was not present in owned fixture records.");
     if (descendantPid !== undefined && !pids.includes(descendantPid)) throw new Error("Captured validator descendant PID was not present in owned fixture records.");
@@ -165,12 +168,42 @@ async function runValidatorScenario(mode: Mode): Promise<void> {
     } catch (error) { cleanupErrors.push(toError(error)); }
     if (cleanupErrors.length === 0) {
       try { rmSync(project, { recursive: true, force: true }); }
-      catch (error) {
-        cleanupErrors.push(toError(error));
-        try {
-          cleanupErrors.push(new Error(`P15C3 removal failure state: ${describeRemovalFailureState(project, [validatorRootPid, intermediatePid, descendantPid])}`));
-        } catch {
-          cleanupErrors.push(new Error("P15C3 removal failure state could not be captured."));
+      catch (syncError) {
+        let failureState = "P15C3 removal failure state could not be captured.";
+        try { failureState = `P15C3 removal failure state: ${describeRemovalFailureState(project, [validatorRootPid, intermediatePid, descendantPid])}`; }
+        catch { /* Keep the first synchronous removal failure if diagnostics are unavailable. */ }
+        const synchronousRemovalError = toError(syncError);
+        if (!isRetryableOwnedRemovalError(syncError)) {
+          cleanupErrors.push(synchronousRemovalError, new Error(failureState));
+        } else {
+          try {
+            assertOwnedProject(project, projectIdentity);
+            const pidsNow = await readOwnedPids(eventsAbsolute, controlAbsolute);
+            const requiredPids = [validatorRootPid, intermediatePid, descendantPid].filter((pid): pid is number => pid !== undefined);
+            const identitiesPresent = requiredPids.every((pid) => pidsNow.includes(pid)) && knownPids.every((pid) => pidsNow.includes(pid));
+            const allKnownProcessesAbsent = identitiesPresent && [...new Set([...knownPids, ...pidsNow, ...requiredPids])].every((pid) => !isProcessAlive(pid));
+            const retryDelayBudgetMs = 250;
+            if (!processIdentityKnown || !runSettled || !allKnownProcessesAbsent || Date.now() + retryDelayBudgetMs > cleanupDeadline) {
+              cleanupErrors.push(synchronousRemovalError, new Error(failureState));
+            } else {
+              let diagnosticWriteError: unknown;
+              let diagnosticWriteFailed = false;
+              try { process.stderr.write(`${synchronousRemovalError.message}; bounded async cleanup fallback is being attempted. ${failureState}\n`); }
+              catch (error) { diagnosticWriteError = error; diagnosticWriteFailed = true; }
+              if (diagnosticWriteFailed) {
+                cleanupErrors.push(synchronousRemovalError, toError(diagnosticWriteError), new Error(failureState));
+              } else {
+                try {
+                  await rmAsync(project, { recursive: true, force: true, maxRetries: 4, retryDelay: 25 });
+                  if (existsSync(project)) throw new Error("Async cleanup fallback resolved while the owned project path remained present.");
+                } catch (asyncError) {
+                  cleanupErrors.push(synchronousRemovalError, toError(asyncError), new Error(failureState));
+                }
+              }
+            }
+          } catch (stateError) {
+            cleanupErrors.push(synchronousRemovalError, toError(stateError), new Error(failureState));
+          }
         }
       }
     }
@@ -344,6 +377,14 @@ async function waitForPids(pids: number[], deadline: number): Promise<boolean> {
 function isProcessAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
   catch (error) { return !(typeof error === "object" && error !== null && "code" in error && String((error as NodeJS.ErrnoException).code) === "ESRCH"); }
+}
+
+function isRetryableOwnedRemovalError(value: unknown): boolean {
+  try {
+    if (typeof value !== "object" || value === null) return false;
+    const code = (value as NodeJS.ErrnoException).code;
+    return code === "EPERM" || code === "EBUSY";
+  } catch { return false; }
 }
 
 function locateActiveRunId(project: string): string {

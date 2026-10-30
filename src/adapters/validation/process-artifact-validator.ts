@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import type { ArtifactValidator, ValidatorProcessResult } from "../../core/ports/artifact-validator.js";
 
@@ -26,6 +26,8 @@ export class ProcessArtifactValidator implements ArtifactValidator {
       let settled = false;
       let terminating = false;
       let termination: Promise<void> = Promise.resolve();
+      let childExitObserved = false;
+      child.once("exit", () => { childExitObserved = true; });
       const terminate = (reason: "timeout" | "output" | "cancel") => {
         if (terminating) return;
         terminating = true;
@@ -34,7 +36,7 @@ export class ProcessArtifactValidator implements ArtifactValidator {
         if (reason === "timeout") timedOut = true;
         else if (reason === "output") outputLimitExceeded = true;
         else cancelled = true;
-        termination = killProcessTree(child.pid, cause).then((cleanup) => { cleanupUnverified = cleanup; });
+        termination = killProcessTree(child, cause, () => childExitObserved).then((cleanup) => { cleanupUnverified = cleanup; });
       };
       const timer = setTimeout(() => terminate("timeout"), Math.max(1, timeoutMs));
       const onAbort = () => terminate("cancel");
@@ -78,9 +80,19 @@ export class ProcessArtifactValidator implements ArtifactValidator {
   }
 }
 
-function killProcessTree(pid: number | undefined, cause: NonNullable<ValidatorProcessResult["terminationCause"]>): Promise<ValidatorProcessResult["cleanupUnverified"]> {
+function killProcessTree(child: ChildProcess, cause: NonNullable<ValidatorProcessResult["terminationCause"]>, exitObserved: () => boolean): Promise<ValidatorProcessResult["cleanupUnverified"]> {
+  const pid = child.pid;
   if (!pid) return Promise.resolve(undefined);
   if (process.platform === "win32") {
+    if (exitObserved() || child.exitCode !== null || child.signalCode !== null) {
+      try { child.stdout?.destroy(); } catch { /* The owned validator output stream is already closing. */ }
+      try { child.stderr?.destroy(); } catch { /* The owned validator output stream is already closing. */ }
+      return Promise.resolve({
+        code: "PROCESS_TREE_UNVERIFIED",
+        message: "Windows validator root exit was observed before tree termination; descendant exit could not be verified.",
+        operationCause: cause,
+      });
+    }
     const killer = spawn("taskkill", ["/pid", String(pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
     return new Promise((resolve) => {
       let diagnostic: string | undefined;
