@@ -11,7 +11,9 @@
 - RED/GREEN: not applicable; docs and skill metadata are an explicit non-TDD exception in `docs/testing.md`. No behavioral RED or runtime proof is claimed.
 - Runtime, package, hosted, and live-provider evidence: none for this proposed feature.
 
-## Scenario evidence (pending)
+## Scenario evidence index
+
+The detailed sections retain their original checkpoint chronology. Current P2 local acceptance and its separate final hosted gate are recorded in [P2 exit evidence](phase2-exit.md).
 
 | Scenario | Test and exact command | RED evidence | GREEN evidence | Review | Status |
 | --- | --- | --- | --- | --- | --- |
@@ -19,9 +21,9 @@
 | PAR-002 | `npm run build`; `npx --no-install vitest run tests/scenarios/par-002-graph-structure.test.ts` | No new RED; existing grammar characterized | 11/11 by builder/Sol; P01+P02 14/14 by coordinator | Sol and coordinator ACCEPT | Local structural coverage accepted |
 | PAR-003 | `npx --no-install vitest run tests/scenarios/par-003-graph-mappings.test.ts` | Coordinator/Sol reproduced 2 failed / 8 passed | 10/10; coordinator P01–P03 24/24 | Sol RED/GREEN ACCEPT; coordinator accepted | Local mapping scenario accepted |
 | PAR-004 | `npx --no-install vitest run tests/scenarios/par-004-graph-strict-definition.test.ts` | Coordinator/Sol reproduced 2 failed / 18 passed | 20/20; coordinator P01–P04 44/44 | Sol RED/GREEN ACCEPT; coordinator accepted | Local strict-definition scenario accepted |
-| PAR-010–016 | Not assigned | None | None | Pending | Not started |
+| PAR-010–016 | `npm run check`; individual frozen packet commands below | Relevant REDs recorded per packet; passing characterizations kept separate | Root full 579/579 runtime and 17/17 archive; lint/type/build passed | Luna implementation, Sol stable reviews, independent Root QA; local exit accepted | Locally accepted; final hosted head pending |
 | PAR-020–025 | Not assigned | None | None | Pending | Not started |
-| PAR-030–036 | Not assigned | None | None | Pending | Not started |
+| PAR-030–037 | Not assigned | None | None | Pending | Not started |
 | PAR-040–044 | Not assigned | None | None | Pending | Not started |
 
 ## P01 test checkpoint
