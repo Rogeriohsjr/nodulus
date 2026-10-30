@@ -4,6 +4,7 @@ import crossSpawn from "cross-spawn";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { classifyInstalledFailure, runInstalledProviderSmoke } from "../support/live-provider-observability.js";
 
@@ -15,6 +16,9 @@ let archivePath = "";
 let packageVersion = "";
 let packageName = "";
 let archivedPaths: string[] = [];
+
+type PackageStage = "help" | "version" | "init" | "run" | "status-json" | "status-text" | "inspect-workflow" | "inspect-run" | "inspect-export" | "inspect-replay";
+type PackageStageTiming = { stage: PackageStage; startMs: number; endMs: number; durationMs: number; status: number | null | "threw" };
 
 beforeAll(() => {
   mkdirSync(packageDirectory, { recursive: true });
@@ -56,27 +60,32 @@ test("PKG-008 installed task helper includes executable workflows and preserves 
   expect(JSON.parse(second.stdout).existingOpenCodeConfig).toBe(true);
 });
 
+// Ten sequential installed CLI launches share this integration budget; each child keeps its own 30-second ceiling.
 test("PKG-001 installs and runs the actual archive CLI, initializer, and fixture workflow", () => {
-  const help = runInstalled(installedPrefix, ["--help"], scratch);
+  const timingEnabled = process.env.NODULUS_PKG001_TIMING === "1";
+  const timingStartedAt = timingEnabled ? performance.now() : 0;
+  const timings: PackageStageTiming[] = [];
+  try {
+  const help = observePackageStage(timings, timingEnabled, "help", () => runInstalled(installedPrefix, ["--help"], scratch));
   expect(help.status, `${String(help.stdout)}\n${String(help.stderr)}`).toBe(0);
   expect(help.stdout).toContain("Usage: nodulus");
 
-  const version = runInstalled(installedPrefix, ["--version"], scratch);
+  const version = observePackageStage(timings, timingEnabled, "version", () => runInstalled(installedPrefix, ["--version"], scratch));
   expect(version.status, `${String(version.stdout)}\n${String(version.stderr)}`).toBe(0);
   expect(version.stdout.trim()).toBe(packageVersion);
 
   const project = path.join(scratch, "installed project & ü %");
-  const initialized = runInstalled(installedPrefix, ["init", "--project", project], scratch);
+  const initialized = observePackageStage(timings, timingEnabled, "init", () => runInstalled(installedPrefix, ["init", "--project", project], scratch));
   expect(initialized.status).toBe(0);
   expect(JSON.parse(readFileSync(path.join(project, ".nodulus", "contracts", "example.v1.schema.json"), "utf8")).$id).toBe("example.v1");
 
   const fixture = installFixtureProvider(project, "success");
   configureExampleProvider(project, fixture.executable);
-  const response = runInstalled(installedPrefix, ["run", "--project", project, "--request", "Packaged CLI fixture", "--json"], project);
+  const response = observePackageStage(timings, timingEnabled, "run", () => runInstalled(installedPrefix, ["run", "--project", project, "--request", "Packaged CLI fixture", "--json"], project));
   expect(response.status).toBe(0);
   const parsedResponse = JSON.parse(response.stdout);
   expect(parsedResponse).toMatchObject({ schemaVersion: 1, status: "success", result: { artifacts: [{ name: "example", data: { message: "archive fixture" } }] } });
-  const status = runInstalled(installedPrefix, ["status", parsedResponse.runId, "--project", project, "--json"], project);
+  const status = observePackageStage(timings, timingEnabled, "status-json", () => runInstalled(installedPrefix, ["status", parsedResponse.runId, "--project", project, "--json"], project));
   expect(status.status, String(status.stderr)).toBe(0);
   expect(JSON.parse(status.stdout)).toMatchObject({
     schemaVersion: 1,
@@ -84,7 +93,7 @@ test("PKG-001 installs and runs the actual archive CLI, initializer, and fixture
     runId: parsedResponse.runId,
     result: { metrics: { calls: [expect.objectContaining({ nodeId: "example", usage: null })] } },
   });
-  const textStatus = runInstalled(installedPrefix, ["status", parsedResponse.runId, "--project", project], project);
+  const textStatus = observePackageStage(timings, timingEnabled, "status-text", () => runInstalled(installedPrefix, ["status", parsedResponse.runId, "--project", project], project));
   expect(textStatus.status, String(textStatus.stderr)).toBe(0);
   expect(textStatus.stdout).toContain("Input tokens: unknown");
   const invocation = JSON.parse(readFileSync(fixture.logPath, "utf8").trim());
@@ -92,20 +101,27 @@ test("PKG-001 installs and runs the actual archive CLI, initializer, and fixture
   expect(invocation.argv).toContain("--output-last-message");
 
   const callsBeforeInspection = readFileSync(fixture.logPath, "utf8");
-  const inspectWorkflow = runInstalled(installedPrefix, ["inspect", "workflow", "example", "--project", project, "--json"], project);
+  const inspectWorkflow = observePackageStage(timings, timingEnabled, "inspect-workflow", () => runInstalled(installedPrefix, ["inspect", "workflow", "example", "--project", project, "--json"], project));
   expect(inspectWorkflow.status, String(inspectWorkflow.stderr)).toBe(0);
   expect(JSON.parse(inspectWorkflow.stdout)).toMatchObject({ status: "success", result: { workflow: { id: "example" } } });
-  const inspectRun = runInstalled(installedPrefix, ["inspect", "run", parsedResponse.runId, "--project", project, "--json"], project);
+  const inspectRun = observePackageStage(timings, timingEnabled, "inspect-run", () => runInstalled(installedPrefix, ["inspect", "run", parsedResponse.runId, "--project", project, "--json"], project));
   expect(inspectRun.status, String(inspectRun.stderr)).toBe(0);
   expect(JSON.parse(inspectRun.stdout)).toMatchObject({ status: "success", runId: parsedResponse.runId, result: { status: "success" } });
-  const exportRun = runInstalled(installedPrefix, ["inspect", "export", parsedResponse.runId, "--project", project, "--json"], project);
+  const exportRun = observePackageStage(timings, timingEnabled, "inspect-export", () => runInstalled(installedPrefix, ["inspect", "export", parsedResponse.runId, "--project", project, "--json"], project));
   expect(exportRun.status, String(exportRun.stderr)).toBe(0);
   expect(JSON.parse(exportRun.stdout)).toMatchObject({ status: "success", result: { schemaVersion: 1, run: { runId: parsedResponse.runId } } });
-  const replayRun = runInstalled(installedPrefix, ["inspect", "replay", parsedResponse.runId, "--project", project, "--json"], project);
+  const replayRun = observePackageStage(timings, timingEnabled, "inspect-replay", () => runInstalled(installedPrefix, ["inspect", "replay", parsedResponse.runId, "--project", project, "--json"], project));
   expect(replayRun.status, String(replayRun.stderr)).toBe(0);
   expect(JSON.parse(replayRun.stdout)).toMatchObject({ status: "success", result: { mode: "schema-only", runId: parsedResponse.runId } });
   expect(readFileSync(fixture.logPath, "utf8")).toBe(callsBeforeInspection);
-});
+  } finally {
+    if (timingEnabled) {
+      const endMs = performance.now();
+      const lastCompletedStage = [...timings].reverse().find((entry) => entry.status !== "threw" && entry.status !== null)?.stage ?? null;
+      process.stderr.write(`PKG-001_TIMING ${JSON.stringify({ lastCompletedStage, aggregateElapsedMs: endMs - timingStartedAt, stages: timings })}\n`);
+    }
+  }
+}, 15_000);
 
 test("PKG-010 shared installed provider smokes run sequentially with real child-process fixtures", () => {
   for (const provider of ["codex", "cursor", "opencode"] as const) {
@@ -478,6 +494,26 @@ test("PKG-003 upgrades from a real older archive and resumes a paused run withou
 function runInstalled(prefix: string, args: string[], cwd: string): ReturnType<typeof crossSpawn.sync> {
   const shim = path.join(prefix, "node_modules", ".bin", process.platform === "win32" ? "nodulus.cmd" : "nodulus");
   return crossSpawn.sync(shim, args, { cwd, encoding: "utf8", timeout: 30_000, windowsHide: true });
+}
+
+function observePackageStage(
+  timings: PackageStageTiming[],
+  enabled: boolean,
+  stage: PackageStage,
+  run: () => ReturnType<typeof runInstalled>,
+): ReturnType<typeof runInstalled> {
+  if (!enabled) return run();
+  const startMs = performance.now();
+  try {
+    const result = run();
+    const endMs = performance.now();
+    timings.push({ stage, startMs, endMs, durationMs: endMs - startMs, status: result.status });
+    return result;
+  } catch (error) {
+    const endMs = performance.now();
+    timings.push({ stage, startMs, endMs, durationMs: endMs - startMs, status: "threw" });
+    throw error;
+  }
 }
 
 function runOk(command: string, args: string[], cwd: string): ReturnType<typeof crossSpawn.sync> {
