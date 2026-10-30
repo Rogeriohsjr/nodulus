@@ -1,5 +1,4 @@
 import { chmodSync, copyFileSync, existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +9,7 @@ import { createInitializedProject } from "../support/intake-project.js";
 import { createGraphProcessProvider, type GraphProcessProviderFixture } from "../support/graph-process-provider.js";
 import { configureParallelProject, readParallelWorkflow } from "../support/parallel-project.js";
 import { readProjectJson, writeJson } from "../support/workflow-sequence.js";
+import { observeOwnedNativeProcesses } from "../support/owned-native-processes.js";
 
 type DeadlineMode = "inference" | "readiness";
 type FixtureEvent = { stage: string; pid: number; atMs: number };
@@ -257,30 +257,6 @@ function assertOwnedProject(project: string, label: string): void {
   }
 }
 
-function ownedPids(eventsPath: string): number[] {
-  const pids = readFixtureEvents(eventsPath).map(({ pid }) => pid);
-  if (pids.some((pid) => !Number.isSafeInteger(pid) || pid <= 0)) throw new Error("P15B local provider event log contains an invalid process identity.");
-  return [...new Set(pids)];
-}
-
-function stopOwnedPid(pid: number): void {
-  if (!isProcessAlive(pid)) return;
-  if (process.platform === "win32") {
-    const result = spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore", timeout: 3000 });
-    if (result.error) throw result.error;
-  } else {
-    try { process.kill(pid, "SIGKILL"); } catch { /* process may have exited concurrently */ }
-  }
-}
-
-async function waitForPids(pids: number[], deadline: number): Promise<boolean> {
-  while (pids.some(isProcessAlive)) {
-    if (Date.now() >= deadline) return false;
-    await new Promise<void>((resolve) => setTimeout(resolve, 20));
-  }
-  return true;
-}
-
 async function withDeadline<T>(promise: Promise<T>, deadline: number, label: string): Promise<T> {
   const timeoutMs = deadline - Date.now();
   if (timeoutMs <= 0) throw new Error(`P15B shared deadline expired before ${label} completed.`);
@@ -301,9 +277,11 @@ async function exerciseDefaultProfileDeadline(mode: DeadlineMode): Promise<void>
   const project = createInitializedProject(label);
   const paths = configureDefaultProfileProject(project, mode);
   const observed = observeDefaultProvider(project);
+  const nativeProcesses = observeOwnedNativeProcesses();
   let outcome: ProfileRunOutcome | undefined;
   let run: Promise<ProfileRunOutcome> | undefined;
   let primaryError: unknown;
+  let hasPrimaryError = false;
   const cleanupErrors: Error[] = [];
   try {
     assertOwnedProject(project, label);
@@ -313,6 +291,7 @@ async function exerciseDefaultProfileDeadline(mode: DeadlineMode): Promise<void>
     });
     const stage = mode === "inference" ? "inference-started" : "auth-started";
     const started = await waitForStageOrOutcome(paths.eventsPath, stage, () => outcome, scenarioDeadline);
+    expect(nativeProcesses.diagnostics.some(({ stages }) => stages.includes("spawn")), "a real child process must be captured after the fixture entry marker").toBe(true);
     expect(isProcessAlive(started.pid), `${stage} PID must be alive before the profile timeout`).toBe(true);
     outcome = await withDeadline(run, scenarioDeadline, "profile timeout result");
     assertProfileTimeout(outcome, mode === "inference");
@@ -344,23 +323,10 @@ async function exerciseDefaultProfileDeadline(mode: DeadlineMode): Promise<void>
     expect(readEvents(project, outcome.result.runId).some((event) => event.event === "node.accepted")).toBe(false);
   } catch (error) {
     primaryError = error;
+    hasPrimaryError = true;
   }
 
   const cleanupDeadline = Date.now() + cleanupBudgetMs;
-  let pids: number[] = [];
-  let processIdentityKnown = true;
-  try { pids = ownedPids(paths.eventsPath); }
-  catch (error) {
-    processIdentityKnown = false;
-    cleanupErrors.push(error instanceof Error ? error : new Error(String(error)));
-  }
-  const pidsToStop = outcome
-    ? outcome.snapshot.stageProcesses.filter(({ alive }) => alive).map(({ pid }) => pid)
-    : pids;
-  for (const pid of pidsToStop) {
-    try { stopOwnedPid(pid); }
-    catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
-  }
   let runSettled = run === undefined || outcome !== undefined;
   if (run) {
     try {
@@ -373,19 +339,17 @@ async function exerciseDefaultProfileDeadline(mode: DeadlineMode): Promise<void>
     await observed.drain(cleanupDeadline);
     operationsDrained = true;
   } catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
-  let processesExited = false;
-  try { processesExited = processIdentityKnown && await waitForPids(pids, cleanupDeadline); }
+  let nativeProcessesClosed = false;
+  try { await nativeProcesses.drain(cleanupDeadline); nativeProcessesClosed = true; }
   catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
-  if (runSettled && operationsDrained && processesExited && cleanupErrors.length === 0) {
+  if (!hasPrimaryError && runSettled && operationsDrained && nativeProcessesClosed && cleanupErrors.length === 0) {
     try {
       assertOwnedProject(project, label);
       rmSync(path.resolve(project), { recursive: true, force: true });
     } catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
-  } else {
-    cleanupErrors.push(new Error(`P15B profile project retained because provider/process cleanup was uncertain: ${path.basename(project)}`));
   }
-  if (primaryError && cleanupErrors.length > 0) throw new AggregateError([primaryError, ...cleanupErrors], "P15B profile scenario failed and cleanup reported additional diagnostics.");
-  if (primaryError) throw primaryError;
+  if (hasPrimaryError && cleanupErrors.length > 0) throw new AggregateError([primaryError, ...cleanupErrors], "P15B profile scenario failed and cleanup reported additional diagnostics.");
+  if (hasPrimaryError) throw primaryError;
   if (cleanupErrors.length > 0) throw new AggregateError(cleanupErrors, "P15B profile scenario cleanup failed.");
 }
 
@@ -431,9 +395,11 @@ async function exerciseValidatorTimeout(): Promise<void> {
   const project = createInitializedProject(label);
   const startedPath = configureValidatorProject(project);
   const fixture = createGraphProcessProvider(project, ["prepare"]);
+  const nativeProcesses = observeOwnedNativeProcesses();
   let outcome: ValidatorRunOutcome | undefined;
   let run: Promise<ValidatorRunOutcome> | undefined;
   let primaryError: unknown;
+  let hasPrimaryError = false;
   const cleanupErrors: Error[] = [];
   try {
     assertOwnedProject(project, label);
@@ -453,6 +419,7 @@ async function exerciseValidatorTimeout(): Promise<void> {
     fixture.release("prepare");
     await fixture.waitForFinished(["prepare"]);
     const validatorPid = await waitForValidatorOrOutcome(startedPath, () => outcome, scenarioDeadline);
+    expect(nativeProcesses.diagnostics.some(({ stages }) => stages.includes("spawn")), "a real child process must be captured after the validator entry marker").toBe(true);
     expect(isProcessAlive(validatorPid), "validator PID must be alive after its started marker").toBe(true);
     outcome = await withDeadline(run, scenarioDeadline, "validator timeout result");
     expect(outcome.kind).toBe("result");
@@ -469,22 +436,12 @@ async function exerciseValidatorTimeout(): Promise<void> {
     expect(readEvents(project, runId).some((event) => event.event === "node.accepted" && event.nodeId === "prepare")).toBe(false);
   } catch (error) {
     primaryError = error;
+    hasPrimaryError = true;
   }
 
   const cleanupDeadline = Date.now() + cleanupBudgetMs;
-  let validatorPid: number | undefined;
-  let validatorIdentityKnown = true;
   try { fixture.releaseAll(); }
   catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
-  try { validatorPid = readPid(startedPath); }
-  catch (error) {
-    validatorIdentityKnown = false;
-    cleanupErrors.push(error instanceof Error ? error : new Error(String(error)));
-  }
-  if (validatorPid !== undefined) {
-    try { stopOwnedPid(validatorPid); }
-    catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
-  }
   let runSettled = run === undefined || outcome !== undefined;
   if (run) {
     try {
@@ -497,21 +454,17 @@ async function exerciseValidatorTimeout(): Promise<void> {
     await fixture.drain(Math.max(1, cleanupDeadline - Date.now()));
     providerDrained = true;
   } catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
-  let validatorExited = validatorPid === undefined;
-  if (validatorPid !== undefined && validatorIdentityKnown) {
-    try { validatorExited = await waitForPids([validatorPid], cleanupDeadline); }
-    catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
-  }
-  if (runSettled && providerDrained && validatorExited && validatorIdentityKnown && cleanupErrors.length === 0) {
+  let nativeProcessesClosed = false;
+  try { await nativeProcesses.drain(cleanupDeadline); nativeProcessesClosed = true; }
+  catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
+  if (!hasPrimaryError && runSettled && providerDrained && nativeProcessesClosed && cleanupErrors.length === 0) {
     try {
       assertOwnedProject(project, label);
       rmSync(path.resolve(project), { recursive: true, force: true });
     } catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
-  } else {
-    cleanupErrors.push(new Error(`P15B validator project retained because run/provider/process cleanup was uncertain: ${path.basename(project)}`));
   }
-  if (primaryError && cleanupErrors.length > 0) throw new AggregateError([primaryError, ...cleanupErrors], "P15B validator scenario failed and cleanup reported additional diagnostics.");
-  if (primaryError) throw primaryError;
+  if (hasPrimaryError && cleanupErrors.length > 0) throw new AggregateError([primaryError, ...cleanupErrors], "P15B validator scenario failed and cleanup reported additional diagnostics.");
+  if (hasPrimaryError) throw primaryError;
   if (cleanupErrors.length > 0) throw new AggregateError(cleanupErrors, "P15B validator scenario cleanup failed.");
 }
 

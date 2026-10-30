@@ -1,5 +1,4 @@
 import { chmodSync, copyFileSync, existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +8,7 @@ import { runWorkflow, type ApplicationRunResult, type ProviderInvocation, type P
 import { createInitializedProject } from "../support/intake-project.js";
 import { configureParallelProject, readParallelWorkflow } from "../support/parallel-project.js";
 import { readProjectJson, writeJson } from "../support/workflow-sequence.js";
+import { observeOwnedNativeProcesses, type OwnedNativeProcessObserver } from "../support/owned-native-processes.js";
 
 type FixtureEvent = { operation: string; stage: string; pid: number; at: number; ordinal?: number; agent?: string; session?: string };
 type ObservedOperation = { operation: "availability" | "invoke" | "repair_response"; nodeId?: string; callId?: string; parentCallId?: string; signal?: AbortSignal };
@@ -355,28 +355,6 @@ function assertOwnedProject(project: string, label: string): void {
   }
 }
 
-function ownedPids(eventsPath: string): number[] {
-  const events = fixtureEvents(eventsPath);
-  const pids = events.filter(({ stage }) => stage === "started").map(({ pid }) => pid);
-  if (pids.some((pid) => !Number.isSafeInteger(pid) || pid <= 0)) throw new Error("P15B1b event log contains an invalid process identity.");
-  return [...new Set(pids)];
-}
-
-function stopPid(pid: number, deadline: number): void {
-  if (!isProcessAlive(pid)) return;
-  const timeout = Math.min(3000, deadline - Date.now());
-  if (timeout <= 0) throw new Error("P15B1b shared cleanup deadline expired before stopping an owned process.");
-  if (process.platform === "win32") {
-    const result = spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore", timeout });
-    if (result.error) throw result.error;
-  } else {
-    try { process.kill(pid, "SIGKILL"); }
-    catch (error) {
-      if (!(typeof error === "object" && error !== null && "code" in error && String(error.code) === "ESRCH")) throw error;
-    }
-  }
-}
-
 async function withDeadline<T>(promise: Promise<T>, deadline: number, label: string): Promise<T> {
   const timeoutMs = deadline - Date.now();
   if (timeoutMs <= 0) throw new Error(`P15B1b deadline expired before ${label}.`);
@@ -391,21 +369,13 @@ async function withDeadline<T>(promise: Promise<T>, deadline: number, label: str
 
 async function delay(ms: number): Promise<void> { await new Promise<void>((resolve) => setTimeout(resolve, ms)); }
 
-async function cleanupRun(project: string, label: string, paths: ReturnType<typeof configureProject>, run: Promise<RunOutcome> | undefined, observed: ObservedProvider, cleanupErrors: Error[]): Promise<void> {
+async function cleanupRun(project: string, label: string, paths: ReturnType<typeof configureProject>, run: Promise<RunOutcome> | undefined, observed: ObservedProvider, nativeProcesses: OwnedNativeProcessObserver, hasPrimaryError: boolean, cleanupErrors: Error[]): Promise<void> {
   const deadline = Date.now() + cleanupBudgetMs;
   try {
     writeFileSync(paths.releasePath, JSON.stringify({ releasedAt: Date.now() }), "utf8");
     writeFileSync(paths.repairOutputReleasePath, JSON.stringify({ releasedAt: Date.now() }), "utf8");
   }
   catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
-  let pids: number[] = [];
-  let identityKnown = true;
-  try { pids = ownedPids(paths.eventsPath); }
-  catch (error) { identityKnown = false; cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
-  for (const pid of pids) {
-    try { stopPid(pid, deadline); }
-    catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
-  }
   let runSettled = run === undefined;
   if (run) {
     try { await withDeadline(run, deadline, "public graph run settlement"); runSettled = true; }
@@ -414,14 +384,12 @@ async function cleanupRun(project: string, label: string, paths: ReturnType<type
   let providerDrained = false;
   try { await observed.drain(deadline); providerDrained = true; }
   catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
-  let processesExited = false;
-  try { if (identityKnown) { await waitForPids(pids, deadline); processesExited = true; } }
+  let nativeProcessesClosed = false;
+  try { await nativeProcesses.drain(deadline); nativeProcessesClosed = true; }
   catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
-  if (runSettled && providerDrained && processesExited && identityKnown && cleanupErrors.length === 0) {
+  if (!hasPrimaryError && runSettled && providerDrained && nativeProcessesClosed && cleanupErrors.length === 0) {
     try { assertOwnedProject(project, label); rmSync(path.resolve(project), { recursive: true, force: true }); }
     catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
-  } else {
-    cleanupErrors.push(new Error(`P15B1b project retained because process/run cleanup was uncertain: ${path.basename(project)}`));
   }
 }
 
@@ -430,6 +398,7 @@ test("P15B1b native Codex readiness timeout remains PROVIDER_AUTH_REQUIRED befor
   let project: string | undefined;
   let paths: ReturnType<typeof configureProject> | undefined;
   let observed: ObservedProvider | undefined;
+  let nativeProcesses: OwnedNativeProcessObserver | undefined;
   let run: Promise<RunOutcome> | undefined;
   let outcome: RunOutcome | undefined;
   let primaryError: unknown;
@@ -440,9 +409,11 @@ test("P15B1b native Codex readiness timeout remains PROVIDER_AUTH_REQUIRED befor
     paths = configureProject(project, "codex", readinessProfileTimeoutMs);
     const scenarioDeadline = Date.now() + scenarioBudgetMs;
     observed = observeProvider(project, paths.eventsPath, paths.releasePath, scenarioDeadline);
+    nativeProcesses = observeOwnedNativeProcesses();
     assertOwnedProject(project, label);
     run = startRun(project, paths.eventsPath, observed).then((value) => { outcome = value; return value; });
     const held = await waitForMarker(paths.heldMarkerPath, () => outcome, scenarioDeadline);
+    expect(nativeProcesses.diagnostics.some(({ stages }) => stages.includes("spawn")), "a real child process must be captured after the readiness fixture marker").toBe(true);
     const heldPid = held.pid;
     expect(Number.isSafeInteger(heldPid) && Number(heldPid) > 0).toBe(true);
     expect(isProcessAlive(Number(heldPid)), "the real second login-status probe must be alive before its adapter timeout").toBe(true);
@@ -467,8 +438,8 @@ test("P15B1b native Codex readiness timeout remains PROVIDER_AUTH_REQUIRED befor
     expect(runEvents.some((event) => event.nodeId === "audit" && event.event === "node.started")).toBe(false);
     expect(existsSync(path.join(project, ".nodulus", "runs", outcome.result.runId, "calls", result.error.callId, "transport.json"))).toBe(false);
   } catch (error) { primaryErrorCaught = true; primaryError = error; }
-  if (project && paths && observed) await cleanupRun(project, label, paths, run, observed, cleanupErrors);
-  else if (project) {
+  if (project && paths && observed && nativeProcesses) await cleanupRun(project, label, paths, run, observed, nativeProcesses, primaryErrorCaught, cleanupErrors);
+  else if (project && !primaryErrorCaught) {
     try { assertOwnedProject(project, label); rmSync(path.resolve(project), { recursive: true, force: true }); }
     catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
   }
@@ -482,6 +453,7 @@ test("P15B1b native OpenCode repair output-limit failure survives the later grap
   let project: string | undefined;
   let paths: ReturnType<typeof configureProject> | undefined;
   let observed: ObservedProvider | undefined;
+  let nativeProcesses: OwnedNativeProcessObserver | undefined;
   let run: Promise<RunOutcome> | undefined;
   let outcome: RunOutcome | undefined;
   let primaryError: unknown;
@@ -492,9 +464,11 @@ test("P15B1b native OpenCode repair output-limit failure survives the later grap
     paths = configureProject(project, "opencode", repairProfileTimeoutMs);
     const scenarioDeadline = Date.now() + scenarioBudgetMs;
     observed = observeProvider(project, paths.eventsPath, paths.releasePath, scenarioDeadline);
+    nativeProcesses = observeOwnedNativeProcesses();
     assertOwnedProject(project, label);
     run = startRun(project, paths.eventsPath, observed).then((value) => { outcome = value; return value; });
     const repairStarted = await waitForMarker(paths.repairStartedPath, () => outcome, scenarioDeadline);
+    expect(nativeProcesses.diagnostics.some(({ stages }) => stages.includes("spawn")), "a real child process must be captured after the repair fixture marker").toBe(true);
     expect(Number.isSafeInteger(repairStarted.pid) && Number(repairStarted.pid) > 0).toBe(true);
     expect(isProcessAlive(Number(repairStarted.pid)), "the real OpenCode repair process must be alive before native output-limit failure").toBe(true);
     writeFileSync(paths.repairOutputReleasePath, JSON.stringify({ releasedAt: Date.now() }), "utf8");
@@ -540,8 +514,8 @@ test("P15B1b native OpenCode repair output-limit failure survives the later grap
     const transport = JSON.parse(readFileSync(path.join(project, ".nodulus", "runs", outcome.result.runId, "calls", evidence.callId, "transport.json"), "utf8")) as Record<string, unknown>;
     expect(transport).toMatchObject({ started: true, outputLimitExceeded: true, timedOut: false, cancelled: false });
   } catch (error) { primaryErrorCaught = true; primaryError = error; }
-  if (project && paths && observed) await cleanupRun(project, label, paths, run, observed, cleanupErrors);
-  else if (project) {
+  if (project && paths && observed && nativeProcesses) await cleanupRun(project, label, paths, run, observed, nativeProcesses, primaryErrorCaught, cleanupErrors);
+  else if (project && !primaryErrorCaught) {
     try { assertOwnedProject(project, label); rmSync(path.resolve(project), { recursive: true, force: true }); }
     catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
   }
