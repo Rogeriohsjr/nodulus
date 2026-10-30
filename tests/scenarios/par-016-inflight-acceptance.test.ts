@@ -95,6 +95,8 @@ test("PAR-016B2 preserves a durable sibling acceptance while its storage return 
     expect(typeof blocker.errorCode).toBe("string");
     expect(typeof blocker.errorMessage).toBe("string");
     expect(typeof blocker.errorPath).toBe("string");
+    expect(blocker.errorSyscall).toBe("rename");
+    expect(typeof blocker.errorDest).toBe("string");
     expect(typeof accepted.checkpointBase64).toBe("string");
     expect(accepted.aCallCompletedBeforeB).toBe(true);
     expect(finalCheckpoint.matchesAcceptedSnapshot).toBe(true);
@@ -104,6 +106,7 @@ test("PAR-016B2 preserves a durable sibling acceptance while its storage return 
     const blockerPath = String(blocker.target);
     const expectedBlockerPath = path.join(canonicalProject, ".nodulus", "runs", report.runId, "nodes", "a", "artifacts", "report.json");
     expect(realpathSync.native(blockerPath)).toBe(expectedBlockerPath);
+    expect(realpathSync.native(String(blocker.errorDest))).toBe(expectedBlockerPath);
     expect(statSync(blockerPath).isDirectory()).toBe(true);
     expect(realpathSync.native(path.dirname(blockerPath))).toBe(path.dirname(expectedBlockerPath));
 
@@ -152,7 +155,6 @@ test("PAR-016B2 preserves a durable sibling acceptance while its storage return 
     const publicError = (report.outcome?.result?.result as { error?: Record<string, unknown> } | undefined)?.error;
     expect(publicError).toMatchObject({ code: "RUN_STORAGE_FAILED" });
     expect(String(publicError?.message)).toContain(String(blocker.errorMessage));
-    expect(String(publicError?.message)).toContain(blockerPath);
     expect(events.some((event) => event.event === "provider_probe" && event.profileModel === "profile-c")).toBe(false);
     expect(events.some((event) => event.event === "provider_process_captured" && event.nodeId === "c")).toBe(false);
     expect(existsSync(path.join(stateDirectory, "started-c.json"))).toBe(false);

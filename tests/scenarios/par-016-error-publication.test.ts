@@ -120,8 +120,11 @@ async function runPublicationFailureCase(mode: ReadyRecord["mode"]): Promise<voi
     expect(publicError?.cause).toMatchObject({ callId: captured.callId });
     expect(captured).toMatchObject({ nodeId: "root", started: true, exitCode: 0, timedOut: false, cancelled: false, outputLimitExceeded: false, pidExited: true });
     expect(failure).toMatchObject({ errorCode: expect.any(String), target: mode === "checkpoint_lock" ? ready.checkpointPath : ready.eventsPath });
+    expect(failure.errorSyscall).toBe("rename");
+    expect(typeof failure.errorDest).toBe("string");
     expect(String(failure.errorMessage)).toContain(String(failure.errorCode));
-    expect(String(failure.errorMessage)).toContain(String(failure.target));
+    const expectedErrorTarget = path.resolve(canonicalProject, path.relative(project, String(failure.target)));
+    expect(realpathSync.native(String(failure.errorDest))).toBe(expectedErrorTarget);
     expect(publicError?.message).toContain(String(failure.errorMessage));
 
     const transportPath = path.join(runDirectory, "calls", String(captured.callId), "transport.json");

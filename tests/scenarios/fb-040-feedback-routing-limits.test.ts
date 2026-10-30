@@ -16,6 +16,49 @@ const request = (projectRoot: string) => ({ projectRoot, cwd: projectRoot, workf
 
 type LimitCall = { nodeId: string; operation: string; attempt: number; callId?: string; inputs?: Record<string, unknown>; deadlineAtMs?: number };
 type RegionCheckpoint = { iteration: number; providerCalls?: number; elapsedMs?: number; deadlineAtMs?: number; generationHistory?: unknown[]; uncertainCalls?: Array<Record<string, unknown>> };
+type ProcessObservation = {
+  invocation?: { nodeId?: string; operation?: string; callId?: string; deadlineAtMs?: number };
+  observedAtMs: number;
+  deadlineDeltaMs?: number;
+  signalAborted: boolean;
+  signalReason?: { name?: string; message?: string; code?: string };
+  result?: { started?: boolean; exitCode?: number | null; cancelled?: boolean; timedOut?: boolean; outputLimitExceeded?: boolean; terminationCause?: unknown; cleanupUnverified?: unknown; stdout?: string; stderr?: string };
+  rejection?: { name: string; message: string; code?: string };
+};
+
+function summarizeThrownValue(value: unknown): { name: string; message: string; code?: string } {
+  if (value instanceof Error) {
+    const code = "code" in value && typeof value.code === "string" ? value.code : undefined;
+    return { name: value.name, message: value.message.slice(0, 1200), ...(code ? { code } : {}) };
+  }
+  if (typeof value === "object" && value !== null) {
+    try {
+      const messageDescriptor = Object.getOwnPropertyDescriptor(value, "message");
+      const codeDescriptor = Object.getOwnPropertyDescriptor(value, "code");
+      const nameDescriptor = Object.getOwnPropertyDescriptor(value, "name");
+      const message = messageDescriptor && "value" in messageDescriptor && typeof messageDescriptor.value === "string" ? messageDescriptor.value : "Error record has no own string message.";
+      const code = codeDescriptor && "value" in codeDescriptor && typeof codeDescriptor.value === "string" ? codeDescriptor.value : undefined;
+      const name = nameDescriptor && "value" in nameDescriptor && typeof nameDescriptor.value === "string" ? nameDescriptor.value : "ErrorRecord";
+      return { name, message: message.slice(0, 1200), ...(code ? { code } : {}) };
+    } catch {
+      return { name: "ErrorRecord", message: "Could not read error details safely." };
+    }
+  }
+  return { name: "NonError", message: String(value).slice(0, 1200) };
+}
+
+function summarizeAbortReason(value: unknown): { name?: string; message?: string; code?: string } {
+  const summary = summarizeThrownValue(value);
+  return { name: summary.name, message: summary.message, ...(summary.code ? { code: summary.code } : {}) };
+}
+
+function writeDeadlineDiagnostic(value: Record<string, unknown>): void {
+  try {
+    console.error(`[FB-040 deadline diagnostic] ${JSON.stringify(value)}`);
+  } catch (error) {
+    console.error(`[FB-040 deadline diagnostic unavailable] ${summarizeThrownValue(error).message}`);
+  }
+}
 
 function configureRoute(fixture: ReturnType<typeof createFeedbackProject>, overrides: Record<string, unknown> = {}, limits: Record<string, number> = {}): void {
   const workflow = readProjectJson(fixture.project, ".nodulus/workflows/example.json");
@@ -71,16 +114,35 @@ async function regionState(fixture: ReturnType<typeof createFeedbackProject>, ru
 
 function limitProvider(
   fixture: ReturnType<typeof createFeedbackProject>,
-  hooks: { onInvoke?: (invocation: ProviderInvocation) => void; onAvailable?: () => void } = {},
+  hooks: { onInvoke?: (invocation: ProviderInvocation) => void; onAvailable?: () => void; onProcessObservation?: (observation: ProcessObservation) => void } = {},
 ): ProviderPort {
   const markersPath = path.join(fixture.temporary, "process-markers");
   const runFixture = async (input: ProviderInvocation | Record<string, unknown>, signal?: AbortSignal): Promise<string> => {
-    const result = await runProcess(process.execPath, [fixturePath, fixture.responsesPath, fixture.tracePath, markersPath, fixture.project], {
-      cwd: fixture.temporary,
-      stdin: JSON.stringify(input),
-      timeoutMs: 5000,
-      ...(signal ? { signal } : {}),
-    });
+    const invocation = input as ProviderInvocation & { deadlineAtMs?: number; operation?: string; nodeId?: string; callId?: string };
+    const observe = (observation: Omit<ProcessObservation, "observedAtMs" | "signalAborted" | "signalReason" | "invocation">): void => {
+      const observedAtMs = Date.now();
+      hooks.onProcessObservation?.({
+        invocation: { nodeId: invocation.nodeId, operation: invocation.operation ?? invocation.call?.operation, callId: invocation.callId ?? invocation.call?.callId, deadlineAtMs: invocation.deadlineAtMs },
+        observedAtMs,
+        ...(typeof invocation.deadlineAtMs === "number" ? { deadlineDeltaMs: observedAtMs - invocation.deadlineAtMs } : {}),
+        signalAborted: signal?.aborted ?? false,
+        ...(signal?.reason === undefined ? {} : { signalReason: summarizeAbortReason(signal.reason) }),
+        ...observation,
+      });
+    };
+    let result: Awaited<ReturnType<typeof runProcess>>;
+    try {
+      result = await runProcess(process.execPath, [fixturePath, fixture.responsesPath, fixture.tracePath, markersPath, fixture.project], {
+        cwd: fixture.temporary,
+        stdin: JSON.stringify(input),
+        timeoutMs: 5000,
+        ...(signal ? { signal } : {}),
+      });
+    } catch (error) {
+      observe({ rejection: summarizeThrownValue(error) });
+      throw error;
+    }
+    observe({ result: { started: result.started, exitCode: result.exitCode, cancelled: result.cancelled, timedOut: result.timedOut, outputLimitExceeded: result.outputLimitExceeded, terminationCause: result.terminationCause, cleanupUnverified: result.cleanupUnverified, stdout: result.stdout.slice(-1600), stderr: result.stderr.slice(-1600) } });
     if (result.cancelled) throw new Error("Feedback limit fixture process was cancelled.");
     if (result.timedOut) throw new Error("Feedback limit fixture process timed out.");
     if (result.exitCode !== 0) throw new Error(result.stderr || `Feedback limit fixture exited ${result.exitCode}`);
@@ -191,12 +253,21 @@ test("FB-040 aborts an overlong in-flight child at the persisted region deadline
   const responses = acceptedResponses();
   responses[0] = { ...responses[0]!, delayMs: 3000 };
   fixture.writeResponses(responses);
+  const processObservations: ProcessObservation[] = [];
   try {
-    const result = await runWorkflow(request(fixture.project), limitProvider(fixture));
+    let result: Awaited<ReturnType<typeof runWorkflow>>;
+    try {
+      result = await runWorkflow(request(fixture.project), limitProvider(fixture, {
+        onProcessObservation(observation) { processObservations.push(observation); },
+      }));
+    } catch (error) {
+      writeDeadlineDiagnostic({ publicError: summarizeThrownValue(error), processObservations, providerEventTail: [] });
+      throw error;
+    }
     const calls = readCalls(fixture);
     const state = await regionState(fixture, result.runId);
     const errorCode = (result.result as { error?: { code?: string } }).error?.code ?? null;
-    expect({
+    const actual = {
       status: result.status,
       errorCode,
       calls: calls.map((call) => call.nodeId),
@@ -205,7 +276,8 @@ test("FB-040 aborts an overlong in-flight child at the persisted region deadline
       providerCalls: state.providerCalls,
       deadlineAtMs: state.deadlineAtMs,
       uncertainCalls: state.uncertainCalls,
-    }).toEqual({
+    };
+    const expected = {
       status: "error",
       errorCode: "FEEDBACK_LIMIT_EXCEEDED",
       calls: ["prepare"],
@@ -214,7 +286,30 @@ test("FB-040 aborts an overlong in-flight child at the persisted region deadline
       providerCalls: 1,
       deadlineAtMs: expect.any(Number),
       uncertainCalls: [{ callId: calls[0]?.callId, nodeId: "prepare", attempt: 1, operation: "invoke", launchStatus: "uncertain" }],
-    });
+    };
+    try {
+      expect(actual).toEqual(expected);
+    } catch (error) {
+      let providerEventTail: Array<Record<string, unknown>> = [];
+      let eventReadError: string | undefined;
+      try {
+        const eventBytes = await new LocalIntakeStorage().readRunFile(fixture.project, result.runId, "events.jsonl");
+        const events = eventBytes.trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
+        providerEventTail = events.filter((event) => typeof event.event === "string" && event.event.startsWith("provider.call.")).slice(-8);
+      } catch (readError) {
+        eventReadError = summarizeThrownValue(readError).message;
+      }
+      writeDeadlineDiagnostic({
+        publicError: summarizeThrownValue((result.result as { error?: unknown }).error ?? result.result),
+        assertionError: summarizeThrownValue(error),
+        processObservations,
+        providerEventTail,
+        ...(eventReadError ? { eventReadError } : {}),
+        deadlineAtMs: state.deadlineAtMs,
+        observedAtMs: Date.now(),
+      });
+      throw error;
+    }
   } finally {
     fixture.cleanup();
   }

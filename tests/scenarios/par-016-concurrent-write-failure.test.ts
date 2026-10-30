@@ -64,13 +64,13 @@ test("PAR-016 a required artifact write failure poisons before releasing a captu
     expect(storageFailure).toMatchObject({ targetIsDirectory: true });
     expect(typeof storageFailure.errorCode).toBe("string");
     expect(String(storageFailure.errorMessage).length).toBeGreaterThan(0);
-    expect([storageFailure.errorPath, storageFailure.errorDest, storageFailure.errorMessage].some((value) =>
-      typeof value === "string" && value.includes(String(blocker.target)),
-    )).toBe(true);
+    expect(storageFailure.errorSyscall).toBe("rename");
+    expect(typeof storageFailure.errorDest).toBe("string");
     expect(bAbort.reason).toMatchObject({ source: "nodulus.graph", kind: "graph_stop", code: "GRAPH_CANCELLED" });
 
     const target = String(blocker.target);
     const expectedTarget = path.join(canonicalProject, ".nodulus", "runs", runId, "nodes", "a", "artifacts", "report.json");
+    expect(realpathSync.native(String(storageFailure.errorDest))).toBe(expectedTarget);
     expect(realpathSync.native(target)).toBe(expectedTarget);
     expect(statSync(target).isDirectory()).toBe(true);
     expect(JSON.parse(readFileSync(String(blocker.blockerMarker), "utf8"))).toMatchObject({ nodeId: "a", target });
