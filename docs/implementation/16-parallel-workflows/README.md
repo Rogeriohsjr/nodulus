@@ -1,6 +1,6 @@
 # Parallel workflows
 
-Status: P1 is accepted locally and on its hosted head. P2 is now accepted locally: Root's final npm run check passed579 runtime and17 installed-package tests, including lint/typecheck/build. The reviewed source covers bounded calls/resources, durable acceptance, deadline/cancellation evidence, unresolved operations, cleanup uncertainty and real crash/publication/policy cases. See [P2 exit evidence](phase2-exit.md). Previous checkpoint5d775ba passed Windows/macOS/Linux push/PR checks; the final P2 head still requires its own hosted gate before P3 execution. Historical unexpected Windows rename denials remain unattributed. Join/output coverage, graph recovery, delivery and final stack integration remain pending; all PRs remain draft and unmerged.
+Status: P1 and P2 are accepted locally and on their hosted heads. P2 head a76d8d58df8cc69b7211eea0cb7c4e62ff6cb7e0 passed Windows/macOS/Linux push and PR checks, title checks, and publishing skipped. Root's full local gate passed 579 runtime and 17 installed-package tests with lint/typecheck/build; see [P2 exit evidence](phase2-exit.md). P3 join/output scenarios passed independent Root/Sol review and the full local gate: 585 runtime and 17 installed-package tests. Its hosted gate is pending. Graph recovery, delivery and final stack integration remain pending; all PRs stay draft and unmerged. Historical unexplained deadline/startup/rename incidents remain recorded separately from corrected path assertions.
 
 ## Scope and prerequisites
 
@@ -37,5 +37,6 @@ Accepted foundations include [P10 scheduling](packets/p10-graph-scheduling-imple
 - [Coordinator quality review](coordinator-review.md)
 - [Phase stack and execution ledger](stack.md)
 - [P2 local exit evidence](phase2-exit.md)
+- [P3 evidence](phase3-evidence.md)
 - [Frozen graph runtime decisions](runtime-contract.md)
 - [P01 test packet](packets/p01-graph-inspection-tests.md)

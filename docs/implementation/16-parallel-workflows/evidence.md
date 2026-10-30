@@ -21,8 +21,8 @@ The detailed sections retain their original checkpoint chronology. Current P2 lo
 | PAR-002 | `npm run build`; `npx --no-install vitest run tests/scenarios/par-002-graph-structure.test.ts` | No new RED; existing grammar characterized | 11/11 by builder/Sol; P01+P02 14/14 by coordinator | Sol and coordinator ACCEPT | Local structural coverage accepted |
 | PAR-003 | `npx --no-install vitest run tests/scenarios/par-003-graph-mappings.test.ts` | Coordinator/Sol reproduced 2 failed / 8 passed | 10/10; coordinator P01–P03 24/24 | Sol RED/GREEN ACCEPT; coordinator accepted | Local mapping scenario accepted |
 | PAR-004 | `npx --no-install vitest run tests/scenarios/par-004-graph-strict-definition.test.ts` | Coordinator/Sol reproduced 2 failed / 18 passed | 20/20; coordinator P01–P04 44/44 | Sol RED/GREEN ACCEPT; coordinator accepted | Local strict-definition scenario accepted |
-| PAR-010–016 | `npm run check`; individual frozen packet commands below | Relevant REDs recorded per packet; passing characterizations kept separate | Root full 579/579 runtime and 17/17 archive; lint/type/build passed | Luna implementation, Sol stable reviews, independent Root QA; local exit accepted | Locally accepted; final hosted head pending |
-| PAR-020–025 | Not assigned | None | None | Pending | Not started |
+| PAR-010–016 | `npm run check`; individual frozen packet commands below | Relevant REDs recorded per packet; passing characterizations kept separate | Root full 579/579 runtime and 17/17 archive; lint/type/build passed | Luna implementation, Sol stable reviews, independent Root QA | Accepted locally and exact-head a76d8d5 Windows/macOS/Linux push/PR; publishing skipped |
+| PAR-020–025 | Three frozen files; six public-API/real-process cases | Passing characterization; assertion/setup corrections are not RED | Root 6/6 in 2.08s; full 585 runtime/17 archive, lint/type/build passed | Sol and independent Root acceptance | Local phase accepted; hosted head pending; see [P3 evidence](phase3-evidence.md) |
 | PAR-030–037 | Not assigned | None | None | Pending | Not started |
 | PAR-040–044 | Not assigned | None | None | Pending | Not started |
 

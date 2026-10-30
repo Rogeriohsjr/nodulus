@@ -29,12 +29,12 @@ P1 is complete only when PAR-001 through PAR-004 pass their own test, implementa
 
 ## P3 — joins, outputs and completion
 
-- [ ] PAR-020 — A join waits for all declared dependencies to be accepted and valid, not merely for provider responses.
-- [ ] PAR-021 — Support nested forks and joins with exact ancestor-only mappings.
-- [ ] PAR-022 — Permit a partial join to proceed while an unrelated branch is still running.
-- [ ] PAR-023 — Workflow completion waits for every declared node, including independent terminal paths.
-- [ ] PAR-024 — Return explicit named output aliases in declaration order regardless of completion order.
-- [ ] PAR-025 — Empty or unavailable values count only where schema permits; missing/invalid output never satisfies a dependency; no fabricated fallback artifacts or continue-on-error.
+- [x] PAR-020 — A join waits for all declared dependencies to be accepted and valid, not merely for provider responses.
+- [x] PAR-021 — Support nested forks and joins with exact ancestor-only mappings.
+- [x] PAR-022 — Permit a partial join to proceed while an unrelated branch is still running.
+- [x] PAR-023 — Workflow completion waits for every declared node, including independent terminal paths.
+- [x] PAR-024 — Return explicit named output aliases in declaration order regardless of completion order.
+- [x] PAR-025 — Empty or unavailable values count only where schema permits; missing/invalid output never satisfies a dependency; no fabricated fallback artifacts or continue-on-error.
 
 ## P4 — pause, errors, cancellation and recovery
 
