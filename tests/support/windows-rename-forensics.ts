@@ -163,7 +163,7 @@ async function startForensicHelper(projectRoot: string, reportRoot: string): Pro
       let report: WindowsRenameForensicReport;
       try { report = JSON.parse(readFileSync(responsePath, "utf8")) as WindowsRenameForensicReport; }
       finally { rmSync(responsePath, { force: true }); }
-      if (report.runId !== input.runId || path.resolve(report.target) !== path.resolve(input.target)) {
+      if (report.runId !== input.runId || realpathSync.native(report.target) !== realpathSync.native(input.target)) {
         throw new Error(`Forensic response identity mismatch for run '${input.runId}'.`);
       }
       if (report.status !== "available" && !report.reason) report.reason = "probe reported unavailable";
@@ -242,7 +242,7 @@ function boundedError(error: unknown): string {
 function isTargetRenameFailure(error: unknown, target: string): boolean {
   if (errorCode(error) !== "EPERM" || !(error instanceof Error)) return false;
   try {
-    const physicalTarget = realpathSync(target).toLowerCase();
+    const physicalTarget = realpathSync.native(target).toLowerCase();
     const message = error.message.toLowerCase();
     return message.includes(`-> '${physicalTarget}'`) || message.includes(`-> "${physicalTarget}"`);
   } catch {

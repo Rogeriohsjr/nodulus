@@ -9,7 +9,7 @@ import type { ProviderPort, ProviderInvocation } from "./ports/provider.js";
 import type { CapturedInputs, DefinitionContext, Node, OutputArtifact } from "./execute-workflow.js";
 import { buildPrompt, parseProviderOutcome, resolveMappedInputs, validateOutputSet, validateValidatorVerdict } from "./execute-workflow.js";
 import type { GraphAcceptedRecord } from "./graph-state.js";
-import { graphStopError } from "./ports/graph-stop.js";
+import { createGraphProfileTimeoutReason, graphProfileTimeoutError, graphStopError } from "./ports/graph-stop.js";
 import { NodulusError } from "./shared/nodulus-error.js";
 
 export type GraphNodeSuccess = {
@@ -29,6 +29,35 @@ class GraphEvidenceWriteError extends NodulusError {
   constructor(message: string) {
     super("RUN_STORAGE_FAILED", message);
   }
+}
+
+type ProfileOperationSignal = { signal: AbortSignal; deadlineError: () => NodulusError | undefined; dispose: () => void };
+
+function profileTimeoutMs(profile: Record<string, unknown>): number {
+  const value = profile.timeoutMs;
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(1, Math.min(value, 600_000)) : 600_000;
+}
+
+function createProfileOperationSignal(parent: AbortSignal, timeoutMs: number, operation: "availability" | "invoke" | "response-only repair"): ProfileOperationSignal {
+  const controller = new AbortController();
+  const deadlineAt = performance.now() + timeoutMs;
+  const reason = createGraphProfileTimeoutReason(`Provider ${operation} exceeded its captured profile timeout of ${timeoutMs} ms.`);
+  const onParentAbort = (): void => controller.abort(parent.reason);
+  if (parent.aborted) onParentAbort();
+  else parent.addEventListener("abort", onParentAbort, { once: true });
+  const expire = (): void => { if (!controller.signal.aborted) controller.abort(reason); };
+  const timer = setTimeout(expire, timeoutMs);
+  return {
+    signal: controller.signal,
+    deadlineError: () => {
+      if (!controller.signal.aborted && performance.now() >= deadlineAt) expire();
+      return graphProfileTimeoutError(controller.signal);
+    },
+    dispose: () => {
+      clearTimeout(timer);
+      parent.removeEventListener("abort", onParentAbort);
+    },
+  };
 }
 
 export function isGraphEvidenceWriteError(error: unknown): error is GraphEvidenceWriteError {
@@ -69,6 +98,7 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
     if (!mapped.valid) throw Object.assign(new Error(mapped.message), { code: mapped.code });
     const mappedInputs = structuredClone(mapped.values);
     const profile = structuredClone(context.providerProfiles[node.providerProfile] ?? {});
+    const operationTimeoutMs = profileTimeoutMs(profile);
     const nodeInstructions = inputs.instructions.filter((item) =>
       node.instructions.some((instruction) => path.resolve(request.projectRoot, instruction) === path.resolve(item.path)),
     );
@@ -125,6 +155,8 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
       let callError: unknown;
       let callFailed = false;
       let providerCallEntered = false;
+      let providerOperationSignal: AbortSignal | undefined;
+      let providerOperationDeadlineError: (() => NodulusError | undefined) | undefined;
       try {
         if (currentOperation === "invoke") {
           const stoppedBeforeReadiness = graphStopError(args.signal);
@@ -134,9 +166,21 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
           }
           if (provider.isAvailable) {
             launch = false;
-            const available = await provider.isAvailable(structuredClone(profile), { signal: args.signal });
-            const stoppedAfterReadiness = graphStopError(args.signal);
-            if (stoppedAfterReadiness) throw stoppedAfterReadiness;
+            const availability = createProfileOperationSignal(args.signal, operationTimeoutMs, "availability");
+            providerOperationSignal = availability.signal;
+            providerOperationDeadlineError = availability.deadlineError;
+            let available: boolean;
+            try {
+              const profileTimeout = availability.deadlineError();
+              if (profileTimeout) throw profileTimeout;
+              const stoppedBeforeProbe = graphStopError(availability.signal);
+              if (stoppedBeforeProbe) throw stoppedBeforeProbe;
+              available = await provider.isAvailable(structuredClone(profile), { signal: availability.signal });
+              const profileTimeoutAfterProbe = availability.deadlineError();
+              if (profileTimeoutAfterProbe) throw profileTimeoutAfterProbe;
+              const stoppedAfterReadiness = graphStopError(availability.signal);
+              if (stoppedAfterReadiness) throw stoppedAfterReadiness;
+            } finally { availability.dispose(); }
             if (!available) throw Object.assign(new Error(`Provider profile '${node.providerProfile}' is unavailable.`), { code: "PROVIDER_UNAVAILABLE" });
           }
           const stoppedBeforeInvoke = graphStopError(args.signal);
@@ -144,23 +188,51 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
             launch = false;
             throw stoppedBeforeInvoke;
           }
-          providerCallEntered = true;
           launch = null;
-          raw = await provider.invoke(invocation);
+          const operationSignal = createProfileOperationSignal(args.signal, operationTimeoutMs, "invoke");
+          providerOperationSignal = operationSignal.signal;
+          providerOperationDeadlineError = operationSignal.deadlineError;
+          try {
+            const profileTimeout = operationSignal.deadlineError();
+            if (profileTimeout) { launch = false; throw profileTimeout; }
+            const stoppedBeforeProviderCall = graphStopError(operationSignal.signal);
+            if (stoppedBeforeProviderCall) { launch = false; throw stoppedBeforeProviderCall; }
+            providerCallEntered = true;
+            raw = await provider.invoke({ ...invocation, signal: operationSignal.signal });
+            const profileTimeoutAfterCall = operationSignal.deadlineError();
+            if (profileTimeoutAfterCall) throw profileTimeoutAfterCall;
+            const stopped = graphStopError(operationSignal.signal);
+            if (stopped) throw stopped;
+          } finally { operationSignal.dispose(); }
         } else {
           if (!provider.repairResponse) throw new NodulusError("RESPONSE_REPAIR_UNAVAILABLE", "Safe response-only repair is unavailable; the full provider action will not be replayed.");
           const stoppedBeforeRepair = graphStopError(args.signal);
           if (stoppedBeforeRepair) throw stoppedBeforeRepair;
-          providerCallEntered = true;
           launch = null;
-          raw = await provider.repairResponse(invocation, previousRaw, issue?.errors ?? []);
+          const operationSignal = createProfileOperationSignal(args.signal, operationTimeoutMs, "response-only repair");
+          providerOperationSignal = operationSignal.signal;
+          providerOperationDeadlineError = operationSignal.deadlineError;
+          try {
+            const profileTimeout = operationSignal.deadlineError();
+            if (profileTimeout) { launch = false; throw profileTimeout; }
+            const stoppedBeforeProviderCall = graphStopError(operationSignal.signal);
+            if (stoppedBeforeProviderCall) { launch = false; throw stoppedBeforeProviderCall; }
+            providerCallEntered = true;
+            raw = await provider.repairResponse({ ...invocation, signal: operationSignal.signal }, previousRaw, issue?.errors ?? []);
+            const profileTimeoutAfterCall = operationSignal.deadlineError();
+            if (profileTimeoutAfterCall) throw profileTimeoutAfterCall;
+            const stopped = graphStopError(operationSignal.signal);
+            if (stopped) throw stopped;
+          } finally { operationSignal.dispose(); }
         }
         const stopped = graphStopError(args.signal);
         if (stopped) throw stopped;
         if (typeof raw !== "string") throw Object.assign(new Error("Provider returned a non-string response."), { code: "PROVIDER_FAILURE" });
       } catch (error) {
         callFailed = true;
-        callError = error;
+        const profileTimeout = providerOperationDeadlineError?.() ??
+          (providerOperationSignal === undefined ? undefined : graphProfileTimeoutError(providerOperationSignal));
+        callError = profileTimeout && (!isRecord(error) || error.code !== "PROVIDER_TIMEOUT") ? profileTimeout : error;
         if (providerCallEntered) launch ??= safeLaunch(provider, currentCallId);
       }
 

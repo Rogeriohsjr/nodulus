@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProviderInvocation, ProviderPort } from "../../core/ports/provider.js";
 import { NodulusError } from "../../core/shared/nodulus-error.js";
-import { graphStopError } from "../../core/ports/graph-stop.js";
+import { graphProfileTimeoutError, graphStopError } from "../../core/ports/graph-stop.js";
 import { runProcess } from "./process-runner.js";
 import { runCapturedProcess } from "./captured-process.js";
 
@@ -66,6 +66,11 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
           if (isRecord(error) && error.code === "PROVIDER_TIMEOUT") throw error;
           throw graphStop;
         }
+        const profileTimeout = graphProfileTimeoutError(invocation.signal);
+        if (profileTimeout) {
+          if (isRecord(error) && error.code === "PROVIDER_TIMEOUT") throw error;
+          throw profileTimeout;
+        }
         if (invocation.signal?.aborted || (invocation.deadlineAtMs !== undefined && Date.now() >= invocation.deadlineAtMs)) {
           const error = new NodulusError("FEEDBACK_LIMIT_EXCEEDED", "Feedback routing elapsed-time limit was reached.");
           throw error;
@@ -94,6 +99,11 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
           if (isRecord(error) && error.code === "PROVIDER_TIMEOUT") throw error;
           throw graphStop;
         }
+        const profileTimeout = graphProfileTimeoutError(invocation.signal);
+        if (profileTimeout) {
+          if (isRecord(error) && error.code === "PROVIDER_TIMEOUT") throw error;
+          throw profileTimeout;
+        }
         if (!isProviderActive(invocation.signal, invocation.deadlineAtMs)) {
           throw new NodulusError("FEEDBACK_LIMIT_EXCEEDED", "Feedback routing elapsed-time limit was reached.");
         }
@@ -104,6 +114,8 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
       if (profile.enabled !== true || typeof profile.executable !== "string" || !profile.executable) return false;
       const kind = requireKind(profile);
       try {
+        const profileTimeout = graphProfileTimeoutError(options?.signal);
+        if (profileTimeout) throw profileTimeout;
         if (!isProviderActive(options?.signal, options?.deadlineAtMs)) return false;
         const timeout = boundedTimeout(profile.timeoutMs);
         const readinessTimeout = kind === "opencode" ? invocationTimeout : timeout;
@@ -111,7 +123,14 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
         if (!isProviderActive(options?.signal, options?.deadlineAtMs)) return false;
         await checkReadiness(kind, profile.executable, profile, projectRoot, readinessTimeout, options?.signal);
         return isProviderActive(options?.signal, options?.deadlineAtMs);
-      } catch { return false; }
+      } catch (error) {
+        const profileTimeout = graphProfileTimeoutError(options?.signal);
+        if (profileTimeout) {
+          if (isRecord(error) && error.code === "PROVIDER_TIMEOUT") throw error;
+          throw profileTimeout;
+        }
+        return false;
+      }
     },
     telemetryForCall: callId => telemetryByCall.get(callId) ?? null,
     launchForCall: callId => launchByCall.get(callId) ?? null,

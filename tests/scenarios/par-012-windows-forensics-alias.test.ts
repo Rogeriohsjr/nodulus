@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -68,16 +69,67 @@ function outcomeError(outcome: RunOutcome): { code?: string; message?: string } 
   return (outcome.result.result as { error?: { code?: string; message?: string } } | undefined)?.error ?? {};
 }
 
-test.skipIf(process.platform !== "win32")("PAR-012FA captures forensic evidence when runWorkflow uses an owned junction alias", async () => {
+test.skipIf(process.platform !== "win32").for(["junction", "dos83"] as const)("PAR-012FA captures forensic evidence through a real %s project path", async (aliasKind, { skip }) => {
   const project = createInitializedProject("par-012-windows-forensics café & %");
   const aliasContainer = mkdtempSync(path.join(os.tmpdir(), "nodulus-par-012-windows-forensics-alias-container-"));
   assertOwnedProject(project);
   assertOwnedContainer(aliasContainer);
-  const projectIdentity = realpathSync(project);
-  const containerIdentity = realpathSync(aliasContainer);
-  const alias = path.join(aliasContainer, "project-alias");
-  symlinkSync(projectIdentity, alias, "junction");
-  if (realpathSync(alias) !== projectIdentity) throw new Error("Owned junction alias did not resolve to the generated project.");
+  const projectIdentity = realpathSync.native(project);
+  const containerIdentity = realpathSync.native(aliasContainer);
+  let alias: string;
+  const junctionAlias = aliasKind === "junction";
+  if (junctionAlias) {
+    alias = path.join(aliasContainer, "project-alias");
+    symlinkSync(projectIdentity, alias, "junction");
+  } else {
+    const lexicalProject = path.resolve(project);
+    const lexicalHasDosAlias = /~[0-9]+/i.test(lexicalProject)
+      && lexicalProject.toLowerCase() !== projectIdentity.toLowerCase()
+      && realpathSync.native(lexicalProject).toLowerCase() === projectIdentity.toLowerCase();
+    if (lexicalHasDosAlias) {
+      alias = lexicalProject;
+    } else {
+      const scriptPath = path.join(aliasContainer, "get-short-path.ps1");
+      const script = `param([Parameter(Mandatory = $true)][string]$Path)
+$native = @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class P12ShortPath {
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  public static extern uint GetShortPathName(string longPath, StringBuilder shortPath, uint bufferLength);
+}
+'@
+Add-Type -TypeDefinition $native -Language CSharp
+$buffer = New-Object System.Text.StringBuilder 32768
+$length = [P12ShortPath]::GetShortPathName($Path, $buffer, [uint32]$buffer.Capacity)
+if ($length -eq 0 -or $length -ge $buffer.Capacity) { exit 1 }
+[Console]::WriteLine($buffer.ToString())
+`;
+      writeFileSync(scriptPath, script, "utf8");
+      const systemRoot = process.env.SystemRoot;
+      if (!systemRoot) throw new Error("SystemRoot is unavailable for the bounded Win32 short-path query.");
+      const powershell = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+      const shortPathResult = spawnSync(powershell, ["-NoProfile", "-NonInteractive", "-File", scriptPath, "-Path", projectIdentity], {
+        cwd: aliasContainer, encoding: "utf8", timeout: 5000, windowsHide: true,
+      });
+      if (shortPathResult.error || shortPathResult.status !== 0) {
+        throw new Error(`Win32 short-path query failed before the workflow scenario: ${shortPathResult.error?.message ?? String(shortPathResult.stderr)}`);
+      }
+      const shortPath = String(shortPathResult.stdout).trim();
+      if (!/~[0-9]+/i.test(shortPath) || path.resolve(shortPath).toLowerCase() === projectIdentity.toLowerCase()) {
+        if (realpathSync.native(project) !== projectIdentity || realpathSync.native(aliasContainer) !== containerIdentity) {
+          throw new Error("Generated project or alias container identity changed before unavailable-case cleanup; retaining fixtures.");
+        }
+        rmSync(project, { recursive: true, force: true });
+        rmSync(aliasContainer, { recursive: true, force: true });
+        skip("Win32 GetShortPathNameW returned no distinct DOS 8.3 alias for the generated project on this volume.");
+        return;
+      }
+      alias = shortPath;
+    }
+  }
+  if (realpathSync.native(alias).toLowerCase() !== projectIdentity.toLowerCase()) throw new Error(`Project alias did not resolve to the exact generated project: '${alias}'.`);
   const providerProject = alias;
   configureParallelProject(providerProject);
   configureAlphaBetaGraph(providerProject);
@@ -164,7 +216,7 @@ test.skipIf(process.platform !== "win32")("PAR-012FA captures forensic evidence 
     expect(probeError?.code).toBe("EPERM");
     expect(readFileSync(checkpointPath).equals(lock.checkpoint)).toBe(true);
 
-    const physicalCheckpointPath = realpathSync(checkpointPath);
+    const physicalCheckpointPath = realpathSync.native(checkpointPath);
     const lexicalCheckpointPath = path.resolve(providerProject, ".nodulus", "runs", outcome.result.runId, "run.json");
     expect(physicalCheckpointPath).not.toBe(lexicalCheckpointPath);
     expect(error.message).toContain(physicalCheckpointPath);
@@ -233,12 +285,14 @@ test.skipIf(process.platform !== "win32")("PAR-012FA captures forensic evidence 
     try {
       assertOwnedProject(project);
       assertOwnedContainer(aliasContainer);
-      if (realpathSync(project) !== projectIdentity || realpathSync(aliasContainer) !== containerIdentity) {
+      if (realpathSync.native(project) !== projectIdentity || realpathSync.native(aliasContainer) !== containerIdentity) {
         throw new Error("Generated project or alias container no longer resolves to its immutable owned path; retaining fixtures.");
       }
-      if (realpathSync(alias) !== projectIdentity) throw new Error("Alias target identity changed; retaining fixtures.");
-      unlinkSync(alias);
-      if (existsSync(alias)) throw new Error("Junction still exists after unlink; retaining generated project and container.");
+      if (realpathSync.native(alias).toLowerCase() !== projectIdentity.toLowerCase()) throw new Error("Alias target identity changed; retaining fixtures.");
+      if (junctionAlias) {
+        unlinkSync(alias);
+        if (existsSync(alias)) throw new Error("Junction still exists after unlink; retaining generated project and container.");
+      }
       rmSync(project, { recursive: true, force: true });
       if (existsSync(project)) throw new Error("Generated project still exists after verified recursive cleanup.");
       rmSync(aliasContainer, { recursive: true, force: true });
