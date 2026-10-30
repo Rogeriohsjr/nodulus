@@ -1,6 +1,10 @@
 # P4F resume preflight and integrity tests
 
-Planning only. PAR-034 remains unaccepted. This packet proposes a focused schema-2 matrix after PAR-033 and PAR-035 prerequisites are accepted. It does not claim current scenario or test evidence.
+The matrix has Root local acceptance after PAR-033/PAR-035 prerequisites. Broader P4 and hosted-head gates remain separate.
+
+Final scenario `511EE69279573AFADA2F7A4417687486535F17DA6A9D11D07CB095351A2740EA` passed Root's strict test compilation, prescribed lint/source typecheck and Root/Sol actual-file review. Root's first ordinary characterization passed all13 isolated variants in32.74s (p4f-root-first-characterization.log), without a runtime change or invented RED. The twelve fault controls preserve their post-injection complete directory/file snapshots with no provider, validator-log, fixture or native-process activity; the operational unavailable control persists the valid final answer and expected terminal error evidence while preserving seed bytes. Positive initial real validator execution and owned child close diagnostics make the no-replay controls non-vacuous. All cases retained the original20/10/35/60 budgets and passed actual owned cleanup.
+
+Root/Sol reviewed the first frozen scenarioA9031819 before execution. Root strict test compilation found uppercase role arguments and an unknown fixture-event property; prescribed lint found an unused B binding. Both reviews found the orphan row's contradictory answer-absence assertion and cumulative initial-call counts used as final-unavailability evidence. Root additionally required committed checkpoint request hashes, fixture bytes compared across partial A, actual owned-native close observation, complete directory-aware snapshots, and a non-vacuous executable-validator log. Sol accepted those narrow additions and requires persisted final checkpoint/event/attempt error evidence. A single consolidated test-only correction1 is in progress; no behavioral run, RED or acceptance is claimed.
 
 ## Ownership and boundaries
 
