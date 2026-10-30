@@ -8,7 +8,7 @@ import type { ProviderTelemetry } from "./ports/provider-telemetry.js";
 import type { CapturedInputs, DefinitionContext, OutputArtifact } from "./execute-workflow.js";
 import { resolveOutputReference } from "./workflow-mapping.js";
 import type { GraphDefinition } from "./workflow-graph.js";
-import { GraphStateWriter, type GraphRunCheckpoint } from "./graph-state.js";
+import { GraphStateWriter, type GraphRunCheckpoint, type GraphRunErrorDetails } from "./graph-state.js";
 import { isGraphEvidenceWriteError, runGraphNode, type GraphNodeOutcome } from "./graph-node-runner.js";
 import { createGraphStopReason } from "./ports/graph-stop.js";
 import { NodulusError } from "./shared/nodulus-error.js";
@@ -21,7 +21,7 @@ type GraphContext = DefinitionContext & {
 };
 type GraphRunResponse = { runId: string; status: "success" | "needs_input" | "error"; result: unknown };
 type ActiveNode = { nodeId: string; attempt: number; callId: string; startedAtMs: number; resources: string[]; controller: AbortController; promise: Promise<{ nodeId: string; outcome: GraphNodeOutcome }> };
-type GraphFailure = { code: string; message: string; nodeId?: string; callId?: string; launch?: boolean | null };
+type GraphFailure = { code: string; message: string; nodeId?: string; callId?: string; launch?: boolean | null; cause?: GraphRunErrorDetails["cause"] };
 
 /** Execute a captured schema-2 graph through an isolated scheduler and node runner. */
 export async function executeGraphWorkflow(
@@ -55,7 +55,11 @@ export async function executeGraphWorkflow(
   const pending = new Map<string, Record<string, unknown>>();
   const active = new Map<string, ActiveNode>();
   const resourcesHeld = new Set<string>();
+  const uncertainNodes = new Set<string>();
+  const cleanupUnverifiedNodes = new Set<string>();
   let admissionClosed = false;
+  let initiatingFailure: GraphFailure | undefined;
+  let provisionalFailure: GraphFailure | undefined;
 
   const nodes = context.nodes;
   const workflow = context.workflow;
@@ -65,11 +69,66 @@ export async function executeGraphWorkflow(
   }));
   const ancestors = dependencyAncestors(workflow);
 
-  const abortActivePeers = (failedNodeId: string, code: string, message: string): void => {
+  const abortActivePeers = (failedNodeId: string, code: string, message: string, callId?: string, launch?: boolean | null): void => {
     admissionClosed = true;
+    initiatingFailure ??= provisionalFailure ?? { code, message, nodeId: failedNodeId, ...(callId ? { callId } : {}), ...(launch !== undefined ? { launch } : {}) };
     const reason = createGraphStopReason(`Graph node '${failedNodeId}' failed with ${code}: ${message}`);
     for (const node of active.values()) {
       if (node.nodeId !== failedNodeId && !node.controller.signal.aborted) node.controller.abort(reason);
+    }
+  };
+
+  const orderedIds = (ids: Set<string>): string[] => workflow.nodes.filter((nodeId) => ids.has(nodeId));
+  const recordUnresolved = async (outcome: Extract<GraphNodeOutcome, { status: "unresolved" }>): Promise<void> => {
+    admissionClosed = true;
+    uncertainNodes.add(outcome.nodeId);
+    if (outcome.cause.code === "PROVIDER_TIMEOUT") {
+      if (!initiatingFailure || provisionalFailure) {
+        initiatingFailure = { code: outcome.cause.code, message: outcome.cause.message, nodeId: outcome.nodeId, callId: outcome.callId, launch: outcome.launch };
+      }
+      provisionalFailure = undefined;
+      abortActivePeers(outcome.nodeId, outcome.cause.code, outcome.cause.message, outcome.callId, outcome.launch);
+      failed.push({ code: outcome.cause.code, message: outcome.cause.message, nodeId: outcome.nodeId, callId: outcome.callId, launch: outcome.launch });
+    } else if (!initiatingFailure) {
+      initiatingFailure = provisionalFailure ?? {
+        code: outcome.cause.code,
+        message: outcome.cause.message,
+        nodeId: outcome.nodeId,
+        callId: outcome.callId,
+        launch: outcome.launch,
+      };
+      provisionalFailure = undefined;
+      failed.push({ ...initiatingFailure });
+    }
+    if (outcome.publicationFailure) {
+      const storageFailure: GraphFailure = {
+        code: "RUN_STORAGE_FAILED",
+        message: outcome.publicationFailure.message,
+        nodeId: outcome.nodeId,
+        callId: outcome.callId,
+        launch: outcome.launch,
+        ...(initiatingFailure ? selectedFailureCause(initiatingFailure) : { cause: { code: outcome.cause.code, message: outcome.cause.message, nodeId: outcome.nodeId, callId: outcome.callId, launch: outcome.launch } }),
+      };
+      failed.push(storageFailure);
+      abortActivePeers(outcome.nodeId, "RUN_STORAGE_FAILED", storageFailure.message, outcome.callId, outcome.launch);
+      return;
+    }
+    const message = "The provider operation remained active after the bounded cleanup grace.";
+    try {
+      await writer.recordUnresolved(
+        outcome.nodeId,
+        outcome.attempt,
+        outcome.callId,
+        outcome.launch,
+        outcome.operation,
+        { code: "GRAPH_OPERATION_UNRESOLVED", message, cause: outcome.cause },
+        orderedIds(uncertainNodes),
+      );
+    } catch (error) {
+      const storageMessage = messageOf(error);
+      writer.poison(error);
+      failed.push({ code: "RUN_STORAGE_FAILED", message: storageMessage, nodeId: outcome.nodeId, callId: outcome.callId, launch: outcome.launch, ...(initiatingFailure ? selectedFailureCause(initiatingFailure) : { cause: { code: outcome.cause.code, message: outcome.cause.message, nodeId: outcome.nodeId, callId: outcome.callId, launch: outcome.launch } }) });
+      abortActivePeers(outcome.nodeId, "RUN_STORAGE_FAILED", storageMessage, outcome.callId, outcome.launch);
     }
   };
 
@@ -89,7 +148,17 @@ export async function executeGraphWorkflow(
         const attemptRoot = `nodes/${node.id}/attempt-${String(attempt).padStart(3, "0")}`;
         try {
           await writer.admit(node.id, attempt, callId, attemptRoot);
+          if (admissionClosed) {
+            const reason = initiatingFailure;
+            await writer.fail(node.id, reason?.code ?? "GRAPH_CANCELLED", reason?.message ?? "Graph admission closed before this reserved node launched.");
+            break;
+          }
           await writer.callStarted(node.id, attempt, callId);
+          if (admissionClosed) {
+            const reason = initiatingFailure;
+            await writer.fail(node.id, reason?.code ?? "GRAPH_CANCELLED", reason?.message ?? "Graph admission closed before this reserved node launched.");
+            break;
+          }
         } catch (error) {
           const message = messageOf(error);
           failed.push({ code: "RUN_STORAGE_FAILED", message, nodeId: node.id });
@@ -113,6 +182,16 @@ export async function executeGraphWorkflow(
           acceptedOutputs,
           ancestorIds: ancestors.get(node.id) ?? new Set<string>(),
           onRequiredWriteFailure: (error) => writer.poison(error),
+          onStopIntent: (stopNodeId, stopCode, message) => {
+            admissionClosed = true;
+            if (stopCode === "PROVIDER_TIMEOUT" && !initiatingFailure) {
+              provisionalFailure ??= { code: stopCode, message, nodeId: stopNodeId };
+            }
+            const reason = createGraphStopReason(`Graph node '${stopNodeId}' received a stop intent: ${message}`);
+            for (const activeNode of active.values()) {
+              if (activeNode.nodeId !== stopNodeId && !activeNode.controller.signal.aborted) activeNode.controller.abort(reason);
+            }
+          },
           onCallStarted: (callAttempt, nextCallId, operation, parentCallId) => writer.callStarted(node.id, callAttempt, nextCallId, operation, parentCallId),
           onCallCompleted: (callAttempt, completedCallId, operation, parentCallId, elapsedMs, launched) => {
             const measurement = providerMetric(provider, node.id, callAttempt, completedCallId, operation, elapsedMs, launched);
@@ -163,6 +242,10 @@ export async function executeGraphWorkflow(
       abortActivePeers(completion.nodeId, "RUN_STORAGE_FAILED", completion.outcome.message);
       continue;
     }
+    if (completion.outcome.status === "unresolved") {
+      await recordUnresolved(completion.outcome);
+      continue;
+    }
     if (completion.outcome.status === "success") {
       try {
         await writer.accept(completion.nodeId, completion.outcome.accepted, workflow.nodes);
@@ -183,6 +266,16 @@ export async function executeGraphWorkflow(
         abortActivePeers(completion.nodeId, "RUN_STORAGE_FAILED", message);
       }
     } else {
+      if (provisionalFailure && (completion.outcome.preemptedByPhysicalFailure || completion.nodeId === provisionalFailure.nodeId)) {
+        initiatingFailure = {
+          code: completion.outcome.code,
+          message: completion.outcome.message,
+          nodeId: completion.nodeId,
+          callId: completion.outcome.callId,
+          launch: completion.outcome.launch,
+        };
+        provisionalFailure = undefined;
+      }
       failed.push({
         code: completion.outcome.code,
         message: completion.outcome.message,
@@ -190,8 +283,21 @@ export async function executeGraphWorkflow(
         callId: completion.outcome.callId,
         launch: completion.outcome.launch,
       });
-      abortActivePeers(completion.nodeId, completion.outcome.code, completion.outcome.message);
-      try { await writer.fail(completion.nodeId, completion.outcome.code, completion.outcome.message); }
+      abortActivePeers(completion.nodeId, completion.outcome.code, completion.outcome.message, completion.outcome.callId, completion.outcome.launch);
+      try {
+        if (completion.outcome.cleanupUnverified) {
+          cleanupUnverifiedNodes.add(completion.nodeId);
+          await writer.recordCleanupUnverified(
+            completion.nodeId,
+            completion.outcome.callId,
+            completion.outcome.launch,
+            completion.outcome.code,
+            completion.outcome.message,
+            completion.outcome.cleanupUnverified,
+            orderedIds(cleanupUnverifiedNodes),
+          );
+        } else await writer.fail(completion.nodeId, completion.outcome.code, completion.outcome.message);
+      }
       catch (error) {
         const message = messageOf(error);
         failed.push({ code: "RUN_STORAGE_FAILED", message, nodeId: completion.nodeId });
@@ -220,6 +326,10 @@ export async function executeGraphWorkflow(
       abortActivePeers(completion.nodeId, "RUN_STORAGE_FAILED", completion.outcome.message);
       continue;
     }
+    if (completion.outcome.status === "unresolved") {
+      await recordUnresolved(completion.outcome);
+      continue;
+    }
     try {
       if (completion.outcome.status === "success") {
         await writer.accept(completion.nodeId, completion.outcome.accepted, workflow.nodes);
@@ -228,6 +338,16 @@ export async function executeGraphWorkflow(
       } else if (completion.outcome.status === "needs_input") {
         pending.set(completion.nodeId, completion.outcome.request);
       } else {
+        if (provisionalFailure && (completion.outcome.preemptedByPhysicalFailure || completion.nodeId === provisionalFailure.nodeId)) {
+          initiatingFailure = {
+            code: completion.outcome.code,
+            message: completion.outcome.message,
+            nodeId: completion.nodeId,
+            callId: completion.outcome.callId,
+            launch: completion.outcome.launch,
+          };
+          provisionalFailure = undefined;
+        }
         failed.push({
           code: completion.outcome.code,
           message: completion.outcome.message,
@@ -235,8 +355,19 @@ export async function executeGraphWorkflow(
           callId: completion.outcome.callId,
           launch: completion.outcome.launch,
         });
-        abortActivePeers(completion.nodeId, completion.outcome.code, completion.outcome.message);
-        await writer.fail(completion.nodeId, completion.outcome.code, completion.outcome.message);
+        abortActivePeers(completion.nodeId, completion.outcome.code, completion.outcome.message, completion.outcome.callId, completion.outcome.launch);
+        if (completion.outcome.cleanupUnverified) {
+          cleanupUnverifiedNodes.add(completion.nodeId);
+          await writer.recordCleanupUnverified(
+            completion.nodeId,
+            completion.outcome.callId,
+            completion.outcome.launch,
+            completion.outcome.code,
+            completion.outcome.message,
+            completion.outcome.cleanupUnverified,
+            orderedIds(cleanupUnverifiedNodes),
+          );
+        } else await writer.fail(completion.nodeId, completion.outcome.code, completion.outcome.message);
       }
     } catch (error) {
       writer.poison(error);
@@ -247,8 +378,17 @@ export async function executeGraphWorkflow(
   }
 
   if (failed.length > 0) {
-    const terminal = failed[0];
-    return finishError(writer, runId, terminal?.code ?? "GRAPH_EXECUTION_FAILED", terminal?.message ?? "Graph execution failed.", terminal);
+    const storageFailure = failed.find((failure) => failure.code === "RUN_STORAGE_FAILED");
+    const terminal = storageFailure ?? initiatingFailure ?? failed[0];
+    return finishError(writer, runId, terminal?.code ?? "GRAPH_EXECUTION_FAILED", terminal?.message ?? "Graph execution failed.", {
+      ...(terminal?.nodeId ? { nodeId: terminal.nodeId } : {}),
+      ...(terminal?.callId ? { callId: terminal.callId } : {}),
+      ...(terminal?.launch !== undefined ? { launch: terminal.launch } : {}),
+      ...(uncertainNodes.size > 0 || cleanupUnverifiedNodes.size > 0 ? { recoveryRequired: true as const } : {}),
+      ...(uncertainNodes.size > 0 ? { uncertainNodeIds: orderedIds(uncertainNodes) } : {}),
+      ...(cleanupUnverifiedNodes.size > 0 ? { cleanupUnverifiedNodeIds: orderedIds(cleanupUnverifiedNodes) } : {}),
+      ...(terminal?.cause ? { cause: terminal.cause } : storageFailure && initiatingFailure ? selectedFailureCause(initiatingFailure) : {}),
+    });
   }
   if (pending.size > 0) {
     const requests = workflow.nodes.flatMap((nodeId) => pending.has(nodeId) ? [pending.get(nodeId)!] : []);
@@ -360,17 +500,36 @@ function safeMeasurementError(error: unknown): string {
   catch { return "Measurement error could not be described safely."; }
 }
 
-async function finishError(writer: GraphStateWriter, runId: string, code: string, message: string, details?: GraphFailure): Promise<GraphRunResponse> {
-  try { await writer.finishError(code, message); } catch { /* preserve the original terminal diagnostic if storage is poisoned */ }
-  return {
-    runId,
-    status: "error",
-    result: { error: {
+async function finishError(writer: GraphStateWriter, runId: string, code: string, message: string, details?: GraphRunErrorDetails): Promise<GraphRunResponse> {
+  let resultCode = code;
+  let resultMessage = message;
+  let resultDetails = details;
+  try { await writer.finishError(code, message, details); }
+  catch (error) {
+    resultCode = "RUN_STORAGE_FAILED";
+    resultMessage = `Could not persist the terminal graph result: ${messageOf(error)}`;
+    const cause = details?.cause ?? (code === "RUN_STORAGE_FAILED" ? undefined : {
       code,
       message,
       ...(details?.nodeId ? { nodeId: details.nodeId } : {}),
       ...(details?.callId ? { callId: details.callId } : {}),
       ...(details?.launch !== undefined ? { launch: details.launch } : {}),
+    });
+    resultDetails = { ...details, ...(cause ? { cause } : {}) };
+  }
+  return {
+    runId,
+    status: "error",
+    result: { error: {
+      code: resultCode,
+      message: resultMessage,
+      ...(resultDetails?.nodeId ? { nodeId: resultDetails.nodeId } : {}),
+      ...(resultDetails?.callId ? { callId: resultDetails.callId } : {}),
+      ...(resultDetails?.launch !== undefined ? { launch: resultDetails.launch } : {}),
+      ...(resultDetails?.recoveryRequired ? { recoveryRequired: true } : {}),
+      ...(resultDetails?.uncertainNodeIds && resultDetails.uncertainNodeIds.length > 0 ? { uncertainNodeIds: [...resultDetails.uncertainNodeIds] } : {}),
+      ...(resultDetails?.cleanupUnverifiedNodeIds && resultDetails.cleanupUnverifiedNodeIds.length > 0 ? { cleanupUnverifiedNodeIds: [...resultDetails.cleanupUnverifiedNodeIds] } : {}),
+      ...(resultDetails?.cause ? { cause: { ...resultDetails.cause } } : {}),
     } },
   };
 }
@@ -383,4 +542,17 @@ function json(value: unknown): string { return `${JSON.stringify(value, null, 2)
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function errorCode(error: unknown, fallback: string): string {
   return error instanceof NodulusError ? error.code : fallback;
+}
+function failureCause(failure: GraphFailure): NonNullable<GraphRunErrorDetails["cause"]> {
+  return {
+    code: failure.code,
+    message: failure.message,
+    ...(failure.nodeId ? { nodeId: failure.nodeId } : {}),
+    ...(failure.callId ? { callId: failure.callId } : {}),
+    ...(failure.launch !== undefined ? { launch: failure.launch } : {}),
+  };
+}
+function selectedFailureCause(failure: GraphFailure): { cause?: GraphRunErrorDetails["cause"] } {
+  if (failure.code === "RUN_STORAGE_FAILED") return failure.cause ? { cause: failure.cause } : {};
+  return { cause: failureCause(failure) };
 }

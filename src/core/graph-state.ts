@@ -29,8 +29,21 @@ export type GraphRunCheckpoint = {
     nextEventSequence: number;
     captured: Record<string, unknown>;
     callerInputs: Record<string, unknown>;
+    recoveryRequired?: true;
+    uncertainNodeIds?: string[];
+    cleanupUnverifiedNodeIds?: string[];
   };
   [key: string]: unknown;
+};
+
+export type GraphRunErrorDetails = {
+  nodeId?: string;
+  callId?: string;
+  launch?: boolean | null;
+  recoveryRequired?: true;
+  uncertainNodeIds?: string[];
+  cleanupUnverifiedNodeIds?: string[];
+  cause?: { code: string; message: string; nodeId?: string; callId?: string; launch?: boolean | null };
 };
 
 /** Single writer for graph checkpoints and the event sequence. */
@@ -115,6 +128,58 @@ export class GraphStateWriter {
     });
   }
 
+  recordUnresolved(
+    nodeId: string,
+    attempt: number,
+    callId: string,
+    launch: boolean | null,
+    operation: "readiness" | "invoke" | "repair_response",
+    interruption: { code: "GRAPH_OPERATION_UNRESOLVED"; message: string; cause: { code: string; message: string } },
+    uncertainNodeIds: string[],
+  ): Promise<void> {
+    return this.commit({ event: "node.recovery_required", nodeId, attempt, callId, operation }, (next) => {
+      next.graph.admissionClosed = true;
+      next.graph.recoveryRequired = true;
+      next.graph.uncertainNodeIds = [...uncertainNodeIds];
+      next.graph.nodes[nodeId] = {
+        ...next.graph.nodes[nodeId],
+        phase: "active",
+        attempt,
+        callId,
+        launch,
+        recoveryRequired: true,
+        interruption,
+      };
+    });
+  }
+
+  recordCleanupUnverified(
+    nodeId: string,
+    callId: string,
+    launch: boolean | null,
+    code: string,
+    message: string,
+    cleanupUnverified: { code: "PROCESS_TREE_UNVERIFIED"; message: string; operation: "readiness" | "invoke" | "repair_response" | "validator" },
+    cleanupUnverifiedNodeIds: string[],
+  ): Promise<void> {
+    return this.commit([
+      { event: "node.failed", nodeId, code },
+      { event: "node.cleanup_unverified", nodeId, callId, code, operation: cleanupUnverified.operation },
+    ], (next) => {
+      next.graph.admissionClosed = true;
+      next.graph.recoveryRequired = true;
+      next.graph.cleanupUnverifiedNodeIds = [...cleanupUnverifiedNodeIds];
+      next.graph.nodes[nodeId] = {
+        ...next.graph.nodes[nodeId],
+        phase: "failed",
+        callId,
+        launch,
+        failure: { code, message },
+        cleanupUnverified,
+      };
+    });
+  }
+
   closeAdmission(): Promise<void> {
     return this.commit({ event: "graph.admission.closed" }, (next) => { next.graph.admissionClosed = true; });
   }
@@ -152,17 +217,28 @@ export class GraphStateWriter {
     }, { ...outputFiles, "result.json": json({ runId: this.runId, status: "success", result }) });
   }
 
-  finishError(code: string, message: string): Promise<void> {
+  finishError(code: string, message: string, details: GraphRunErrorDetails = {}): Promise<void> {
+    const error = {
+      code,
+      message,
+      ...(details.nodeId ? { nodeId: details.nodeId } : {}),
+      ...(details.callId ? { callId: details.callId } : {}),
+      ...(details.launch !== undefined ? { launch: details.launch } : {}),
+      ...(details.recoveryRequired ? { recoveryRequired: true as const } : {}),
+      ...(details.uncertainNodeIds && details.uncertainNodeIds.length > 0 ? { uncertainNodeIds: [...details.uncertainNodeIds] } : {}),
+      ...(details.cleanupUnverifiedNodeIds && details.cleanupUnverifiedNodeIds.length > 0 ? { cleanupUnverifiedNodeIds: [...details.cleanupUnverifiedNodeIds] } : {}),
+      ...(details.cause ? { cause: { ...details.cause } } : {}),
+    };
     return this.commit({ event: "run.failed", code }, (next) => {
       next.phase = "completed";
       next.status = "error";
       next.graph.admissionClosed = true;
-      next.error = { code, message };
-    }, { "result.json": json({ runId: this.runId, status: "error", error: { code, message } }) });
+      next.error = error;
+    }, { "result.json": json({ runId: this.runId, status: "error", error }) });
   }
 
   private commit(
-    event: Record<string, unknown>,
+    event: Record<string, unknown> | Record<string, unknown>[],
     update: (next: GraphRunCheckpoint) => void,
     evidenceFiles: RunFiles = {},
     optionalFiles: RunFiles = {},
@@ -174,10 +250,16 @@ export class GraphStateWriter {
       const nextMetrics = metric ? [...this.metrics, metric] : this.metrics;
       const next = structuredClone(this.checkpoint);
       update(next);
-      const sequence = next.graph.nextEventSequence;
-      next.graph.nextEventSequence = sequence + 1;
-      const line = `${JSON.stringify({ ...event, runId: this.runId, timestamp: new Date().toISOString(), sequence })}\n`;
-      const nextEvents = `${this.events.trimEnd()}${this.events.trim() ? "\n" : ""}${line}`;
+      const events = Array.isArray(event) ? event : [event];
+      const firstSequence = next.graph.nextEventSequence;
+      next.graph.nextEventSequence = firstSequence + events.length;
+      const lines = events.map((entry, index) => `${JSON.stringify({
+        ...entry,
+        runId: this.runId,
+        timestamp: new Date().toISOString(),
+        sequence: firstSequence + index,
+      })}\n`).join("");
+      const nextEvents = `${this.events.trimEnd()}${this.events.trim() ? "\n" : ""}${lines}`;
       let optionalFilesPersisted = true;
       let nextOptionalFiles = optionalFiles;
       if (metric) {

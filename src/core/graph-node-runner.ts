@@ -11,6 +11,8 @@ import { buildPrompt, parseProviderOutcome, resolveMappedInputs, validateOutputS
 import type { GraphAcceptedRecord } from "./graph-state.js";
 import { createGraphProfileTimeoutReason, graphProfileTimeoutError, graphStopError } from "./ports/graph-stop.js";
 import { copyPhysicalFailureEvidence, getPhysicalFailureEvidence } from "./ports/physical-process.js";
+import type { ProcessCleanupUnverified } from "./ports/physical-process.js";
+import { createRuntimeEvidencePublication } from "./graph-operation.js";
 import { NodulusError } from "./shared/nodulus-error.js";
 
 export type GraphNodeSuccess = {
@@ -23,8 +25,30 @@ export type GraphNodeSuccess = {
   artifacts: OutputArtifact[];
 };
 export type GraphNodePause = { status: "needs_input"; nodeId: string; callId: string; launch: boolean | null; request: Record<string, unknown> };
-export type GraphNodeFailure = { status: "error"; nodeId: string; callId: string; code: string; message: string; launch: boolean | null; storageFailure?: true };
-export type GraphNodeOutcome = GraphNodeSuccess | GraphNodePause | GraphNodeFailure;
+export type GraphNodeFailure = {
+  status: "error";
+  nodeId: string;
+  callId: string;
+  code: string;
+  message: string;
+  launch: boolean | null;
+  storageFailure?: true;
+  preemptedByPhysicalFailure?: true;
+  cleanupUnverified?: { code: "PROCESS_TREE_UNVERIFIED"; message: string; operation: "readiness" | "invoke" | "repair_response" | "validator" };
+};
+export type GraphNodeUnresolved = {
+  status: "unresolved";
+  nodeId: string;
+  callId: string;
+  attempt: number;
+  launch: boolean | null;
+  operation: "readiness" | "invoke" | "repair_response";
+  cause: { code: "GRAPH_CANCELLED" | "PROVIDER_TIMEOUT"; message: string };
+  publicationFailure?: { code: "RUN_STORAGE_FAILED"; message: string };
+};
+export type GraphNodeOutcome = GraphNodeSuccess | GraphNodePause | GraphNodeFailure | GraphNodeUnresolved;
+
+type OperationResult<T> = { status: "settled"; value: T } | { status: "rejected"; error: unknown } | { status: "unresolved"; cause: { code: "GRAPH_CANCELLED" | "PROVIDER_TIMEOUT"; message: string }; publicationFailure?: { code: "RUN_STORAGE_FAILED"; message: string } };
 
 class GraphEvidenceWriteError extends NodulusError {
   constructor(message: string) {
@@ -80,6 +104,7 @@ export type GraphNodeRunnerContext = {
   acceptedOutputs: Map<string, Map<string, OutputArtifact>>;
   ancestorIds: Set<string>;
   onRequiredWriteFailure?: (error: Error) => void;
+  onStopIntent?: (nodeId: string, code: "GRAPH_CANCELLED" | "PROVIDER_TIMEOUT", message: string) => void;
   onCallStarted?: (attempt: number, callId: string, operation: "invoke" | "repair_response", parentCallId?: string) => Promise<void>;
   onCallCompleted?: (attempt: number, callId: string, operation: "invoke" | "repair_response", parentCallId: string | undefined, elapsedMs: number, launched: boolean | null) => Promise<void>;
 };
@@ -113,8 +138,10 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
 
     while (true) {
       currentAttemptRoot = `nodes/${node.id}/attempt-${String(currentAttempt).padStart(3, "0")}`;
+      const evidenceOwner = createRuntimeEvidencePublication();
       const invocation: ProviderInvocation = {
         executionMode: "graph",
+        evidencePublication: evidenceOwner.publication,
         call: { callId: currentCallId, attempt: currentAttempt, operation: currentOperation, ...(parentCallId ? { parentCallId } : {}) },
         providerProfileId: node.providerProfile,
         runId,
@@ -157,10 +184,13 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
       let callError: unknown;
       let callFailed = false;
       let providerCallEntered = false;
+      let physicalFailurePreemptedStop = false;
+      let providerStage: GraphNodeUnresolved["operation"] = currentOperation === "repair_response" ? "repair_response" : "invoke";
       let providerOperationSignal: AbortSignal | undefined;
       let providerOperationDeadlineError: (() => NodulusError | undefined) | undefined;
       try {
         if (currentOperation === "invoke") {
+          providerStage = "readiness";
           const stoppedBeforeReadiness = graphStopError(args.signal);
           if (stoppedBeforeReadiness) {
             launch = false;
@@ -174,10 +204,25 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
             let available: boolean;
             try {
               const profileTimeout = availability.deadlineError();
-              if (profileTimeout) throw profileTimeout;
+              if (profileTimeout) { notifyStopIntent(args, node.id, availability.signal); throw profileTimeout; }
               const stoppedBeforeProbe = graphStopError(availability.signal);
-              if (stoppedBeforeProbe) throw stoppedBeforeProbe;
-              available = await provider.isAvailable(structuredClone(profile), { signal: availability.signal, executionMode: "graph" });
+              if (stoppedBeforeProbe) { notifyStopIntent(args, node.id, availability.signal); throw stoppedBeforeProbe; }
+              const availabilityResult = await awaitGraphOperation(
+                Promise.resolve(provider.isAvailable!(structuredClone(profile), {
+                  signal: availability.signal,
+                  executionMode: "graph",
+                  evidencePublication: evidenceOwner.publication,
+                })),
+                availability.signal,
+                () => evidenceOwner.sealAndDrain(),
+                args.onRequiredWriteFailure,
+                () => notifyStopIntent(args, node.id, availability.signal),
+              );
+              if (availabilityResult.status === "unresolved") {
+                return unresolvedOutcome(node.id, currentCallId, currentAttempt, false, "readiness", availabilityResult.cause, availabilityResult.publicationFailure);
+              }
+              if (availabilityResult.status === "rejected") throw availabilityResult.error;
+              available = availabilityResult.value;
               const profileTimeoutAfterProbe = availability.deadlineError();
               if (profileTimeoutAfterProbe) throw profileTimeoutAfterProbe;
               const stoppedAfterReadiness = graphStopError(availability.signal);
@@ -191,22 +236,35 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
             throw stoppedBeforeInvoke;
           }
           launch = null;
+          providerStage = "invoke";
           const operationSignal = createProfileOperationSignal(args.signal, operationTimeoutMs, "invoke");
           providerOperationSignal = operationSignal.signal;
           providerOperationDeadlineError = operationSignal.deadlineError;
           try {
             const profileTimeout = operationSignal.deadlineError();
-            if (profileTimeout) { launch = false; throw profileTimeout; }
+            if (profileTimeout) { launch = false; notifyStopIntent(args, node.id, operationSignal.signal); throw profileTimeout; }
             const stoppedBeforeProviderCall = graphStopError(operationSignal.signal);
-            if (stoppedBeforeProviderCall) { launch = false; throw stoppedBeforeProviderCall; }
+            if (stoppedBeforeProviderCall) { launch = false; notifyStopIntent(args, node.id, operationSignal.signal); throw stoppedBeforeProviderCall; }
             providerCallEntered = true;
-            raw = await provider.invoke({ ...invocation, signal: operationSignal.signal });
+            const invokeResult = await awaitGraphOperation(
+              Promise.resolve(provider.invoke({ ...invocation, signal: operationSignal.signal })),
+              operationSignal.signal,
+              () => evidenceOwner.sealAndDrain(),
+              args.onRequiredWriteFailure,
+              () => notifyStopIntent(args, node.id, operationSignal.signal),
+            );
+            if (invokeResult.status === "unresolved") {
+              return unresolvedOutcome(node.id, currentCallId, currentAttempt, safeLaunch(provider, currentCallId), "invoke", invokeResult.cause, invokeResult.publicationFailure);
+            }
+            if (invokeResult.status === "rejected") throw invokeResult.error;
+            raw = invokeResult.value;
             const profileTimeoutAfterCall = operationSignal.deadlineError();
             if (profileTimeoutAfterCall) throw profileTimeoutAfterCall;
             const stopped = graphStopError(operationSignal.signal);
             if (stopped) throw stopped;
           } finally { operationSignal.dispose(); }
         } else {
+          providerStage = "repair_response";
           if (!provider.repairResponse) throw new NodulusError("RESPONSE_REPAIR_UNAVAILABLE", "Safe response-only repair is unavailable; the full provider action will not be replayed.");
           const stoppedBeforeRepair = graphStopError(args.signal);
           if (stoppedBeforeRepair) throw stoppedBeforeRepair;
@@ -216,11 +274,22 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
           providerOperationDeadlineError = operationSignal.deadlineError;
           try {
             const profileTimeout = operationSignal.deadlineError();
-            if (profileTimeout) { launch = false; throw profileTimeout; }
+            if (profileTimeout) { launch = false; notifyStopIntent(args, node.id, operationSignal.signal); throw profileTimeout; }
             const stoppedBeforeProviderCall = graphStopError(operationSignal.signal);
-            if (stoppedBeforeProviderCall) { launch = false; throw stoppedBeforeProviderCall; }
+            if (stoppedBeforeProviderCall) { launch = false; notifyStopIntent(args, node.id, operationSignal.signal); throw stoppedBeforeProviderCall; }
             providerCallEntered = true;
-            raw = await provider.repairResponse({ ...invocation, signal: operationSignal.signal }, previousRaw, issue?.errors ?? []);
+            const repairResult = await awaitGraphOperation(
+              Promise.resolve(provider.repairResponse!({ ...invocation, signal: operationSignal.signal }, previousRaw, issue?.errors ?? [])),
+              operationSignal.signal,
+              () => evidenceOwner.sealAndDrain(),
+              args.onRequiredWriteFailure,
+              () => notifyStopIntent(args, node.id, operationSignal.signal),
+            );
+            if (repairResult.status === "unresolved") {
+              return unresolvedOutcome(node.id, currentCallId, currentAttempt, safeLaunch(provider, currentCallId), "repair_response", repairResult.cause, repairResult.publicationFailure);
+            }
+            if (repairResult.status === "rejected") throw repairResult.error;
+            raw = repairResult.value;
             const profileTimeoutAfterCall = operationSignal.deadlineError();
             if (profileTimeoutAfterCall) throw profileTimeoutAfterCall;
             const stopped = graphStopError(operationSignal.signal);
@@ -234,9 +303,15 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
         callFailed = true;
         const profileTimeout = providerOperationDeadlineError?.() ??
           (providerOperationSignal === undefined ? undefined : graphProfileTimeoutError(providerOperationSignal));
+        if (providerOperationSignal) notifyStopIntent(args, node.id, providerOperationSignal);
         const physicalFailure = getPhysicalFailureEvidence(error);
         const earlierPhysicalFailure = physicalFailure !== undefined && physicalFailure.terminationCause !== "cancelled";
-        if (earlierPhysicalFailure) callError = error;
+        physicalFailurePreemptedStop = earlierPhysicalFailure;
+        const requiredPublicationFailure = isGraphEvidenceWriteError(error) || (isRecord(error) && error.code === "RUN_STORAGE_FAILED");
+        if (requiredPublicationFailure) {
+          args.onRequiredWriteFailure?.(error instanceof Error ? error : new NodulusError("RUN_STORAGE_FAILED", messageOf(error)));
+          callError = error;
+        } else if (earlierPhysicalFailure) callError = error;
         else if (profileTimeout && (!isRecord(error) || error.code !== "PROVIDER_TIMEOUT")) {
           callError = copyPhysicalFailureEvidence(profileTimeout, error);
         } else callError = error;
@@ -253,7 +328,23 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
           [`${currentAttemptRoot}/stderr.log`]: errorMessage,
         }, args.onRequiredWriteFailure);
         await completeCall(args, currentAttempt, currentCallId, currentOperation, parentCallId, startedAt, launch);
-        return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, errorCode, errorMessage, "");
+        const rejected = await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, errorCode, errorMessage, "");
+        const physical = getPhysicalFailureEvidence(callError);
+        if (!physical?.cleanupUnverified) return {
+          ...rejected,
+          ...(errorCode === "RUN_STORAGE_FAILED" ? { storageFailure: true as const } : {}),
+          ...(physicalFailurePreemptedStop ? { preemptedByPhysicalFailure: true as const } : {}),
+        };
+        return {
+          ...rejected,
+          ...(errorCode === "RUN_STORAGE_FAILED" ? { storageFailure: true as const } : {}),
+          ...(physicalFailurePreemptedStop ? { preemptedByPhysicalFailure: true as const } : {}),
+          cleanupUnverified: {
+            code: physical.cleanupUnverified.code,
+            message: physical.cleanupUnverified.message,
+            operation: providerStage,
+          },
+        };
       }
 
       launch = safeLaunch(provider, currentCallId);
@@ -305,14 +396,15 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
             try { processResult = await artifactValidator.execute(request.projectRoot, scriptPath, json(artifact.data), expected.validatorTimeoutMs ?? 5000, args.signal); }
             catch (error) { return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, "VALIDATOR_EXECUTION_FAILED", messageOf(error), raw); }
             const stopped = graphStopError(args.signal);
-            if (stopped) return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, stopped.code, stopped.message, raw);
-            if (processResult.timedOut) return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, "VALIDATOR_TIMEOUT", `Validator '${expected.validator}' exceeded its timeout.`, raw, undefined, processResult.stderr);
-            if (processResult.exitCode !== 0 || processResult.outputLimitExceeded) return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, "VALIDATOR_EXECUTION_FAILED", `Validator '${expected.validator}' did not complete successfully.`, raw, undefined, processResult.stderr);
+            if (processResult.timedOut) return await rejectValidatorAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, "VALIDATOR_TIMEOUT", `Validator '${expected.validator}' exceeded its timeout.`, raw, processResult.stderr, processResult.cleanupUnverified);
+            if (processResult.outputLimitExceeded) return await rejectValidatorAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, "VALIDATOR_EXECUTION_FAILED", `Validator '${expected.validator}' did not complete successfully.`, raw, processResult.stderr, processResult.cleanupUnverified);
+            if (stopped) return await rejectValidatorAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, stopped.code, stopped.message, raw, processResult.stderr, processResult.cleanupUnverified);
+            if (processResult.exitCode !== 0) return await rejectValidatorAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, "VALIDATOR_EXECUTION_FAILED", `Validator '${expected.validator}' did not complete successfully.`, raw, processResult.stderr, processResult.cleanupUnverified);
             let verdict: unknown;
             try { verdict = JSON.parse(processResult.stdout) as unknown; }
-            catch { return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, "VALIDATOR_INVALID_RESPONSE", "Validator stdout must be a JSON verdict.", raw, undefined, processResult.stderr); }
+            catch { return await rejectValidatorAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, "VALIDATOR_INVALID_RESPONSE", "Validator stdout must be a JSON verdict.", raw, processResult.stderr, processResult.cleanupUnverified); }
             const checked = validateValidatorVerdict(verdict);
-            if (!checked.valid) return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, "VALIDATOR_INVALID_RESPONSE", checked.errors.join("; "), raw, undefined, processResult.stderr);
+            if (!checked.valid) return await rejectValidatorAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, "VALIDATOR_INVALID_RESPONSE", checked.errors.join("; "), raw, processResult.stderr, processResult.cleanupUnverified);
             validatorResults.push({ name: artifact.name, valid: checked.validity === true, errors: checked.errors });
             if (!checked.validity) {
               issue = { code: "ARTIFACT_REJECTED", errors: checked.errors.length > 0 ? checked.errors : [`Validator '${expected.validator}' rejected artifact '${artifact.name}'.`], stderr: processResult.stderr };
@@ -376,8 +468,10 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
     };
   } catch (error) {
     launch ??= safeLaunch(provider, currentCallId);
-    if (isGraphEvidenceWriteError(error)) {
-      return { status: "error", nodeId: node.id, callId: currentCallId, code: error.code, message: error.message, launch, storageFailure: true };
+    if (isGraphEvidenceWriteError(error) || (isRecord(error) && error.code === "RUN_STORAGE_FAILED")) {
+      const storageError = error instanceof Error ? error : new NodulusError("RUN_STORAGE_FAILED", messageOf(error));
+      args.onRequiredWriteFailure?.(storageError);
+      return { status: "error", nodeId: node.id, callId: currentCallId, code: "RUN_STORAGE_FAILED", message: storageError.message, launch, storageFailure: true };
     }
     const code = isRecord(error) && typeof error.code === "string" ? error.code : "PROVIDER_FAILURE";
     return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, code, messageOf(error), raw);
@@ -404,6 +498,22 @@ async function rejectAttempt(
     [`${attemptRoot}/result.json`]: json({ status: "error", error: { code, message } }),
   }, args.onRequiredWriteFailure);
   return { status: "error", nodeId: args.node.id, callId, code, message, launch };
+}
+
+async function rejectValidatorAttempt(
+  args: GraphNodeRunnerContext,
+  attemptRoot: string,
+  callId: string,
+  attempt: number,
+  launch: boolean | null,
+  code: string,
+  message: string,
+  raw: string,
+  stderr: string,
+  cleanup: ProcessCleanupUnverified | undefined,
+): Promise<GraphNodeFailure> {
+  const rejected = await rejectAttempt(args, attemptRoot, callId, attempt, launch, code, message, raw, undefined, stderr);
+  return cleanup ? { ...rejected, cleanupUnverified: { code: cleanup.code, message: cleanup.message, operation: "validator" } } : rejected;
 }
 
 async function writeRequiredEvidence(
@@ -459,6 +569,107 @@ function safeLaunch(provider: ProviderPort, callId: string): boolean | null {
   try { return provider.launchForCall?.(callId) ?? null; }
   catch { return null; }
 }
+function unresolvedOutcome(
+  nodeId: string,
+  callId: string,
+  attempt: number,
+  launch: boolean | null,
+  operation: GraphNodeUnresolved["operation"],
+  cause: GraphNodeUnresolved["cause"],
+  publicationFailure?: GraphNodeUnresolved["publicationFailure"],
+): GraphNodeUnresolved {
+  return { status: "unresolved", nodeId, callId, attempt, launch, operation, cause, ...(publicationFailure ? { publicationFailure } : {}) };
+}
+
+async function awaitGraphOperation<T>(
+  operation: Promise<T>,
+  signal: AbortSignal,
+  sealAndDrain: () => Promise<void>,
+  onRequiredWriteFailure?: (error: Error) => void,
+  onStopIntent?: () => void,
+): Promise<OperationResult<T>> {
+  // The settlement handler remains attached after an unresolved return so a late
+  // rejection is observed without allowing the graph runner to publish it.
+  const settlement: Promise<OperationResult<T>> = operation.then(
+    (value) => ({ status: "settled", value }),
+    (error: unknown) => ({ status: "rejected", error }),
+  );
+  let abortedAt: number | undefined;
+  let stopNotified = false;
+  const notifyStop = (): void => {
+    if (stopNotified) return;
+    stopNotified = true;
+    abortedAt = performance.now();
+    onStopIntent?.();
+  };
+  if (!signal.aborted) {
+    let onAbort: (() => void) | undefined;
+    const abortNotice = new Promise<"aborted">((resolve) => {
+      onAbort = () => { notifyStop(); resolve("aborted"); };
+      signal.addEventListener("abort", onAbort, { once: true });
+      if (signal.aborted) onAbort();
+    });
+    const first = await Promise.race([settlement, abortNotice]);
+    if (first !== "aborted") {
+      if (onAbort) signal.removeEventListener("abort", onAbort);
+      if (signal.aborted) notifyStop();
+      return first;
+    }
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  } else {
+    notifyStop();
+  }
+
+  const stopStartedAt = abortedAt ?? performance.now();
+  const graceDeadline = stopStartedAt + 5000;
+  while (true) {
+    const remaining = graceDeadline - performance.now();
+    if (remaining <= 0) {
+      const finalRace = await Promise.race([settlement, Promise.resolve<"grace_expired">("grace_expired")]);
+      if (finalRace !== "grace_expired") return finalRace;
+      break;
+    }
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
+    const grace = new Promise<"grace_expired">((resolve) => {
+      graceTimer = setTimeout(() => resolve("grace_expired"), remaining);
+    });
+    const afterStop = await Promise.race([settlement, grace]);
+    if (graceTimer !== undefined) clearTimeout(graceTimer);
+    if (afterStop !== "grace_expired") return afterStop;
+  }
+
+  try { await sealAndDrain(); }
+  catch (error) {
+    const writeError = new GraphEvidenceWriteError(`Could not drain required graph call evidence: ${messageOf(error)}`);
+    onRequiredWriteFailure?.(writeError);
+    const graphStop = graphStopError(signal);
+    const profileTimeout = graphProfileTimeoutError(signal);
+    const selected = profileTimeout ?? graphStop;
+    return {
+      status: "unresolved",
+      cause: selected
+        ? { code: selected.code as "GRAPH_CANCELLED" | "PROVIDER_TIMEOUT", message: selected.message }
+        : { code: "GRAPH_CANCELLED", message: "Provider operation remained unresolved after cancellation." },
+      publicationFailure: { code: "RUN_STORAGE_FAILED", message: writeError.message },
+    };
+  }
+  const graphStop = graphStopError(signal);
+  const profileTimeout = graphProfileTimeoutError(signal);
+  const selected = profileTimeout ?? graphStop;
+  return {
+    status: "unresolved",
+    cause: selected
+      ? { code: selected.code as "GRAPH_CANCELLED" | "PROVIDER_TIMEOUT", message: selected.message }
+      : { code: "GRAPH_CANCELLED", message: "Provider operation remained unresolved after cancellation." },
+  };
+}
+
+function notifyStopIntent(args: GraphNodeRunnerContext, nodeId: string, signal: AbortSignal): void {
+  if (!signal.aborted) return;
+  const reason = graphProfileTimeoutError(signal) ?? graphStopError(signal);
+  if (reason) args.onStopIntent?.(nodeId, reason.code as "GRAPH_CANCELLED" | "PROVIDER_TIMEOUT", reason.message);
+}
+
 function hash(value: string): string { return createHash("sha256").update(value, "utf8").digest("hex"); }
 function json(value: unknown): string { return `${JSON.stringify(value, null, 2)}\n`; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null; }

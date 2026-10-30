@@ -1,4 +1,5 @@
 import type { ProviderTelemetry } from "./provider-telemetry.js";
+import type { RuntimeEvidencePublication } from "../graph-operation.js";
 export type ProviderCallContext = {
   callId: string;
   attempt: number;
@@ -19,6 +20,8 @@ export type ProviderInvocation = {
   providerProfile: Record<string, unknown>;
   /** Marks graph-only provider error handling; absent preserves legacy response envelopes. */
   executionMode?: "graph";
+  /** Runtime-owned persistence fence for captured graph call evidence. */
+  evidencePublication?: RuntimeEvidencePublication;
   /** Runtime-owned call identity; optional for existing custom callers. */
   call?: ProviderCallContext;
   providerProfileId?: string;
@@ -52,5 +55,5 @@ export interface ProviderPort {
   telemetryForCall?(callId: string): ProviderTelemetry | null;
   /** True only with completed process capture; null means launch is uncertain. */
   launchForCall?(callId: string): boolean | null;
-  isAvailable?(profile: Record<string, unknown>, options?: { signal?: AbortSignal; deadlineAtMs?: number; executionMode?: "graph" }): Promise<boolean> | boolean;
+  isAvailable?(profile: Record<string, unknown>, options?: { signal?: AbortSignal; deadlineAtMs?: number; executionMode?: "graph"; evidencePublication?: RuntimeEvidencePublication }): Promise<boolean> | boolean;
 }
