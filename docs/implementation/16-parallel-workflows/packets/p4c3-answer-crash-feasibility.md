@@ -1,6 +1,18 @@
 # P4C3 answer publication crash feasibility
 
-Preparation only. Root and Sol reviewed the current writer/storage paths and the external watcher design below. No experiment or runtime change has been performed for this packet.
+Accepted Windows feasibility control: Root captured the real publication window on the first native attempt and stopped, with the project retained. This is a manual characterization of existing behavior, not a deterministic CI scenario, runtime source change or behavioral RED. The original reviewed design follows the observed evidence below.
+
+## Observed control
+
+Root's explicit isolated Vitest run passed1/1 in7.17s, exit0 (p4c3-root-native-feasibility.log). The persistent ledger records exactly1 attempt, captured, project nodulus-p4c3-native-café-xPsrUq, run7aca2403-8148-4c4a-881b-529f9765d964, A request493ab5ed-e1ab-4244-8b17-47a8323ca698. No second attempt or repeat is needed. The actual initial run/delegates settled and all15 positively observed native children spawned/exited/closed before owner launch.
+
+The first partial A answer was physically published while both saved questions remained unanswered. The recursive watcher terminated only the retained actual owner ChildProcess. The exact valid bare answer remained, while run.json retained the byte-identical old needs_input checkpoint with no A answer ref/hash and a genuine stale owner lock. Pre/post checkpoint SHA2568939a4f15e705bafcc66deeab5febdefa39b049736c2d4065b0b2f87b231aa6a matched; event hashes also stayed identical in this capture. Answer SHA25617f40d54e85b3d9207adb1dd4d75e54ea2dd247336ed57be48f48a72316774e4 and lock SHA2562c65b69a95ec0f91cd98ace8764a5993aa0d2c80194512b84afb6ac4c92fb112 are retained in the ledger.
+
+Native handle evidence binds owner159960 to its actual exitCode1. Its pinned identity remained held through a separate unchanged PAR033 public resume: RUN_RECOVERY_REQUIRED, all provider methods zero, actual public/delegated settlement and fresh child close, byte-identical run and complete fixture/control trees. The helper then nonce-released its handle and actually closed; watcher and all owned operations closed. Root independently reread the checkpoint, valid answer, native exit and handle-close records. No historical numeric PID was queried or signaled after release, and no run bytes were restored or lock removed.
+
+This fresh rejection establishes the stale-lock guard, which precedes orphan inspection. The separate F orphan-file control establishes saved-answer fail-closed inspection without that lock; do not combine those into a claim that the native fresh rejection parsed the orphan.
+
+Final ignored artifacts are controller9E5E63150D17921E36A3364256480AE8439411AEBED80B369D5545BE43982512, wrapper8378D17A80FBAC7CBC8943652AA7692B346990D996620702F514D698BA31D37C and config4214AEF5F2A41274274E4618E7250E50C87750AC90967E9E2C75CFCD7C2FF178. Root/Sol actual-file review required two static corrections, then focused Sol diagnosis removed an events-only false miss and verified complete-envelope classification. Strict TSC caught a duplicate lockPath declaration; Sol authorized only deletion of the duplicate, and Root reconstructed the exact previous C9E4 hash by reversing that one line. Final strict types and wrapper/config syntax passed before the native run. None of those static failures is behavioral RED. The artifacts remain outside ordinary scenario discovery and package contents.
 
 ## Execution preparation
 

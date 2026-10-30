@@ -1,6 +1,6 @@
 # Parallel workflows
 
-Status: P1–P3 are accepted locally and on their exact hosted heads. P3 head d9c2de8c6abcf0fca7c10ea48ab1f6b04fdf5512 passed all Windows/macOS/Linux push and PR checks and title checks; publication skipped. Root's complete instrumented local gate passed lint/typecheck/build, 589 runtime tests and 17 installed-package tests with temporary observer settings restored. [P3 evidence](phase3-evidence.md) preserves earlier failures and attribution limits separately. On the P4 recovery branch, Root/Sol accepted bounded durable pending and node-answer continuation checkpoints, including relevant RED/GREEN, isolated answers/lineage/history and all 35 selected graph/FB080 files, 127 cases. See [P4 evidence](phase4-evidence.md). Fresh-process/recovery/caller-input scenarios, the full P4 gate, delivery and final integration remain pending; all PRs stay draft and unmerged.
+Status: P1–P3 are accepted locally and on their exact hosted heads. P4 now has Root/Sol acceptance of durable node/caller answers, fresh-process continuation, live/stale locks, forced runner crash, preflight integrity and native cleanup evidence. Root's final ordinary gate passed lint/typecheck/build, 620 runtime tests and 17 installed-package tests; the separate Windows answer-publication control captured its real crash window on the first attempt. [P4 local exit](phase4-exit.md) records exact scope and limits. Its new hosted head remains the prerequisite for P5 execution. [P3](phase3-evidence.md) and [P4 historical evidence](phase4-evidence.md) preserve earlier failures separately. P5 is reviewed preparation only; delivery/final integration remain pending, and all PRs stay draft and unmerged.
 
 ## Scope and prerequisites
 
@@ -38,5 +38,7 @@ Accepted foundations include [P10 scheduling](packets/p10-graph-scheduling-imple
 - [Phase stack and execution ledger](stack.md)
 - [P2 local exit evidence](phase2-exit.md)
 - [P3 evidence](phase3-evidence.md)
+- [P4 local exit](phase4-exit.md)
+- [P4 evidence](phase4-evidence.md)
 - [Frozen graph runtime decisions](runtime-contract.md)
 - [P01 test packet](packets/p01-graph-inspection-tests.md)

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { performance } from "node:perf_hooks";
 import { expect, test } from "vitest";
 import { createInitializedProject } from "../support/intake-project.js";
 import { configureParallelProject, readParallelWorkflow } from "../support/parallel-project.js";
@@ -122,11 +123,13 @@ type TrackedChild = {
 type NativePin = {
   controlDirectory: string;
   nonce: string;
-  targetPid: number;
+  targetPid?: number;
   child: TrackedChild;
   requestSent: boolean;
   pinReady: boolean;
+  normalDrainVerified: boolean;
 };
+type StageRecorder = (stage: string, details?: Record<string, unknown>) => void;
 type ProcessTreeSnapshot = Map<string, string>;
 
 const fixtureSource = fileURLToPath(new URL("../fixtures/par-031-graph-provider.mjs", import.meta.url));
@@ -151,6 +154,16 @@ test("PAR-036 preserves accepted graph evidence when the real initial-run owner 
 
 async function exerciseRunningCrash(): Promise<void> {
   const scenarioDeadline = Date.now() + scenarioBudgetMs;
+  const diagnosticStartedAt = performance.now();
+  const stageDiagnostics: Array<{ stage: string; elapsedMs: number; details: Record<string, unknown> }> = [];
+  let stageDiagnosticsTruncated = false;
+  const recordStage: StageRecorder = (stage, details = {}) => {
+    if (stageDiagnostics.length >= 64) {
+      stageDiagnosticsTruncated = true;
+      return;
+    }
+    stageDiagnostics.push({ stage, elapsedMs: Math.max(0, Math.round(performance.now() - diagnosticStartedAt)), details });
+  };
   const label = "par-036-runner-crash-café";
   const project = createInitializedProject(label);
   const projectIdentity = realpathSync.native(project);
@@ -169,6 +182,7 @@ async function exerciseRunningCrash(): Promise<void> {
   let resumeDriver: TrackedChild | undefined;
   let activeAObserved = false;
   let nativeTargetsDrained = false;
+  let failureOnlyHelperAbortUsed = false;
   let posixProcessGroupId: number | undefined;
   let intentionalRunnerTermination = false;
   const fixtureNonce = randomUUID();
@@ -178,17 +192,25 @@ async function exerciseRunningCrash(): Promise<void> {
     configureProject(project, fixtureDirectory, stateDirectory, controlDirectory, eventsPath, startedPaths, releasePaths, fixtureNonce);
     assertBeforeDeadline(scenarioDeadline, "project and real fixture setup");
 
+    if (process.platform === "win32") {
+      spawnNativePinHelper(handles, pins, "a-inference-cmd", stateDirectory, scenarioDeadline, recordStage);
+      spawnNativePinHelper(handles, pins, "a-fixture-node", stateDirectory, scenarioDeadline, recordStage);
+    }
+
     const runnerNonce = fixtureNonce;
     runner = startTrackedChild(handles, "crash-driver", process.execPath, [driverSource, "initial", runnerNonce, project, controlDirectory, startedPaths["a-1"]!, String(scenarioDeadline)], project);
     const ready = await waitForJson<Record<string, unknown>>(path.join(controlDirectory, "driver-ready.json"), "initial crash driver ready marker", scenarioDeadline, runner);
     expect(ready).toMatchObject({ protocol: "par-036-crash-driver-v1", nonce: runnerNonce, pid: runner.child.pid });
+    recordStage("initial-driver-ready", { nonce: runnerNonce, childPid: runner.child.pid });
     const seed = await waitForProviderMarker(startedPaths["seed-1"]!, "seed provider entry", scenarioDeadline, runner);
     const runId = seed.runId;
     expect(seed).toMatchObject({ role: "seed", nodeId: "seed", attempt: 1 });
+    recordStage("seed-marker", { pid: seed.pid, callId: seed.callId, nodeId: seed.nodeId, attempt: seed.attempt });
     await waitForAcceptedSeed(project, runId, seed.callId, scenarioDeadline, runner);
     const a = await waitForProviderMarker(startedPaths["a-1"]!, "A held provider entry", scenarioDeadline, runner);
     activeAObserved = true;
     expect(a).toMatchObject({ role: "a", nodeId: "a", runId, attempt: 1 });
+    recordStage("a-marker", { pid: a.pid, callId: a.callId, nodeId: a.nodeId, attempt: a.attempt });
     expect(existsSync(startedPaths["b-1"]!)).toBe(false);
     expect(readFixtureEvents(eventsPath).some((event) => event.role === "b")).toBe(false);
 
@@ -196,6 +218,7 @@ async function exerciseRunningCrash(): Promise<void> {
     const active = await waitForJson<ActiveDriver>(activePath, "active A process census", scenarioDeadline, runner);
     assertActiveDriverCensus(active, runner, a, seed);
     expect(active.nonce).toBe(runnerNonce);
+    recordStage("a-process-census", { runnerPid: runner.child.pid, fixturePid: active.fixturePid, callId: active.callId, openChildren: active.childProcesses.filter(({ closed }) => !closed).length });
     const aProcessProofPath = path.join(controlDirectory, "a-inference-process.json");
     const aProcessProof = await waitForJson<AInferenceProcessProof>(aProcessProofPath, "same-process A inference identity", scenarioDeadline, runner);
     expect(aProcessProof).toMatchObject({
@@ -215,11 +238,18 @@ async function exerciseRunningCrash(): Promise<void> {
     if (!inferenceRoot || !Number.isSafeInteger(inferenceRoot.pid) || inferenceRoot.pid === null) {
       throw new Error("PAR-036 could not retain the actual open A inference ChildProcess identity.");
     }
+    recordStage("a-inference-targets", { nonce: runnerNonce, runnerPid: runner.child.pid, fixtureNodePid: aProcessProof.pid, inferenceChildPid: inferenceRoot.pid, parentPid: aProcessProof.ppid, callId: a.callId });
 
     if (process.platform === "win32") {
       expect(aProcessProof.ppid).toBe(inferenceRoot.pid);
-      const cmdPin = await startNativePin(handles, pins, "a-inference-cmd", inferenceRoot.pid, stateDirectory, scenarioDeadline);
-      const nodePin = await startNativePin(handles, pins, "a-fixture-node", aProcessProof.pid, stateDirectory, scenarioDeadline);
+      const pinResults = await Promise.allSettled([
+        requestNativePin(pins[0]!, inferenceRoot.pid, scenarioDeadline, recordStage),
+        requestNativePin(pins[1]!, aProcessProof.pid, scenarioDeadline, recordStage),
+      ]);
+      const pinFailure = pinResults.find((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (pinFailure) throw pinFailure.reason;
+      const cmdPin = pins[0]!;
+      const nodePin = pins[1]!;
       expect(cmdPin.targetPid).not.toBe(nodePin.targetPid);
       expect(cmdPin.targetPid).toBe(inferenceRoot.pid);
       expect(nodePin.targetPid).toBe(a.pid);
@@ -254,6 +284,7 @@ async function exerciseRunningCrash(): Promise<void> {
     expect(runnerClose.error).toBeUndefined();
     expect(runner.closeObserved).toBe(true);
     expect(runnerClose.signal).toBe("SIGKILL");
+    recordStage("initial-driver-closed", { childPid: runner.child.pid, signal: runnerClose.signal, error: runnerClose.error?.message.slice(0, 300) });
 
     writeReleaseMarker(releasePaths.a, runnerNonce);
     writeReleaseMarker(releasePaths.b, runnerNonce);
@@ -263,6 +294,7 @@ async function exerciseRunningCrash(): Promise<void> {
         expect(exited).toMatchObject({ nonce: pin.nonce, rootPid: pin.targetPid, handlePid: pin.targetPid });
         expect(Number.isSafeInteger(exited.exitCode)).toBe(true);
         expect(exited.exitCode).not.toBe(259);
+        recordStage("native-target-exited", { label: path.basename(pin.controlDirectory), nonce: pin.nonce, targetPid: pin.targetPid ?? null, exitCode: exited.exitCode });
       }
     } else {
       if (posixProcessGroupId === undefined) throw new Error("PAR-036 POSIX process-group identity is missing after runner termination.");
@@ -299,6 +331,7 @@ async function exerciseRunningCrash(): Promise<void> {
     if (recovery.outcome.kind !== "error") throw new Error("PAR-036 fresh resume unexpectedly returned a successful result.");
     expect(recovery.outcome.error.code).toBe("RUN_RECOVERY_REQUIRED");
     expect(recovery.settled).toEqual({ public: true, delegated: true });
+    recordStage("fresh-recovery-closed", { childPid: resumeDriver.child.pid, resultCode: recovery.outcome.error.code, publicSettled: recovery.settled.public, delegatedSettled: recovery.settled.delegated });
     expect(recovery.observations).toEqual({
       availability: [], invocations: [], repairs: [], telemetry: [], launches: [], legacyUsage: 0, observationLimitExceeded: false,
     });
@@ -308,12 +341,13 @@ async function exerciseRunningCrash(): Promise<void> {
     expect(existsSync(path.join(runRoot, ".resume.lock"))).toBe(false);
     assertCheckpointAfterCrash(project, runId, seed, a);
     if (process.platform === "win32") {
-      for (const pin of pins) await releaseAndVerifyPin(pin, scenarioDeadline);
+      for (const pin of pins) await releaseAndVerifyPin(pin, scenarioDeadline, recordStage);
       nativeTargetsDrained = true;
     }
   } catch (error) {
     primaryError = error;
     hasPrimaryError = true;
+    recordStage("scenario-failed", { error: boundedDiagnosticError(error) });
   } finally {
     const cleanupDeadline = Date.now() + cleanupBudgetMs;
     const nativeDrainDeadline = Math.max(Date.now() + 1, cleanupDeadline - 2000);
@@ -331,28 +365,48 @@ async function exerciseRunningCrash(): Promise<void> {
     }
 
     if (process.platform === "win32") {
-      for (const pin of pins) {
+      const pinsNeedingAbort: NativePin[] = [];
+      await Promise.all(pins.map(async (pin) => {
         try {
-          const exitedPath = joinControl(pin.controlDirectory, "root-exited.json");
-          if (pin.pinReady && !existsSync(exitedPath) && !pin.child.closeObserved) {
-            await waitForJson(exitedPath, `${path.basename(pin.controlDirectory)} cleanup process exit`, nativeDrainDeadline, pin.child);
-          }
-          if (pin.pinReady) {
-            await releaseAndVerifyPin(pin, cleanupDeadline);
-          } else if (pin.requestSent && !pin.child.closeObserved) {
-            writeReleaseMarker(joinControl(pin.controlDirectory, "release-pin"), pin.nonce);
-            if (nativeDrainDeadline > Date.now()) await waitForChildClose(pin.child, nativeDrainDeadline, `${path.basename(pin.controlDirectory)} failed pin helper close`);
-          } else if (!pin.requestSent && !pin.child.closeObserved) {
-            writeReleaseMarker(joinControl(pin.controlDirectory, "stop-helper"), pin.nonce);
-            if (nativeDrainDeadline > Date.now()) await waitForChildClose(pin.child, nativeDrainDeadline, `${path.basename(pin.controlDirectory)} stopped pin helper close`);
+          if (pin.requestSent) {
+            const pinReadyPath = joinControl(pin.controlDirectory, "pin-ready.json");
+            if (!pin.pinReady) {
+              if (!existsSync(pinReadyPath) && !pin.child.closeObserved) {
+                await waitForJson(pinReadyPath, `${path.basename(pin.controlDirectory)} cleanup pin readiness`, nativeDrainDeadline, pin.child);
+              }
+              if (!existsSync(pinReadyPath)) throw new Error(`PAR-036 ${path.basename(pin.controlDirectory)} helper closed without proving the requested native pin.`);
+              const pinned = readJson<Record<string, unknown>>(pinReadyPath);
+              expect(pinned).toMatchObject({ helperPid: pin.child.child.pid, rootPid: pin.targetPid, handlePid: pin.targetPid, exitCode: 259, nonce: pin.nonce });
+              pin.pinReady = true;
+              recordStage("pin-ready-observed-during-cleanup", { nonce: pin.nonce, helperPid: pin.child.child.pid ?? null, targetPid: pin.targetPid ?? null, exitCode: pinned.exitCode });
+            }
+            const exitedPath = joinControl(pin.controlDirectory, "root-exited.json");
+            if (!existsSync(exitedPath) && !pin.child.closeObserved) {
+              await waitForJson(exitedPath, `${path.basename(pin.controlDirectory)} cleanup process exit`, nativeDrainDeadline, pin.child);
+            }
+            await releaseAndVerifyPin(pin, nativeDrainDeadline, recordStage);
+          } else {
+            if (!pin.child.closeObserved) {
+              writeReleaseMarker(joinControl(pin.controlDirectory, "stop-helper"), pin.nonce);
+            }
+            if (!pin.child.closeObserved && nativeDrainDeadline > Date.now()) {
+              const close = await waitForChildClose(pin.child, nativeDrainDeadline, `${path.basename(pin.controlDirectory)} stopped pin helper close`);
+              recordStage("pin-helper-closed-after-stop", { nonce: pin.nonce, helperPid: pin.child.child.pid ?? null, exitCode: close.code, signal: close.signal });
+            }
+            if (!pin.child.closeObserved) throw new Error(`PAR-036 ${path.basename(pin.controlDirectory)} helper close was not observed inside the shared cleanup drain window.`);
             expect(readJson(joinControl(pin.controlDirectory, "helper-stopped.json"))).toMatchObject({ pid: pin.child.child.pid, nonce: pin.nonce });
             expect(readJson(joinControl(pin.controlDirectory, "helper-closed.json"))).toMatchObject({ pid: pin.child.child.pid, nonce: pin.nonce, handleClosed: true, stoppedWithoutPin: true });
           }
-        } catch (error) { cleanupErrors.push(asError(error)); }
-      }
-      if (pins.length === 2 && pins.every((pin) => pin.pinReady
-        && existsSync(joinControl(pin.controlDirectory, "root-exited.json"))
-        && existsSync(joinControl(pin.controlDirectory, "helper-closed.json"))
+        } catch (error) {
+          cleanupErrors.push(asError(error));
+          recordStage("pin-cleanup-failed", { helperPid: pin.child.child.pid, targetPid: pin.targetPid ?? null, nonce: pin.nonce, error: boundedDiagnosticError(error) });
+          pinsNeedingAbort.push(pin);
+        }
+      }));
+      const abortResults = await Promise.all(pinsNeedingAbort.map((pin) => abortOwnedPinHelper(pin, cleanupDeadline, cleanupErrors, recordStage)));
+      failureOnlyHelperAbortUsed = abortResults.some(Boolean);
+      if (!failureOnlyHelperAbortUsed && pins.length === 2 && pins.every((pin) => pin.pinReady
+        && pin.normalDrainVerified
         && pin.child.closeObserved)) nativeTargetsDrained = true;
     } else if (posixProcessGroupId !== undefined && !nativeTargetsDrained) {
       try { await waitForProcessGroupGone(posixProcessGroupId, cleanupDeadline); nativeTargetsDrained = true; }
@@ -378,6 +432,7 @@ async function exerciseRunningCrash(): Promise<void> {
     if (!nativeTargetsDrained) cleanupErrors.push(new Error("PAR-036 could not prove all initial provider descendants closed; retained the project and control evidence."));
 
     const allOwnedChildrenClosed = handles.every((handle) => handle.closeObserved);
+    recordStage("cleanup-state", { allOwnedChildrenClosed, nativeTargetsDrained, openChildren: handles.filter((handle) => !handle.closeObserved).length, cleanupErrorCount: cleanupErrors.length });
     if (hasPrimaryError && cleanupErrors.length === 0 && allOwnedChildrenClosed && nativeTargetsDrained) {
       // Preserve the failed project as primary evidence without inventing a cleanup failure.
     } else if (!hasPrimaryError && cleanupErrors.length === 0 && allOwnedChildrenClosed && nativeTargetsDrained) {
@@ -386,6 +441,28 @@ async function exerciseRunningCrash(): Promise<void> {
         rmSync(project, { recursive: true, force: true });
       } catch (error) { cleanupErrors.push(asError(error)); }
     }
+  }
+
+  if (hasPrimaryError || cleanupErrors.length > 0) {
+    const diagnostic = {
+      stages: stageDiagnostics,
+      stagesTruncated: stageDiagnosticsTruncated,
+      children: handles.map((handle) => ({
+        role: handle.role,
+        pid: handle.child.pid ?? null,
+        closeObserved: handle.closeObserved,
+        exitCode: handle.child.exitCode,
+        signal: handle.child.signalCode,
+        error: handle.spawnError ? boundedDiagnosticError(handle.spawnError) : null,
+        stdinError: handle.stdinError ? boundedDiagnosticError(handle.stdinError) : null,
+        stdoutTail: captureText(handle.stdout).slice(-400),
+        stderrTail: captureText(handle.stderr).slice(-400),
+      })),
+      pins: pins.map((pin) => ({ nonce: pin.nonce, helperPid: pin.child.child.pid ?? null, targetPid: pin.targetPid ?? null, requestSent: pin.requestSent, pinReady: pin.pinReady })),
+      cleanupErrors: cleanupErrors.slice(0, 16).map(boundedDiagnosticError),
+    };
+    try { process.stderr.write(`[PAR-036 stage diagnostics] ${JSON.stringify(diagnostic)}\n`); }
+    catch { /* Diagnostics must not replace the original test or cleanup failure. */ }
   }
 
   if (hasPrimaryError) {
@@ -730,16 +807,15 @@ function hasObservedAInference(handle: TrackedChild): boolean {
   } catch { return false; }
 }
 
-async function startNativePin(
+function spawnNativePinHelper(
   handles: TrackedChild[],
   pins: NativePin[],
   label: string,
-  targetPid: number,
   stateDirectory: string,
   deadline: number,
-): Promise<NativePin> {
+  recordStage: StageRecorder,
+): NativePin {
   if (process.platform !== "win32") throw new Error("PAR-036 native handle pins are Windows-only.");
-  if (!isSafePid(targetPid)) throw new Error(`PAR-036 ${label} has no positive safe target identity.`);
   const controlDirectory = path.join(stateDirectory, `pin-${label}`);
   const nonce = randomUUID();
   mkdirSync(controlDirectory, { recursive: false });
@@ -751,35 +827,73 @@ async function startNativePin(
     "-NoProfile", "-NonInteractive", "-File", pinFixture,
     "-ControlDirectory", controlDirectory, "-Nonce", nonce, "-WatchdogMilliseconds", String(fixtureLifetimeMs),
   ], controlDirectory);
-  const pin: NativePin = { controlDirectory, nonce, targetPid, child, requestSent: false, pinReady: false };
+  const pin: NativePin = { controlDirectory, nonce, child, requestSent: false, pinReady: false, normalDrainVerified: false };
   pins.push(pin);
-  const ready = await waitForJson<Record<string, unknown>>(joinControl(controlDirectory, "helper-ready.json"), `${label} native pin helper startup`, deadline, child);
-  expect(ready).toMatchObject({ pid: child.child.pid, nonce });
-  writeJsonExclusive(joinControl(controlDirectory, "pin-request.json"), { rootPid: targetPid, nonce });
-  pin.requestSent = true;
-  const pinned = await waitForJson<Record<string, unknown>>(joinControl(controlDirectory, "pin-ready.json"), `${label} native handle pin readiness`, deadline, child);
-  expect(pinned).toMatchObject({ helperPid: child.child.pid, rootPid: targetPid, handlePid: targetPid, exitCode: 259, nonce });
-  pin.pinReady = true;
+  recordStage("pin-helper-spawned", { label, nonce, helperPid: child.child.pid ?? null });
   return pin;
 }
 
-async function releaseAndVerifyPin(pin: NativePin, deadline: number): Promise<void> {
+async function requestNativePin(pin: NativePin, targetPid: number, deadline: number, recordStage: StageRecorder): Promise<void> {
+  const label = path.basename(pin.controlDirectory);
+  if (!isSafePid(targetPid)) throw new Error(`PAR-036 ${label} has no positive safe target identity.`);
+  if (pin.requestSent || pin.targetPid !== undefined) throw new Error(`PAR-036 ${label} already has a target request.`);
+  assertBeforeDeadline(deadline, `${label} native pin helper startup`);
+  const ready = await waitForJson<Record<string, unknown>>(joinControl(pin.controlDirectory, "helper-ready.json"), `${label} native pin helper startup`, deadline, pin.child);
+  expect(ready).toMatchObject({ pid: pin.child.child.pid, nonce: pin.nonce });
+  recordStage("pin-helper-ready", { label, nonce: pin.nonce, helperPid: pin.child.child.pid ?? null });
+  writeJsonExclusive(joinControl(pin.controlDirectory, "pin-request.json"), { rootPid: targetPid, nonce: pin.nonce });
+  pin.targetPid = targetPid;
+  pin.requestSent = true;
+  recordStage("pin-request", { label, nonce: pin.nonce, helperPid: pin.child.child.pid ?? null, targetPid });
+  const pinned = await waitForJson<Record<string, unknown>>(joinControl(pin.controlDirectory, "pin-ready.json"), `${label} native handle pin readiness`, deadline, pin.child);
+  expect(pinned).toMatchObject({ helperPid: pin.child.child.pid, rootPid: targetPid, handlePid: targetPid, exitCode: 259, nonce: pin.nonce });
+  pin.pinReady = true;
+  recordStage("pin-ready", { label, nonce: pin.nonce, helperPid: pin.child.child.pid ?? null, targetPid, exitCode: pinned.exitCode });
+}
+
+async function abortOwnedPinHelper(pin: NativePin, deadline: number, cleanupErrors: Error[], recordStage: StageRecorder): Promise<boolean> {
+  if (pin.child.closeObserved) return false;
+  let abortIssued = false;
+  try {
+    if (!isSafePid(pin.child.child.pid)) throw new Error(`PAR-036 ${path.basename(pin.controlDirectory)} helper has no safe owned ChildProcess PID for cleanup abort.`);
+    if (deadline <= Date.now()) throw new Error(`PAR-036 shared cleanup deadline expired before ${path.basename(pin.controlDirectory)} helper abort could be safely observed.`);
+    let killRequested = false;
+    if (pin.child.child.exitCode === null && pin.child.child.signalCode === null) {
+      abortIssued = true;
+      killRequested = pin.child.child.kill("SIGKILL");
+      recordStage("pin-helper-abort", { nonce: pin.nonce, helperPid: pin.child.child.pid, killRequested });
+    }
+    const close = await waitForChildClose(pin.child, deadline, `${path.basename(pin.controlDirectory)} failure-only helper abort close`);
+    if (close.error) throw close.error;
+    recordStage("pin-helper-abort-closed", { nonce: pin.nonce, helperPid: pin.child.child.pid, exitCode: close.code, signal: close.signal });
+  } catch (error) {
+    cleanupErrors.push(asError(error));
+    recordStage("pin-helper-abort-unverified", { nonce: pin.nonce, helperPid: pin.child.child.pid ?? null, error: boundedDiagnosticError(error) });
+  }
+  return abortIssued;
+}
+
+async function releaseAndVerifyPin(pin: NativePin, deadline: number, recordStage?: StageRecorder): Promise<void> {
+  const targetPid = pin.targetPid;
+  if (!isSafePid(targetPid)) throw new Error(`PAR-036 ${path.basename(pin.controlDirectory)} pin has no verified target identity.`);
   const exitedPath = joinControl(pin.controlDirectory, "root-exited.json");
   if (!existsSync(exitedPath)) throw new Error(`PAR-036 ${path.basename(pin.controlDirectory)} pin cannot be released before native target exit is observed.`);
   const rootExited = readJson<Record<string, unknown>>(exitedPath);
-  expect(rootExited).toMatchObject({ nonce: pin.nonce, rootPid: pin.targetPid, handlePid: pin.targetPid });
+  expect(rootExited).toMatchObject({ nonce: pin.nonce, rootPid: targetPid, handlePid: targetPid });
   expect(Number.isSafeInteger(rootExited.exitCode)).toBe(true);
   expect(rootExited.exitCode).not.toBe(259);
   const releasePath = joinControl(pin.controlDirectory, "release-pin");
   if (!existsSync(releasePath)) writeReleaseMarker(releasePath, pin.nonce);
   const helperClosed = await waitForJson<Record<string, unknown>>(joinControl(pin.controlDirectory, "helper-closed.json"), `${path.basename(pin.controlDirectory)} native handle close evidence`, deadline, pin.child);
-  expect(helperClosed).toMatchObject({ pid: pin.child.child.pid, rootPid: pin.targetPid, handleClosed: true, nonce: pin.nonce });
+  expect(helperClosed).toMatchObject({ pid: pin.child.child.pid, rootPid: targetPid, handleClosed: true, nonce: pin.nonce });
   const close = await waitForChildClose(pin.child, deadline, `${path.basename(pin.controlDirectory)} helper process close`);
   expect(close.error).toBeUndefined();
   expect(close.code).toBe(0);
   expect(close.signal).toBeNull();
   expect(pin.child.outputOverflow).toBe(false);
   expect(pin.child.stdinError).toBeUndefined();
+  pin.normalDrainVerified = true;
+  recordStage?.("pin-helper-closed", { nonce: pin.nonce, helperPid: pin.child.child.pid ?? null, targetPid, exitCode: close.code, signal: close.signal });
 }
 
 async function waitForProcessGroupGone(processGroupId: number, deadline: number): Promise<void> {
@@ -925,6 +1039,12 @@ function captureText(handle: Buffer[]): string {
 
 function boundedError(error: Error): Error {
   return new Error(`${error.name.slice(0, 80)}: ${error.message.slice(0, 700)}`);
+}
+
+function boundedDiagnosticError(error: unknown): { name: string; message: string } {
+  if (error instanceof Error) return { name: error.name.slice(0, 80), message: error.message.slice(0, 500) };
+  if (typeof error === "string") return { name: "ThrownString", message: error.slice(0, 500) };
+  return { name: typeof error, message: "Non-Error diagnostic value." };
 }
 
 function assertOwnedProject(project: string, identity: string, label: string): void {

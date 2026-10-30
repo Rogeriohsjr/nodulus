@@ -38,14 +38,16 @@ P1 is complete only when PAR-001 through PAR-004 pass their own test, implementa
 
 ## P4 — pause, errors, cancellation and recovery
 
-- [ ] PAR-030 — A terminal node error stops new admissions; cancel/drain in-flight calls and preserve already accepted sibling results.
-- [ ] PAR-031 — On `needs_input`, stop admission, drain bounded in-flight calls, preserve accepted work and persist every runtime-owned pending response ID.
-- [ ] PAR-032 — Validate answers against the exact pending response set. Under the run lock, validate request ID and answer completely before mutation, then atomically persist one answer. With unanswered saved questions, remain `needs_input` and dispatch nothing; when all are answered, resume eligible pending nodes without replaying accepted siblings. If a draining sibling errors, the run is `error`; pending data remains diagnostic and answering cannot turn terminal error into resume.
-- [ ] PAR-033 — Fresh-process resume restores graph state and does not auto-replay work that may have launched before a crash.
-- [ ] PAR-034 — Enforce run locks and diagnose stale, corrupt or incompatible checkpoints.
-- [ ] PAR-035 — Preserve complete, ordered event history across pause/resume and concurrent transitions.
-- [ ] PAR-036 — Exercise cancellation, crash windows and multi-pending answers with controlled fixture synchronization and bounded cleanup.
-- [ ] PAR-037 — Missing or invalid declared caller inputs pause the graph before any node/provider launch; invalid answers cause no writes, and a fresh-process valid answer resumes the graph without converting caller inputs into node artifacts. Changed workspace references or incompatible captured definitions are diagnosed before answer mutation or provider probes, while current profile/instruction edits are not silently adopted.
+- [x] PAR-030 — A terminal node error stops new admissions; cancel/drain in-flight calls and preserve already accepted sibling results.
+- [x] PAR-031 — On `needs_input`, stop admission, drain bounded in-flight calls, preserve accepted work and persist every runtime-owned pending response ID.
+- [x] PAR-032 — Validate answers against the exact pending response set. Under the run lock, validate request ID and answer completely before mutation, then atomically persist one answer. With unanswered saved questions, remain `needs_input` and dispatch nothing; when all are answered, resume eligible pending nodes without replaying accepted siblings. If a draining sibling errors, the run is `error`; pending data remains diagnostic and answering cannot turn terminal error into resume.
+- [x] PAR-033 — Fresh-process resume restores graph state and does not auto-replay work that may have launched before a crash.
+- [x] PAR-034 — Enforce run locks and diagnose stale, corrupt or incompatible checkpoints.
+- [x] PAR-035 — Preserve complete, ordered event history across pause/resume and concurrent transitions.
+- [x] PAR-036 — Exercise cancellation, crash windows and multi-pending answers with controlled fixture synchronization and bounded cleanup.
+- [x] PAR-037 — Missing or invalid declared caller inputs pause the graph before any node/provider launch; invalid answers cause no writes, and a fresh-process valid answer resumes the graph without converting caller inputs into node artifacts. Changed workspace references or incompatible captured definitions are diagnosed before answer mutation or provider probes, while current profile/instruction edits are not silently adopted.
+
+P4's local checkboxes are backed by [Root's complete620 runtime/17 package gate](phase4-exit.md), focused Root/Sol review and the separate first-attempt Windows native answer-window capture. That manual control is not deterministic CI coverage. The new exact hosted P4 head remains required before P5 execution or merge readiness; historical failures remain separate.
 
 ## P5 — inspection, delivery and compatibility
 
