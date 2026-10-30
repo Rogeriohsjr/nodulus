@@ -74,7 +74,7 @@ test.each([
   try {
     mutate(project);
     const result = await inspectWorkflow(project, "example");
-    expect(result).toMatchObject({ workflow: { executionSupported: false } });
+    expect(result).toMatchObject({ workflow: { executionSupported: true } });
     expect(snapshotTree(runsDirectory)).toEqual(savedRunsBefore);
     expect(existsSync(sentinels.providerSentinel)).toBe(false);
     expect(existsSync(sentinels.validatorSentinel)).toBe(false);

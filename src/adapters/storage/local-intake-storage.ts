@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { IntakeStorage, RunFiles } from "../../core/ports/intake-storage.js";
@@ -79,9 +79,155 @@ export class LocalIntakeStorage implements IntakeStorage {
       await mkdir(path.dirname(target), { recursive: true });
       const temporary = `${target}.${randomUUID()}.tmp`;
       await writeFile(temporary, contents, { encoding: "utf8", flag: "wx" });
-      await rename(temporary, target);
+      await renameWithWindowsShareRetry(temporary, target);
     }
   }
+}
+
+const windowsRenameRetryBudgetMs = 1000;
+const windowsRenameRetryDelayMs = 25;
+const windowsShareErrorCodes = new Set(["EPERM", "EACCES", "EBUSY"]);
+
+async function renameWithWindowsShareRetry(temporary: string, target: string): Promise<void> {
+  let renameAttempts = 0;
+  let initialError: unknown;
+  renameAttempts += 1;
+  try {
+    await rename(temporary, target);
+    return;
+  } catch (error) {
+    initialError = error;
+    const initialFailureAt = performance.now();
+    if (process.platform !== "win32") throw error;
+    if (!isWindowsShareError(error)) {
+      throwWithWindowsRenameDiagnostic(error, {
+        phase: "initial_ineligible",
+        renameAttempts,
+        elapsedMs: performance.now() - initialFailureAt,
+        budgetMs: windowsRenameRetryBudgetMs,
+        initialCode: errorCode(error),
+      });
+    }
+
+    const deadline = performance.now() + windowsRenameRetryBudgetMs;
+    let inspectionCode: string | undefined;
+    let lastRetryCode: string | undefined;
+    let targetKind: string | undefined;
+    while (performance.now() < deadline) {
+      let targetStat;
+      try {
+        targetStat = await stat(target);
+      } catch (inspectionError) {
+        inspectionCode = errorCode(inspectionError);
+        if (inspectionCode !== "ENOENT") {
+          await removeOwnedTemporary(temporary);
+          throwWithWindowsRenameDiagnostic(initialError, {
+            phase: "inspection_failed",
+            renameAttempts,
+            elapsedMs: performance.now() - initialFailureAt,
+            budgetMs: windowsRenameRetryBudgetMs,
+            initialCode: errorCode(initialError),
+            inspectionCode,
+            ...(lastRetryCode === undefined ? {} : { lastRetryCode }),
+            ...(targetKind === undefined ? {} : { targetKind }),
+          });
+        }
+        targetKind = "missing";
+      }
+
+      if (targetStat) {
+        targetKind = targetStat.isDirectory() ? "directory" : targetStat.isFile() ? "file" : "other";
+        if (targetKind !== "file") {
+          await removeOwnedTemporary(temporary);
+          throwWithWindowsRenameDiagnostic(initialError, {
+            phase: "target_not_file",
+            renameAttempts,
+            elapsedMs: performance.now() - initialFailureAt,
+            budgetMs: windowsRenameRetryBudgetMs,
+            initialCode: errorCode(initialError),
+            ...(inspectionCode === undefined ? {} : { inspectionCode }),
+            ...(lastRetryCode === undefined ? {} : { lastRetryCode }),
+            targetKind,
+          });
+        }
+      }
+
+      const remaining = deadline - performance.now();
+      if (remaining <= 0) break;
+      await delay(Math.min(windowsRenameRetryDelayMs, remaining));
+      if (performance.now() >= deadline) break;
+      renameAttempts += 1;
+      try {
+        await rename(temporary, target);
+        return;
+      } catch (retryError) {
+        lastRetryCode = errorCode(retryError);
+        if (!isWindowsShareError(retryError)) {
+          await removeOwnedTemporary(temporary);
+          throwWithWindowsRenameDiagnostic(retryError, {
+            phase: "retry_ineligible",
+            renameAttempts,
+            elapsedMs: performance.now() - initialFailureAt,
+            budgetMs: windowsRenameRetryBudgetMs,
+            initialCode: errorCode(initialError),
+            ...(inspectionCode === undefined ? {} : { inspectionCode }),
+            lastRetryCode,
+            ...(targetKind === undefined ? {} : { targetKind }),
+          });
+        }
+      }
+    }
+
+    await removeOwnedTemporary(temporary);
+    throwWithWindowsRenameDiagnostic(initialError, {
+      phase: "budget_exhausted",
+      renameAttempts,
+      elapsedMs: performance.now() - initialFailureAt,
+      budgetMs: windowsRenameRetryBudgetMs,
+      initialCode: errorCode(initialError),
+      ...(inspectionCode === undefined ? {} : { inspectionCode }),
+      ...(lastRetryCode === undefined ? {} : { lastRetryCode }),
+      ...(targetKind === undefined ? {} : { targetKind }),
+    });
+  }
+}
+
+type WindowsRenameDiagnostic = {
+  phase: string;
+  renameAttempts: number;
+  elapsedMs: number;
+  budgetMs: number;
+  initialCode: string;
+  inspectionCode?: string;
+  lastRetryCode?: string;
+  targetKind?: string;
+};
+
+function throwWithWindowsRenameDiagnostic(error: unknown, diagnostic: WindowsRenameDiagnostic): never {
+  if (error instanceof Error && !error.message.includes("[windowsAtomicRename=")) {
+    error.message = `${error.message} [windowsAtomicRename=${JSON.stringify(diagnostic)}]`;
+  }
+  throw error;
+}
+
+function errorCode(error: unknown): string {
+  return error !== null && typeof error === "object" && "code" in error && typeof error.code === "string"
+    ? error.code
+    : "UNKNOWN";
+}
+
+function isWindowsShareError(error: unknown): boolean {
+  return process.platform === "win32" && error !== null && typeof error === "object" &&
+    "code" in error && typeof error.code === "string" && windowsShareErrorCodes.has(error.code);
+}
+
+async function removeOwnedTemporary(temporary: string): Promise<void> {
+  try { await rm(temporary, { force: true }); }
+  catch { /* preserve the original rename or inspection error */ }
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function isProcessAlive(pid: number): boolean {

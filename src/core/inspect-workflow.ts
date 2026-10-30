@@ -131,7 +131,7 @@ export async function inspectWorkflowDefinition(
         id: workflowId,
         sourcePath: workflowPath,
         nodes: workflow.nodes,
-        executionSupported: false,
+        executionSupported: true,
         execution: graph.workflow.execution,
         outputs: graph.workflow.outputs,
         ...(isRecord(workflow.inputs) ? { inputs: workflow.inputs } : {}),

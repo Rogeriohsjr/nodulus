@@ -31,7 +31,12 @@ test.each([
         return JSON.stringify({ status: "success", artifacts: [{ name: "result", contract: review ? "dev-review.v1" : "dev-work.v1", data: review ? { decision: "ACCEPT", summary: "Boundary model accepts", validation: "Do not trust this report" } : { summary: "Boundary writer", changedFiles: [], validation: "Do not trust this report" } }] });
       },
     });
-    expect(result.status).toBe(reachesImplement ? "success" : "error");
+    const expectedStatus = reachesImplement ? "success" : "error";
+    if (result.status !== expectedStatus) {
+      const diagnostic = JSON.stringify({ result, calls }, null, 2);
+      console.error(`[DEV-002 unexpected status] ${diagnostic.slice(0, 8_000)}`);
+    }
+    expect(result.status).toBe(expectedStatus);
     expect(calls).toEqual(reachesImplement ? ["dev-tests", "dev-test-review", "dev-implement"] : ["dev-tests"]);
   } finally {
     rmSync(project, { recursive: true, force: true });

@@ -64,7 +64,7 @@ test("PAR-002 inspects a valid graph before its independent negative mutations",
     const result = await inspectWorkflow(project, "example");
     expect(result).toMatchObject({
       workflow: {
-        executionSupported: false,
+        executionSupported: true,
         nodes: ["join", "audit", "left", "right", "prepare"],
         execution: {
           kind: "dag",

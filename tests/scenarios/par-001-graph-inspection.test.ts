@@ -4,7 +4,7 @@ import path from "node:path";
 import { expect, test } from "vitest";
 import { inspectWorkflow, runWorkflow } from "../../src/index.js";
 import { createInitializedProject } from "../support/intake-project.js";
-import { configureSequenceProject, sequenceSuccess, writeJson } from "../support/workflow-sequence.js";
+import { configureSequenceProject, readProjectJson, sequenceSuccess, writeJson } from "../support/workflow-sequence.js";
 
 function snapshotTree(root: string): Array<{ relativePath: string; sha256: string }> {
   const entries: Array<{ relativePath: string; sha256: string }> = [];
@@ -129,7 +129,7 @@ test("PAR-001 inspects a declared DAG without executing providers or validators"
 
     expect(inspectionError, "PAR-001 must inspect a valid schema-2 graph").toBeUndefined();
     expect(inspection?.workflow).toMatchObject({
-      executionSupported: false,
+      executionSupported: true,
       execution: {
         kind: "dag",
         maxConcurrency: 2,
@@ -156,9 +156,12 @@ test("PAR-001 inspects a declared DAG without executing providers or validators"
   }
 });
 
-test("PAR-001 rejects schema-2 execution before provider checks or run writes", async () => {
-  const project = createInitializedProject("par-001 schema2 rejection control");
+test("PAR-001 rejects a cyclic schema-2 graph before provider checks or run writes", async () => {
+  const project = createInitializedProject("par-001 schema2 cycle control");
   configureGraphProject(project);
+  const workflow = readProjectJson(project, ".nodulus/workflows/example.json");
+  workflow.execution.dependsOn.rootA = ["join"];
+  writeJson(project, ".nodulus/workflows/example.json", workflow);
   const runsDirectory = path.join(project, ".nodulus", "runs");
   const savedRunsBefore = snapshotTree(runsDirectory);
   let availabilityChecks = 0;
