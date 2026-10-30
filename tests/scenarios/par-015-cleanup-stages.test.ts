@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +10,8 @@ import { runWorkflow } from "../../src/index.js";
 import { configureParallelProject, readParallelWorkflow } from "../support/parallel-project.js";
 import { createInitializedProject } from "../support/intake-project.js";
 import { readProjectJson, writeJson } from "../support/workflow-sequence.js";
+import { observeOwnedNativeProcesses, type OwnedNativeProcessObserver } from "../support/owned-native-processes.js";
+import { startWindowsProcessPin, type WindowsProcessPin } from "../support/windows-process-pin.js";
 
 type Mode = "readiness" | "repair";
 type FixtureEvent = { stage: string; pid: number; role: string; atMs: number; [key: string]: unknown };
@@ -54,16 +56,27 @@ async function runStageScenario(mode: Mode): Promise<void> {
   let descendantPid: number | undefined;
   let outcome: RunOutcome | undefined;
   let run: Promise<RunOutcome> | undefined;
+  let processObserver: OwnedNativeProcessObserver | undefined;
+  const processPins: WindowsProcessPin[] = [];
   let primaryError: unknown;
   let hasPrimaryError = false;
   const cleanupErrors: Error[] = [];
   let runId: string | undefined;
+
+  const capturePinnedProcessSnapshot = (): Snapshot | undefined => {
+    if (rootPid === undefined || descendantPid === undefined) return undefined;
+    const pinnedTargets = new Set(processPins.filter((pin) => pin.handleHeld).map((pin) => pin.targetPid));
+    if (!pinnedTargets.has(rootPid) || !pinnedTargets.has(descendantPid)) return undefined;
+    // The PID probes are lifetime-bound by the open native handles; later handle exit records are cleanup proof only.
+    return { rootPid, descendantPid, rootAlive: isProcessAlive(rootPid), descendantAlive: isProcessAlive(descendantPid), returnedAt: performance.now() };
+  };
 
   try {
     configureScenario(project, mode);
     writeFileSync(controlAbsolute, JSON.stringify({ ...paths, fixtureLifetimeMs }), { encoding: "utf8", flag: "wx" });
     writeFileSync(eventsAbsolute, "", { encoding: "utf8", flag: "wx" });
     assertOwnedProject(project, projectIdentity);
+    processObserver = observeOwnedNativeProcesses();
     const provider = createDefaultProviderPort(project);
     run = runWorkflow({
       projectRoot: project,
@@ -72,19 +85,13 @@ async function runStageScenario(mode: Mode): Promise<void> {
       sources: [{ kind: "inline", text: `Exercise ${mode} process-tree cleanup evidence using local CLI fixtures.` }],
     }, provider).then(
       (result) => {
-        const returnedAt = performance.now();
-        const processSnapshot = rootPid !== undefined && descendantPid !== undefined
-          ? { rootPid, descendantPid, rootAlive: isProcessAlive(rootPid), descendantAlive: isProcessAlive(descendantPid), returnedAt }
-          : undefined;
+        const processSnapshot = capturePinnedProcessSnapshot();
         const value: RunOutcome = { result, ...(processSnapshot ? { processSnapshot } : {}) };
         outcome = value;
         return value;
       },
       (error: unknown) => {
-        const returnedAt = performance.now();
-        const processSnapshot = rootPid !== undefined && descendantPid !== undefined
-          ? { rootPid, descendantPid, rootAlive: isProcessAlive(rootPid), descendantAlive: isProcessAlive(descendantPid), returnedAt }
-          : undefined;
+        const processSnapshot = capturePinnedProcessSnapshot();
         const value: RunOutcome = { error, ...(processSnapshot ? { processSnapshot } : {}) };
         outcome = value;
         return value;
@@ -102,9 +109,22 @@ async function runStageScenario(mode: Mode): Promise<void> {
     expect(intermediateRecord.pid).toBe(intermediatePid);
     expect(intermediateRecord.descendantPid).toBe(descendantPid);
     expect(descendantMarker.pid).toBe(descendantPid);
-    expect(isProcessAlive(rootPid), `${mode} provider root must be alive before the sibling failure.`).toBe(true);
-    expect(isProcessAlive(intermediatePid), "The intermediate must exit before its child is treated as orphaned.").toBe(false);
-    expect(isProcessAlive(descendantPid), "The independently owned orphan must remain alive before the sibling failure.").toBe(true);
+    expect(rootPid).not.toBe(descendantPid);
+    // The fixture writes heldRootStartedPath only after its own ChildProcess close event for the intermediate.
+    const pinParent = path.join(project, ".nodulus", "fixtures", "par-015-native-pins");
+    mkdirSync(pinParent, { recursive: true });
+    const rootPin = startWindowsProcessPin({
+      controlDirectory: path.join(pinParent, "root"), targetPid: rootPid, watchdogMs: fixtureLifetimeMs,
+    });
+    processPins.push(rootPin);
+    const rootPinReady = await rootPin.acquire(scenarioDeadline);
+    expect(rootPinReady).toMatchObject({ rootPid, handlePid: rootPid, exitCode: 259, nonce: rootPin.nonce });
+    const descendantPin = startWindowsProcessPin({
+      controlDirectory: path.join(pinParent, "descendant"), targetPid: descendantPid, watchdogMs: fixtureLifetimeMs,
+    });
+    processPins.push(descendantPin);
+    const descendantPinReady = await descendantPin.acquire(scenarioDeadline);
+    expect(descendantPinReady).toMatchObject({ rootPid: descendantPid, handlePid: descendantPid, exitCode: 259, nonce: descendantPin.nonce });
 
     if (mode === "repair") {
       const currentRunId = locateActiveRunId(project);
@@ -168,7 +188,9 @@ async function runStageScenario(mode: Mode): Promise<void> {
   }
 
   const cleanupDeadline = Date.now() + cleanupBudgetMs;
-  let processIdentityKnown = rootPid !== undefined && intermediatePid !== undefined && descendantPid !== undefined;
+  const remainingCleanupMs = Math.max(0, cleanupDeadline - Date.now());
+  const abortReserveMs = Math.floor(remainingCleanupMs * 0.4);
+  const pinProofDeadline = Math.min(cleanupDeadline - abortReserveMs, Date.now() + Math.floor(remainingCleanupMs * 0.6));
   try { writeFileSync(path.join(project, paths.heldRootReleasePath), "release\n", { encoding: "utf8", flag: "wx" }); }
   catch (error) { cleanupErrors.push(toError(error)); }
   try { writeFileSync(path.join(project, paths.descendantReleasePath), "release\n", { encoding: "utf8", flag: "wx" }); }
@@ -178,27 +200,71 @@ async function runStageScenario(mode: Mode): Promise<void> {
 
   let runSettled = run === undefined || outcome !== undefined;
   if (run) {
-    try { outcome ??= await withDeadline(run, cleanupDeadline, "owned graph run cleanup"); runSettled = true; }
+    try { outcome ??= await withDeadline(run, pinProofDeadline, "owned graph run cleanup"); runSettled = true; }
     catch (error) { cleanupErrors.push(toError(error)); }
   }
-  let processesExited = false;
-  try {
-    const pids = await readOwnedPids(eventsAbsolute, controlAbsolute);
-    if (rootPid !== undefined && !pids.includes(rootPid)) throw new Error("Captured root PID was not present in owned fixture records.");
-    if (intermediatePid !== undefined && !pids.includes(intermediatePid)) throw new Error("Captured intermediate PID was not present in owned fixture records.");
-    if (descendantPid !== undefined && !pids.includes(descendantPid)) throw new Error("Captured descendant PID was not present in owned fixture records.");
-    processesExited = processIdentityKnown && await waitForPids(pids, cleanupDeadline);
-  } catch (error) {
-    processIdentityKnown = false;
-    cleanupErrors.push(toError(error));
-  }
-  if (runSettled && processesExited && processIdentityKnown && cleanupErrors.length === 0) {
+
+  const pinExits: Array<{ targetPid: number; exitCode: number }> = [];
+  const releasedPins = new Set<number>();
+  const failedPins: Array<{ pin: WindowsProcessPin; error: unknown }> = [];
+  for (const pin of processPins) {
     try {
-      assertOwnedProject(project, projectIdentity);
-      rmSync(project, { recursive: true, force: true });
-    } catch (error) { cleanupErrors.push(toError(error)); }
-  } else {
-    cleanupErrors.push(new Error(`P15C2 project retained because run/process cleanup is uncertain: ${path.basename(project)}; root=${String(rootPid)}, intermediate=${String(intermediatePid)}, descendant=${String(descendantPid)}`));
+      if (pin.pinReady && pin.handleHeld) {
+        const exited = await pin.waitForTargetExit(pinProofDeadline);
+        pinExits.push({ targetPid: exited.rootPid, exitCode: exited.exitCode });
+        await pin.releaseAfterTargetExit(pinProofDeadline);
+        releasedPins.add(pin.targetPid);
+      } else {
+        await pin.stopBeforePin(pinProofDeadline);
+      }
+    } catch (error) { failedPins.push({ pin, error }); }
+  }
+  const abortResults = await Promise.allSettled(failedPins.map(({ pin }) => pin.abortUnverified(cleanupDeadline)));
+  for (const [index, result] of abortResults.entries()) {
+    const failure = failedPins[index];
+    if (failure) cleanupErrors.push(toError(failure.error));
+    if (result.status === "rejected") cleanupErrors.push(toError(result.reason));
+  }
+
+  let observerDrained = processObserver === undefined;
+  if (processObserver) {
+    try { await processObserver.drain(cleanupDeadline); observerDrained = true; }
+    catch (error) { cleanupErrors.push(toError(error)); }
+  }
+
+  let nestedFixtureWorkObserved = rootPid !== undefined || descendantPid !== undefined;
+  if (existsSync(eventsAbsolute)) {
+    try {
+      nestedFixtureWorkObserved ||= readFixtureEvents(eventsAbsolute).some(({ role, stage }) =>
+        stage === "intermediate-started" || stage === "intermediate-spawned-descendant" || stage === "descendant-started"
+        || (mode === "readiness" && role === "codex-readiness" && stage === "readiness")
+        || (mode === "repair" && role === "opencode" && stage === "build-completed"),
+      );
+    } catch (error) {
+      cleanupErrors.push(toError(error));
+    }
+  }
+
+  let nativeTargetsDrained = !nestedFixtureWorkObserved;
+  if (nestedFixtureWorkObserved) {
+    const expectedTargets = rootPid !== undefined && descendantPid !== undefined ? [rootPid, descendantPid] : [];
+    const exitedTargets = new Set(pinExits.filter(({ exitCode }) => exitCode !== 259).map(({ targetPid }) => targetPid));
+    nativeTargetsDrained = expectedTargets.length === 2
+      && processPins.length === 2
+      && expectedTargets.every((targetPid) => exitedTargets.has(targetPid) && releasedPins.has(targetPid));
+    if (!nativeTargetsDrained) cleanupErrors.push(new Error("P15C2 retained the project because one or more fixture process lifetimes lack native exit and handle-close proof."));
+  }
+
+  if (!runSettled) cleanupErrors.push(new Error("P15C2 retained the project because the public workflow did not settle within the shared cleanup deadline."));
+  if (!observerDrained) cleanupErrors.push(new Error("P15C2 retained the project because owned Node child-process handles did not all close."));
+
+  if (runSettled && nativeTargetsDrained && observerDrained && cleanupErrors.length === 0) {
+    if (!hasPrimaryError) {
+      try {
+        assertOwnedProject(project, projectIdentity);
+        rmSync(project, { recursive: true, force: true });
+      } catch (error) { cleanupErrors.push(toError(error)); }
+    }
   }
   if (hasPrimaryError && cleanupErrors.length > 0) throw new AggregateError([toError(primaryError), ...cleanupErrors], "P15C2 scenario and owned cleanup both failed.");
   if (hasPrimaryError) throw primaryError;
@@ -348,32 +414,6 @@ async function waitForEvent(project: string, runIdValue: string, predicate: (eve
     await delay(10);
   }
   throw new Error("Timed out waiting for parent provider completion evidence.");
-}
-
-async function readOwnedPids(eventsPath: string, controlPath: string): Promise<number[]> {
-  const events = readFixtureEvents(eventsPath);
-  const pids = events.map(({ pid }) => readOwnedPid(pid, "fixture event"));
-  const control = JSON.parse(readFileSync(controlPath, "utf8")) as Record<string, unknown>;
-  for (const key of ["heldRootStartedPath", "intermediateChildPath", "descendantStartedPath"]) {
-    const relative = control[key];
-    if (typeof relative !== "string") throw new Error("P15C2 owned marker path is invalid.");
-    const markerPath = path.join(path.dirname(controlPath), relative.replace(/^\.nodulus[\\/]+fixtures[\\/]+/, ""));
-    if (existsSync(markerPath)) {
-      const marker = JSON.parse(readFileSync(markerPath, "utf8")) as Record<string, unknown>;
-      if (typeof marker.pid === "number") pids.push(readOwnedPid(marker.pid, key));
-      if (typeof marker.intermediatePid === "number") pids.push(readOwnedPid(marker.intermediatePid, "root intermediate"));
-      if (typeof marker.descendantPid === "number") pids.push(readOwnedPid(marker.descendantPid, "root descendant"));
-    }
-  }
-  return [...new Set(pids)];
-}
-
-async function waitForPids(pids: number[], deadline: number): Promise<boolean> {
-  while (pids.some(isProcessAlive)) {
-    if (Date.now() >= deadline) return false;
-    await delay(20);
-  }
-  return true;
 }
 
 function isProcessAlive(pid: number): boolean {

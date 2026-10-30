@@ -291,7 +291,7 @@ async function exerciseUnavailableProvider(): Promise<void> {
     const finalEvents = readEvents(project, seed.runId).slice(eventsBeforeFinal.length);
     expect(finalEvents).toContainEqual(expect.objectContaining({ event: "request.answered", requestId: requestB.id, kind: "node", nodeId: "b" }));
     expect(finalEvents).toContainEqual(expect.objectContaining({ event: "run.resumed", requestId: requestB.id }));
-    const failedNode = ["a", "b"].find((nodeId) => finalRun.graph.nodes[nodeId]?.phase === "failed");
+    const failedNode = ["a", "b"].find((nodeId) => finalRun.graph.nodes[nodeId]?.phase === "failed" && finalRun.graph.nodes[nodeId]?.failure?.code === "PROVIDER_UNAVAILABLE");
     if (!failedNode) throw new Error("PAR-034 unavailable-provider run did not persist its failed admitted node.");
     const failed = finalRun.graph.nodes[failedNode];
     expect(failed).toMatchObject({ attempt: 2, failure: { code: "PROVIDER_UNAVAILABLE" } });

@@ -27,6 +27,17 @@ type ChildObservation = {
   errorName?: string;
 };
 type ProviderIdentity = { nodeId: string; runId: string; callId: string; attempt: number; pid: number; role: Role };
+type AInferenceProcessProof = {
+  protocol: string;
+  nonce: string;
+  role: "a";
+  nodeId: "a";
+  runId: string;
+  callId: string;
+  attempt: 1;
+  pid: number;
+  ppid: number;
+};
 type ActiveDriver = {
   protocol: string;
   nonce: string;
@@ -96,7 +107,7 @@ type InitialDriverEnvelope = {
 };
 type ChildClose = { code: number | null; signal: NodeJS.Signals | null; error?: Error };
 type TrackedChild = {
-  role: "crash-driver" | "resume-driver" | "pin-helper" | "process-tree-query";
+  role: "crash-driver" | "resume-driver" | "pin-helper";
   child: ChildProcessWithoutNullStreams;
   close: Promise<ChildClose>;
   closeObserved: boolean;
@@ -164,7 +175,7 @@ async function exerciseRunningCrash(): Promise<void> {
 
   try {
     assertOwnedProject(project, projectIdentity, label);
-    configureProject(project, fixtureDirectory, stateDirectory, controlDirectory, eventsPath, startedPaths, releasePaths);
+    configureProject(project, fixtureDirectory, stateDirectory, controlDirectory, eventsPath, startedPaths, releasePaths, fixtureNonce);
     assertBeforeDeadline(scenarioDeadline, "project and real fixture setup");
 
     const runnerNonce = fixtureNonce;
@@ -185,27 +196,33 @@ async function exerciseRunningCrash(): Promise<void> {
     const active = await waitForJson<ActiveDriver>(activePath, "active A process census", scenarioDeadline, runner);
     assertActiveDriverCensus(active, runner, a, seed);
     expect(active.nonce).toBe(runnerNonce);
+    const aProcessProofPath = path.join(controlDirectory, "a-inference-process.json");
+    const aProcessProof = await waitForJson<AInferenceProcessProof>(aProcessProofPath, "same-process A inference identity", scenarioDeadline, runner);
+    expect(aProcessProof).toMatchObject({
+      protocol: "par-036-a-process-v1", nonce: runnerNonce, role: "a", nodeId: "a",
+      runId, callId: a.callId, attempt: 1, pid: a.pid,
+    });
+    expect(isSafePid(aProcessProof.pid)).toBe(true);
+    expect(isSafePid(aProcessProof.ppid)).toBe(true);
     assertCheckpointBeforeCrash(project, runId, seed, a);
     const runRoot = runDirectory(project, runId);
     expect(existsSync(path.join(runRoot, ".resume.lock")), "An initial run must not own a resume lock.").toBe(false);
     expect(existsSync(path.join(controlDirectory, "public-settled.json")), "The initial public operation must still be held at A entry.").toBe(false);
 
-    let inferenceRoot: ChildObservation | undefined;
-    for (const record of active.childProcesses) {
-      if (record.nodeId === "a" && record.operation === "invoke" && record.callId === a.callId && !record.closed) inferenceRoot = record;
-    }
+    const inferenceRoots = active.childProcesses.filter((record) => record.nodeId === "a" && record.operation === "invoke" && record.callId === a.callId && !record.closed);
+    expect(inferenceRoots).toHaveLength(1);
+    const inferenceRoot = inferenceRoots[0];
     if (!inferenceRoot || !Number.isSafeInteger(inferenceRoot.pid) || inferenceRoot.pid === null) {
       throw new Error("PAR-036 could not retain the actual open A inference ChildProcess identity.");
     }
 
-    let parentRelationship: { cmdPid: number; nodePid: number } | undefined;
     if (process.platform === "win32") {
+      expect(aProcessProof.ppid).toBe(inferenceRoot.pid);
       const cmdPin = await startNativePin(handles, pins, "a-inference-cmd", inferenceRoot.pid, stateDirectory, scenarioDeadline);
-      const nodePin = await startNativePin(handles, pins, "a-fixture-node", a.pid, stateDirectory, scenarioDeadline);
+      const nodePin = await startNativePin(handles, pins, "a-fixture-node", aProcessProof.pid, stateDirectory, scenarioDeadline);
       expect(cmdPin.targetPid).not.toBe(nodePin.targetPid);
-      parentRelationship = await readParentRelationship(handles, project, controlDirectory, runner, cmdPin, nodePin, a, runnerNonce, scenarioDeadline);
-      expect(parentRelationship).toEqual({ cmdPid: inferenceRoot.pid, nodePid: a.pid });
-      expect(readJson(path.join(controlDirectory, "parent-process.json"))).toMatchObject({ protocol: "par-036-crash-driver-v1", nonce: runnerNonce, runId, callId: a.callId, attempt: 1 });
+      expect(cmdPin.targetPid).toBe(inferenceRoot.pid);
+      expect(nodePin.targetPid).toBe(a.pid);
     } else {
       expect(inferenceRoot.pid).toBe(a.pid);
       expect(isProcessGroupPresent(inferenceRoot.pid), "The captured A direct child must own a live detached POSIX process group.").toBe(true);
@@ -219,8 +236,9 @@ async function exerciseRunningCrash(): Promise<void> {
     expect(runner.closeObserved).toBe(false);
     expect(runner.child.exitCode).toBeNull();
     expect(runner.child.signalCode).toBeNull();
+    expect(readJson<AInferenceProcessProof>(aProcessProofPath)).toEqual(aProcessProof);
     if (process.platform === "win32") {
-      if (!parentRelationship) throw new Error("PAR-036 Windows parent-process relationship evidence is missing.");
+      expect(aProcessProof.ppid).toBe(inferenceRoot.pid);
       for (const pin of pins) {
         const ready = readJson(joinControl(pin.controlDirectory, "pin-ready.json"));
         expect(ready).toMatchObject({ nonce: pin.nonce, helperPid: pin.child.child.pid, rootPid: pin.targetPid, handlePid: pin.targetPid, exitCode: 259 });
@@ -385,6 +403,7 @@ function configureProject(
   eventsPath: string,
   startedPaths: Record<string, string>,
   releasePaths: { a: string; b: string },
+  fixtureNonce: string,
 ): void {
   configureParallelProject(project);
   mkdirSync(stateDirectory, { recursive: true });
@@ -394,6 +413,9 @@ function configureProject(
   const projectFixture = path.join(fixtureDirectory, "par-031-graph-provider.mjs");
   writeFileSync(projectFixture, fixtureBytes);
   expect(readFileSync(projectFixture).equals(fixtureBytes)).toBe(true);
+  const aObserverLauncher = path.join(fixtureDirectory, "par-036-a-observer.mjs");
+  const aProcessProofPath = path.join(controlDirectory, "a-inference-process.json");
+  writeFileSync(aObserverLauncher, buildAObserverLauncher(projectFixture, aProcessProofPath, fixtureNonce), "utf8");
   writeFileSync(path.join(fixtureDirectory, "par-031-control.json"), JSON.stringify({
     eventsPath: path.relative(project, eventsPath),
     fixtureLifetimeMs,
@@ -406,10 +428,12 @@ function configureProject(
   const baseProfile = profiles.fixture ?? {};
   for (const role of roles) {
     const wrapper = path.join(fixtureDirectory, process.platform === "win32" ? `par-036-${role}.cmd` : `par-036-${role}.sh`);
+    const providerScript = role === "a" ? ".nodulus/fixtures/par-036-a-observer.mjs" : ".nodulus/fixtures/par-031-graph-provider.mjs";
+    const wrapperProviderScript = process.platform === "win32" ? providerScript.replaceAll("/", "\\") : providerScript;
     if (process.platform === "win32") {
-      writeFileSync(wrapper, `@echo off\r\n"${process.execPath}" ".nodulus\\fixtures\\par-031-graph-provider.mjs" "${role}" %*\r\nexit /b %ERRORLEVEL%\r\n`, "utf8");
+      writeFileSync(wrapper, `@echo off\r\n"${process.execPath}" "${wrapperProviderScript}" "${role}" %*\r\nexit /b %ERRORLEVEL%\r\n`, "utf8");
     } else {
-      writeFileSync(wrapper, `#!/bin/sh\nexec ${shellQuote(process.execPath)} '.nodulus/fixtures/par-031-graph-provider.mjs' '${role}' "$@"\n`, "utf8");
+      writeFileSync(wrapper, `#!/bin/sh\nexec ${shellQuote(process.execPath)} '${wrapperProviderScript}' '${role}' "$@"\n`, "utf8");
       chmodSync(wrapper, 0o755);
     }
     profiles[role] = {
@@ -452,6 +476,51 @@ function configureProject(
       expectedOutputs: [{ name: "report", contract: "report.v1" }],
     });
   }
+}
+
+function buildAObserverLauncher(providerPath: string, proofPath: string, nonce: string): string {
+  return `import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+const providerPath = ${JSON.stringify(providerPath)};
+const proofPath = ${JSON.stringify(proofPath)};
+const nonce = ${JSON.stringify(nonce)};
+const role = process.argv[2];
+const args = process.argv.slice(3);
+
+if (role === "a" && args[0] === "exec") {
+  const outputIndex = args.indexOf("--output-last-message");
+  if (outputIndex < 0 || typeof args[outputIndex + 1] !== "string") throw new Error("PAR-036 A observer could not identify the actual inference output path.");
+  const outputPath = path.resolve(process.cwd(), args[outputIndex + 1]);
+  const callId = path.basename(path.dirname(outputPath));
+  const runsDirectory = path.join(process.cwd(), ".nodulus", "runs");
+  const matches = [];
+  for (const entry of readdirSync(runsDirectory, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const requestPath = path.join(runsDirectory, entry.name, "calls", callId, "request.json");
+    if (!existsSync(requestPath)) continue;
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    if (request.callId === callId) matches.push(request);
+  }
+  if (matches.length !== 1 || matches[0].nodeId !== "a" || matches[0].attempt !== 1
+    || typeof matches[0].runId !== "string" || matches[0].callId !== callId) {
+    throw new Error("PAR-036 A observer could not bind the invocation to one captured A attempt-one request.");
+  }
+  if (existsSync(proofPath)) throw new Error("PAR-036 A observer process identity was already recorded.");
+  mkdirSync(path.dirname(proofPath), { recursive: true });
+  const temporaryPath = proofPath + '.' + process.pid + '.tmp';
+  const proof = {
+    protocol: "par-036-a-process-v1", nonce, role: "a", nodeId: "a",
+    runId: matches[0].runId, callId, attempt: 1, pid: process.pid, ppid: process.ppid,
+  };
+  writeFileSync(temporaryPath, JSON.stringify(proof), { encoding: "utf8", flag: "wx" });
+  renameSync(temporaryPath, proofPath);
+}
+
+process.argv[1] = providerPath;
+await import(pathToFileURL(providerPath).href);
+`;
 }
 
 function startTrackedChild(
@@ -692,63 +761,6 @@ async function startNativePin(
   expect(pinned).toMatchObject({ helperPid: child.child.pid, rootPid: targetPid, handlePid: targetPid, exitCode: 259, nonce });
   pin.pinReady = true;
   return pin;
-}
-
-async function readParentRelationship(
-  handles: TrackedChild[],
-  project: string,
-  controlDirectory: string,
-  runner: TrackedChild,
-  cmdPin: NativePin,
-  nodePin: NativePin,
-  a: ProviderIdentity,
-  nonce: string,
-  deadline: number,
-): Promise<{ cmdPid: number; nodePid: number }> {
-  const filter = `ProcessId=${nodePin.targetPid} OR ProcessId=${cmdPin.targetPid}`;
-  const timeoutMs = Math.floor(Math.min(6000, deadline - Date.now() - 1000));
-  if (timeoutMs < 500) throw new Error("PAR-036 has insufficient shared scenario budget for a bounded Windows parent-process query.");
-  const operationTimeoutSeconds = Math.max(1, Math.ceil(timeoutMs / 1000));
-  const command = [
-    "$ErrorActionPreference='Stop'",
-    `$nonce='${nonce}'`,
-    `$timeoutMs=${timeoutMs}`,
-    "$query=[System.Management.Automation.PowerShell]::Create()",
-    "$null=$query.AddScript('param($filter,$operationTimeoutSec) $ErrorActionPreference=''Stop''; @(Get-CimInstance -ClassName Win32_Process -Filter $filter -OperationTimeoutSec $operationTimeoutSec | Select-Object -Property ProcessId,ParentProcessId)')",
-    `$null=$query.AddArgument('${filter}')`,
-    `$null=$query.AddArgument(${operationTimeoutSeconds})`,
-    "$async=$query.BeginInvoke()",
-    "if (-not $async.AsyncWaitHandle.WaitOne($timeoutMs)) { [Console]::Error.WriteLine('Bounded parent-process query timed out.'); [Environment]::Exit(124) }",
-    "$rows=@($query.EndInvoke($async))",
-    "if ($query.HadErrors) { throw 'Bounded parent-process query returned an error.' }",
-    "if ($rows.Count -ne 2) { throw 'Expected exactly the two pinned process lifetimes.' }",
-    "$result=[ordered]@{nonce=$nonce;processes=$rows}",
-    "$result | ConvertTo-Json -Compress -Depth 4",
-    "$async.AsyncWaitHandle.Close()",
-    "$query.Dispose()",
-  ].join("; ");
-  const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
-  if (typeof systemRoot !== "string" || systemRoot.length === 0) throw new Error("PAR-036 could not resolve PowerShell for the bounded parent-process query.");
-  const powershell = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-  const query = startTrackedChild(handles, "process-tree-query", powershell, ["-NoProfile", "-NonInteractive", "-Command", command], project);
-  const close = await waitForChildClose(query, deadline, "read-only pinned process-parent query close");
-  expect(close.error).toBeUndefined();
-  expect(close.code).toBe(0);
-  expect(close.signal).toBeNull();
-  expect(query.stdinError).toBeUndefined();
-  expect(query.outputOverflow).toBe(false);
-  const output = captureText(query.stdout);
-  const parsed = parseSingleJsonLine<{ nonce: string; processes: Array<{ ProcessId: number; ParentProcessId: number }> }>(output, "Windows parent-process query");
-  expect(parsed.nonce).toBe(nonce);
-  expect(parsed.processes).toHaveLength(2);
-  writeJsonExclusive(path.join(controlDirectory, "parent-process.json"), {
-    protocol: "par-036-crash-driver-v1", nonce, runId: a.runId, callId: a.callId, attempt: a.attempt, processes: parsed.processes,
-  });
-  const byPid = new Map(parsed.processes.map((row) => [Number(row.ProcessId), Number(row.ParentProcessId)]));
-  expect(byPid.size).toBe(2);
-  expect(byPid.get(nodePin.targetPid)).toBe(cmdPin.targetPid);
-  expect(byPid.get(cmdPin.targetPid)).toBe(runner.child.pid);
-  return { cmdPid: cmdPin.targetPid, nodePid: nodePin.targetPid };
 }
 
 async function releaseAndVerifyPin(pin: NativePin, deadline: number): Promise<void> {
