@@ -30,9 +30,14 @@ export function runProcess(executable: string, args: string[], options: {
     let started = false;
     let outputLimitExceeded = false;
     let settled = false;
-    const kill = () => killTree(child);
+    let cooperativeTermination: Promise<void> | undefined;
+    const kill = () => { void killTree(child).catch(() => undefined); };
     const timer = setTimeout(() => { timedOut = true; kill(); }, Math.max(1, options.timeoutMs));
-    const onAbort = () => { cancelled = true; kill(); };
+    const onAbort = () => {
+      cancelled = true;
+      cooperativeTermination ??= killTree(child);
+      void cooperativeTermination.catch(() => undefined);
+    };
     options.signal?.addEventListener("abort", onAbort, { once: true });
     if (options.signal?.aborted) onAbort();
     child.once("spawn", () => { started = true; });
@@ -53,16 +58,7 @@ export function runProcess(executable: string, args: string[], options: {
     child.once("close", (exitCode) => {
       if (settled) return;
       settled = true;
-      cleanup();
-      resolve({
-        stdout: Buffer.concat(stdoutChunks).toString("utf8"),
-        stderr: Buffer.concat(stderrChunks).toString("utf8"),
-        exitCode,
-        timedOut,
-        cancelled,
-        started,
-        outputLimitExceeded,
-      });
+      void finishClose(exitCode);
     });
     child.stdin?.once("error", () => undefined);
     child.stdin?.end(options.stdin ?? "");
@@ -70,16 +66,42 @@ export function runProcess(executable: string, args: string[], options: {
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", onAbort);
     }
+    async function finishClose(exitCode: number | null): Promise<void> {
+      try {
+        await cooperativeTermination;
+        if (settled) {
+          cleanup();
+          resolve({
+            stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+            stderr: Buffer.concat(stderrChunks).toString("utf8"),
+            exitCode,
+            timedOut,
+            cancelled,
+            started,
+            outputLimitExceeded,
+          });
+        }
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
+    }
   });
 }
 
-function killTree(child: ChildProcess): void {
-  if (!child.pid) return;
+function killTree(child: ChildProcess): Promise<void> {
+  if (!child.pid) return Promise.resolve();
   if (process.platform === "win32") {
     const killer = crossSpawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
-    killer.unref();
-    return;
+    return new Promise((resolve, reject) => {
+      killer.once("error", reject);
+      killer.once("close", (exitCode) => {
+        if (exitCode === 0) resolve();
+        else reject(new Error(`taskkill failed to terminate process ${child.pid} (exit ${exitCode}).`));
+      });
+    });
   }
   try { process.kill(-child.pid, "SIGKILL"); }
   catch { try { child.kill("SIGKILL"); } catch { /* already exited */ } }
+  return Promise.resolve();
 }

@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProviderInvocation, ProviderPort } from "../../core/ports/provider.js";
 import { NodulusError } from "../../core/shared/nodulus-error.js";
+import { graphStopError } from "../../core/ports/graph-stop.js";
 import { runProcess } from "./process-runner.js";
 import { runCapturedProcess } from "./captured-process.js";
 
@@ -60,6 +61,11 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
         assertInvocationActive(invocation);
         return response;
       } catch (error) {
+        const graphStop = graphStopError(invocation.signal);
+        if (graphStop) {
+          if (isRecord(error) && error.code === "PROVIDER_TIMEOUT") throw error;
+          throw graphStop;
+        }
         if (invocation.signal?.aborted || (invocation.deadlineAtMs !== undefined && Date.now() >= invocation.deadlineAtMs)) {
           const error = new NodulusError("FEEDBACK_LIMIT_EXCEEDED", "Feedback routing elapsed-time limit was reached.");
           throw error;
@@ -83,6 +89,11 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
         assertInvocationActive(invocation);
         return response;
       } catch (error) {
+        const graphStop = graphStopError(invocation.signal);
+        if (graphStop) {
+          if (isRecord(error) && error.code === "PROVIDER_TIMEOUT") throw error;
+          throw graphStop;
+        }
         if (!isProviderActive(invocation.signal, invocation.deadlineAtMs)) {
           throw new NodulusError("FEEDBACK_LIMIT_EXCEEDED", "Feedback routing elapsed-time limit was reached.");
         }
@@ -114,6 +125,8 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
 }
 
 function assertInvocationActive(invocation: ProviderInvocation): void {
+  const graphStop = graphStopError(invocation.signal);
+  if (graphStop) throw graphStop;
   if (!isProviderActive(invocation.signal, invocation.deadlineAtMs)) {
     throw new NodulusError("FEEDBACK_LIMIT_EXCEEDED", "Feedback routing elapsed-time limit was reached.");
   }

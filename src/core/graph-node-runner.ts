@@ -9,6 +9,7 @@ import type { ProviderPort, ProviderInvocation } from "./ports/provider.js";
 import type { CapturedInputs, DefinitionContext, Node, OutputArtifact } from "./execute-workflow.js";
 import { buildPrompt, parseProviderOutcome, resolveMappedInputs, validateOutputSet, validateValidatorVerdict } from "./execute-workflow.js";
 import type { GraphAcceptedRecord } from "./graph-state.js";
+import { graphStopError } from "./ports/graph-stop.js";
 import { NodulusError } from "./shared/nodulus-error.js";
 
 export type GraphNodeSuccess = {
@@ -45,6 +46,7 @@ export type GraphNodeRunnerContext = {
   provider: ProviderPort;
   storage: IntakeStorage;
   artifactValidator: ArtifactValidator;
+  signal: AbortSignal;
   acceptedOutputs: Map<string, Map<string, OutputArtifact>>;
   ancestorIds: Set<string>;
   onRequiredWriteFailure?: (error: Error) => void;
@@ -90,6 +92,7 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
         prompt,
         inputs: structuredClone(mappedInputs),
         providerProfile: structuredClone(profile),
+        signal: args.signal,
       };
       const invocationRecord = {
         callId: currentCallId,
@@ -121,22 +124,44 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
       launch = null;
       let callError: unknown;
       let callFailed = false;
+      let providerCallEntered = false;
       try {
         if (currentOperation === "invoke") {
-          if (provider.isAvailable && !await provider.isAvailable(structuredClone(profile))) {
+          const stoppedBeforeReadiness = graphStopError(args.signal);
+          if (stoppedBeforeReadiness) {
             launch = false;
-            throw Object.assign(new Error(`Provider profile '${node.providerProfile}' is unavailable.`), { code: "PROVIDER_UNAVAILABLE" });
+            throw stoppedBeforeReadiness;
           }
+          if (provider.isAvailable) {
+            launch = false;
+            const available = await provider.isAvailable(structuredClone(profile), { signal: args.signal });
+            const stoppedAfterReadiness = graphStopError(args.signal);
+            if (stoppedAfterReadiness) throw stoppedAfterReadiness;
+            if (!available) throw Object.assign(new Error(`Provider profile '${node.providerProfile}' is unavailable.`), { code: "PROVIDER_UNAVAILABLE" });
+          }
+          const stoppedBeforeInvoke = graphStopError(args.signal);
+          if (stoppedBeforeInvoke) {
+            launch = false;
+            throw stoppedBeforeInvoke;
+          }
+          providerCallEntered = true;
+          launch = null;
           raw = await provider.invoke(invocation);
         } else {
           if (!provider.repairResponse) throw new NodulusError("RESPONSE_REPAIR_UNAVAILABLE", "Safe response-only repair is unavailable; the full provider action will not be replayed.");
+          const stoppedBeforeRepair = graphStopError(args.signal);
+          if (stoppedBeforeRepair) throw stoppedBeforeRepair;
+          providerCallEntered = true;
+          launch = null;
           raw = await provider.repairResponse(invocation, previousRaw, issue?.errors ?? []);
         }
+        const stopped = graphStopError(args.signal);
+        if (stopped) throw stopped;
         if (typeof raw !== "string") throw Object.assign(new Error("Provider returned a non-string response."), { code: "PROVIDER_FAILURE" });
       } catch (error) {
         callFailed = true;
         callError = error;
-        launch ??= safeLaunch(provider, currentCallId);
+        if (providerCallEntered) launch ??= safeLaunch(provider, currentCallId);
       }
 
       if (callFailed) {
@@ -155,6 +180,8 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
       launch = safeLaunch(provider, currentCallId);
       await writeRequiredEvidence(storage, request.projectRoot, runId, { [`${currentAttemptRoot}/response.raw.txt`]: raw }, args.onRequiredWriteFailure);
       await completeCall(args, currentAttempt, currentCallId, currentOperation, parentCallId, startedAt, launch);
+      const stopped = graphStopError(args.signal);
+      if (stopped) return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, stopped.code, stopped.message, raw);
 
       parsed = parseProviderOutcome(raw);
       if (!parsed.valid) {
@@ -190,12 +217,16 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
             let validatorContents: string;
             try { validatorContents = await storage.readUtf8(scriptPath); }
             catch (error) { return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, "CONFIGURATION_INVALID", `Captured validator '${expected.validator}' could not be read: ${messageOf(error)}`, raw); }
+            const stoppedBeforeValidator = graphStopError(args.signal);
+            if (stoppedBeforeValidator) return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, stoppedBeforeValidator.code, stoppedBeforeValidator.message, raw);
             if (!expectedHash || hash(validatorContents) !== expectedHash) {
               return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, "CONFIGURATION_INVALID", `Captured validator '${expected.validator}' changed after intake.`, raw);
             }
             let processResult;
-            try { processResult = await artifactValidator.execute(request.projectRoot, scriptPath, json(artifact.data), expected.validatorTimeoutMs ?? 5000); }
+            try { processResult = await artifactValidator.execute(request.projectRoot, scriptPath, json(artifact.data), expected.validatorTimeoutMs ?? 5000, args.signal); }
             catch (error) { return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, "VALIDATOR_EXECUTION_FAILED", messageOf(error), raw); }
+            const stopped = graphStopError(args.signal);
+            if (stopped) return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, stopped.code, stopped.message, raw);
             if (processResult.timedOut) return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, "VALIDATOR_TIMEOUT", `Validator '${expected.validator}' exceeded its timeout.`, raw, undefined, processResult.stderr);
             if (processResult.exitCode !== 0 || processResult.outputLimitExceeded) return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, "VALIDATOR_EXECUTION_FAILED", `Validator '${expected.validator}' did not complete successfully.`, raw, undefined, processResult.stderr);
             let verdict: unknown;
@@ -213,6 +244,8 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
       }
 
       if (!issue) break;
+      const stopBeforeRepair = graphStopError(args.signal);
+      if (stopBeforeRepair) return await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, stopBeforeRepair.code, stopBeforeRepair.message, raw);
       const errorText = issue.errors.join("; ");
       await rejectAttempt(args, currentAttemptRoot, currentCallId, currentAttempt, launch, issue.code, errorText, raw,
         issue.code === "ARTIFACT_REJECTED" ? { valid: false, code: issue.code, errors: issue.errors } : undefined, issue.stderr);
@@ -251,6 +284,8 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
     const files: RunFiles = { [resultRef]: resultText, [validationRef]: validationText };
     for (const artifact of validArtifacts) files[`nodes/${node.id}/artifacts/${artifact.name}.json`] = json(artifact);
     await writeRequiredEvidence(storage, request.projectRoot, runId, files, args.onRequiredWriteFailure);
+    const stopped = graphStopError(args.signal);
+    if (stopped) return await rejectAttempt(args, acceptedAttemptRoot, currentCallId, currentAttempt, launch, stopped.code, stopped.message, raw);
     return {
       status: "success",
       nodeId: node.id,

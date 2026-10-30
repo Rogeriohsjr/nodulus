@@ -1,6 +1,6 @@
 # Parallel workflows
 
-Status: P1 is accepted locally and its exact-head hosted checks passed. P2's bounded scheduling, persistence, repair, measurement, provider-error and resource checkpoints now pass 75 graph cases independently. The latest full gate passed 553 runtime tests but failed the first installed-package test at its unchanged 5000 ms aggregate guard (16/17 passed); diagnosis is pending. The earlier instrumented gate passed 545 runtime / 17 package tests. Historical Windows replacement and DEV-002 failures remain recorded without a cause claim. Stop/crash, join/recovery/delivery and full phase integration gates remain pending. A partial P2 draft checkpoint is being prepared; the PR stack remains unmerged.
+Status: P1 is accepted locally and its exact-head hosted checks passed. P2 now has independently reviewed scheduling, repair, resource and cooperative-stop foundations: Root passed 78 graph cases within a 91-case combined check and 17 installed-package cases. The latest instrumented full gate failed 1/556 runtime tests on the recurring Windows checkpoint rename EPERM after its unchanged 1000 ms budget; package did not run in that gate. A post-failure report captured DELETE access success and no Restart Manager processes, without identifying the actor. Profile/grace/cleanup-uncertainty, crash, join/recovery/delivery and final integration gates remain pending. Partial draft PR #33 and the stack remain unmerged.
 
 ## Scope and prerequisites
 

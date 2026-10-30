@@ -10,6 +10,7 @@ import { resolveOutputReference } from "./workflow-mapping.js";
 import type { GraphDefinition } from "./workflow-graph.js";
 import { GraphStateWriter, type GraphRunCheckpoint } from "./graph-state.js";
 import { isGraphEvidenceWriteError, runGraphNode, type GraphNodeOutcome } from "./graph-node-runner.js";
+import { createGraphStopReason } from "./ports/graph-stop.js";
 import { NodulusError } from "./shared/nodulus-error.js";
 
 type GraphContext = DefinitionContext & {
@@ -19,7 +20,7 @@ type GraphContext = DefinitionContext & {
   validatorHashes: Record<string, string>;
 };
 type GraphRunResponse = { runId: string; status: "success" | "needs_input" | "error"; result: unknown };
-type ActiveNode = { nodeId: string; attempt: number; callId: string; startedAtMs: number; resources: string[]; promise: Promise<{ nodeId: string; outcome: GraphNodeOutcome }> };
+type ActiveNode = { nodeId: string; attempt: number; callId: string; startedAtMs: number; resources: string[]; controller: AbortController; promise: Promise<{ nodeId: string; outcome: GraphNodeOutcome }> };
 type GraphFailure = { code: string; message: string; nodeId?: string; callId?: string; launch?: boolean | null };
 
 /** Execute a captured schema-2 graph through an isolated scheduler and node runner. */
@@ -64,6 +65,14 @@ export async function executeGraphWorkflow(
   }));
   const ancestors = dependencyAncestors(workflow);
 
+  const abortActivePeers = (failedNodeId: string, code: string, message: string): void => {
+    admissionClosed = true;
+    const reason = createGraphStopReason(`Graph node '${failedNodeId}' failed with ${code}: ${message}`);
+    for (const node of active.values()) {
+      if (node.nodeId !== failedNodeId && !node.controller.signal.aborted) node.controller.abort(reason);
+    }
+  };
+
   while (accepted.size < nodes.length && (active.size > 0 || !admissionClosed)) {
     let admitted = false;
     if (!admissionClosed) {
@@ -82,11 +91,13 @@ export async function executeGraphWorkflow(
           await writer.admit(node.id, attempt, callId, attemptRoot);
           await writer.callStarted(node.id, attempt, callId);
         } catch (error) {
-          failed.push({ code: "RUN_STORAGE_FAILED", message: messageOf(error) });
-          admissionClosed = true;
+          const message = messageOf(error);
+          failed.push({ code: "RUN_STORAGE_FAILED", message, nodeId: node.id });
+          abortActivePeers(node.id, "RUN_STORAGE_FAILED", message);
           break;
         }
         for (const key of resourceKeys) resourcesHeld.add(key);
+        const controller = new AbortController();
         const promise = runGraphNode({
           request,
           runId,
@@ -98,6 +109,7 @@ export async function executeGraphWorkflow(
           provider,
           storage,
           artifactValidator,
+          signal: controller.signal,
           acceptedOutputs,
           ancestorIds: ancestors.get(node.id) ?? new Set<string>(),
           onRequiredWriteFailure: (error) => writer.poison(error),
@@ -118,7 +130,7 @@ export async function executeGraphWorkflow(
             ...(isGraphEvidenceWriteError(error) ? { storageFailure: true as const } : {}),
           } as GraphNodeOutcome,
         }));
-        active.set(node.id, { nodeId: node.id, attempt, callId, startedAtMs: performance.now(), resources: resourceKeys, promise });
+        active.set(node.id, { nodeId: node.id, attempt, callId, startedAtMs: performance.now(), resources: resourceKeys, controller, promise });
         admitted = true;
       }
     }
@@ -148,7 +160,7 @@ export async function executeGraphWorkflow(
         callId: completion.outcome.callId,
         launch: completion.outcome.launch,
       });
-      admissionClosed = true;
+      abortActivePeers(completion.nodeId, "RUN_STORAGE_FAILED", completion.outcome.message);
       continue;
     }
     if (completion.outcome.status === "success") {
@@ -157,19 +169,34 @@ export async function executeGraphWorkflow(
         accepted.add(completion.nodeId);
         acceptedOutputs.set(completion.nodeId, new Map(completion.outcome.artifacts.map((artifact) => [artifact.name, structuredClone(artifact)])));
       } catch (error) {
-        failed.push({ code: "RUN_STORAGE_FAILED", message: messageOf(error) });
-        admissionClosed = true;
+        const message = messageOf(error);
+        failed.push({ code: "RUN_STORAGE_FAILED", message, nodeId: completion.nodeId, callId: completion.outcome.callId });
+        abortActivePeers(completion.nodeId, "RUN_STORAGE_FAILED", message);
       }
     } else if (completion.outcome.status === "needs_input") {
       pending.set(completion.nodeId, completion.outcome.request);
       admissionClosed = true;
       try { await writer.closeAdmission(); }
-      catch (error) { failed.push({ code: "RUN_STORAGE_FAILED", message: messageOf(error) }); }
+      catch (error) {
+        const message = messageOf(error);
+        failed.push({ code: "RUN_STORAGE_FAILED", message, nodeId: completion.nodeId });
+        abortActivePeers(completion.nodeId, "RUN_STORAGE_FAILED", message);
+      }
     } else {
-      failed.push({ code: completion.outcome.code, message: completion.outcome.message });
-      admissionClosed = true;
+      failed.push({
+        code: completion.outcome.code,
+        message: completion.outcome.message,
+        nodeId: completion.nodeId,
+        callId: completion.outcome.callId,
+        launch: completion.outcome.launch,
+      });
+      abortActivePeers(completion.nodeId, completion.outcome.code, completion.outcome.message);
       try { await writer.fail(completion.nodeId, completion.outcome.code, completion.outcome.message); }
-      catch (error) { failed.push({ code: "RUN_STORAGE_FAILED", message: messageOf(error) }); }
+      catch (error) {
+        const message = messageOf(error);
+        failed.push({ code: "RUN_STORAGE_FAILED", message, nodeId: completion.nodeId });
+        abortActivePeers(completion.nodeId, "RUN_STORAGE_FAILED", message);
+      }
     }
   }
 
@@ -190,6 +217,7 @@ export async function executeGraphWorkflow(
         callId: completion.outcome.callId,
         launch: completion.outcome.launch,
       });
+      abortActivePeers(completion.nodeId, "RUN_STORAGE_FAILED", completion.outcome.message);
       continue;
     }
     try {
@@ -200,14 +228,21 @@ export async function executeGraphWorkflow(
       } else if (completion.outcome.status === "needs_input") {
         pending.set(completion.nodeId, completion.outcome.request);
       } else {
-        failed.push({ code: completion.outcome.code, message: completion.outcome.message });
-        admissionClosed = true;
+        failed.push({
+          code: completion.outcome.code,
+          message: completion.outcome.message,
+          nodeId: completion.nodeId,
+          callId: completion.outcome.callId,
+          launch: completion.outcome.launch,
+        });
+        abortActivePeers(completion.nodeId, completion.outcome.code, completion.outcome.message);
         await writer.fail(completion.nodeId, completion.outcome.code, completion.outcome.message);
       }
     } catch (error) {
       writer.poison(error);
-      failed.push({ code: "RUN_STORAGE_FAILED", message: messageOf(error) });
-      admissionClosed = true;
+      const message = messageOf(error);
+      failed.push({ code: "RUN_STORAGE_FAILED", message, nodeId: completion.nodeId });
+      abortActivePeers(completion.nodeId, "RUN_STORAGE_FAILED", message);
     }
   }
 
