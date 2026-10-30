@@ -71,6 +71,50 @@ nodulus inspect workflow example --project . --json
 
 The JSON response contains the inspection result or structured diagnostics for invalid and missing references. The public API is `inspectWorkflow(projectRoot, workflowId)`. When a Codex profile omits `sandbox`, inspection reports the effective default as `read-only`. This is configured policy data; inspection does not verify provider enforcement. This command is available from this source change and is not claimed in the published npm package.
 
+### Inspect a schema-version-2 graph (inspection only)
+
+This development stage can inspect a DAG definition with declared dependencies, a positive `maxConcurrency`, and ordered named output aliases. Node declaration order breaks ties between ready nodes; dependencies define topology. After `prepare`, `audit` follows its own path while `security` and `quality` form the two branches feeding `join`. The node files must declare the referenced `report` outputs with contract `report.v1`.
+
+```json
+{
+  "schemaVersion": 2,
+  "id": "parallel-review",
+  "nodes": ["prepare", "security", "quality", "join", "audit"],
+  "execution": {
+    "kind": "dag",
+    "maxConcurrency": 2,
+    "dependsOn": {
+      "prepare": [],
+      "security": ["prepare"],
+      "quality": ["prepare"],
+      "join": ["security", "quality"],
+      "audit": ["prepare"]
+    },
+    "resources": {
+      "prepare": [],
+      "security": [],
+      "quality": [],
+      "join": [],
+      "audit": []
+    }
+  },
+  "outputs": [
+    { "name": "review", "from": "join.report", "contract": "report.v1" },
+    { "name": "audit", "from": "audit.report", "contract": "report.v1" }
+  ]
+}
+```
+
+`execution.resources` is optional. A node omitted from that map defaults to the exclusive `workspace` resource; an explicit empty array declares that the author considers it independent of shared resources. This declaration does not sandbox tools or prove they avoid side effects.
+
+Use the existing workflow inspection CLI with this workflow ID:
+
+```sh
+nodulus inspect workflow parallel-review --project . --json
+```
+
+Schema-2 inspection returns `workflow.executionSupported: false`; this stage does not execute graphs, and `nodulus run` still rejects schema-2 definitions before provider or validator actions. Existing schema-version-1 ordered workflow execution is unchanged. These source-branch inspection instructions are not evidence of parallel runtime behavior or a published npm feature.
+
 ## Inspect a saved run
 
 Use the saved checkpoint and event evidence to explain a run without resuming it:

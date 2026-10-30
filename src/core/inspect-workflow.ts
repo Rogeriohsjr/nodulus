@@ -6,6 +6,7 @@ import { nodeDefinitionSchema, validateProvider, workflowDefinitionSchema } from
 import { NodulusError } from "./shared/nodulus-error.js";
 import { inputMappingError, type OutputDeclaration } from "./workflow-mapping.js";
 import { validateFeedbackRouting, validateFeedbackRuntimeInputs } from "./feedback-definition.js";
+import { validateGraphDefinition, validateGraphOutputs } from "./workflow-graph.js";
 
 export interface WorkflowInspectionFiles {
   readUtf8(absolutePath: string): Promise<string>;
@@ -26,11 +27,14 @@ export async function inspectWorkflowDefinition(
   const settingsPath = path.join(root, ".nodulus", "settings.json");
   const settings = parseSettings(await readText(files, settingsPath, "project settings"));
   const workflow = object(await readJson(files, workflowPath, `Workflow '${workflowId}'`), `Workflow '${workflowId}'`);
-  validateDefinition(workflowDefinitionSchema, workflow, `Workflow '${workflowId}'`);
-  if (workflow.schemaVersion !== 1 || workflow.id !== workflowId || !Array.isArray(workflow.nodes) ||
-      workflow.nodes.length === 0 || workflow.nodes.some((id) => typeof id !== "string" || !idPattern.test(id)) ||
-      new Set(workflow.nodes).size !== workflow.nodes.length) {
-    throw new NodulusError("CONFIGURATION_INVALID", `Workflow '${workflowId}' has an invalid schema, ID, or node list.`);
+  const graph = workflow.schemaVersion === 2 ? validateGraphDefinition(workflow, workflowId) : undefined;
+  if (!graph) {
+    validateDefinition(workflowDefinitionSchema, workflow, `Workflow '${workflowId}'`);
+    if (workflow.schemaVersion !== 1 || workflow.id !== workflowId || !Array.isArray(workflow.nodes) ||
+        workflow.nodes.length === 0 || workflow.nodes.some((id) => typeof id !== "string" || !idPattern.test(id)) ||
+        new Set(workflow.nodes).size !== workflow.nodes.length) {
+      throw new NodulusError("CONFIGURATION_INVALID", `Workflow '${workflowId}' has an invalid schema, ID, or node list.`);
+    }
   }
 
   const contracts: Record<string, { sourcePath: string | null; schema: unknown }> = {
@@ -79,10 +83,12 @@ export async function inspectWorkflowDefinition(
         ...(typeof output.validatorTimeoutMs === "number" ? { validatorTimeoutMs: output.validatorTimeoutMs } : {}),
       });
     }
-    for (const [inputName, mapping] of Object.entries(definition.inputs)) {
-      const diagnostic = inputMappingError(nodeId, inputName, mapping, priorOutputs, callerInputs);
-      if (diagnostic) throw new NodulusError("CONFIGURATION_INVALID", diagnostic);
-      if (isRecord(mapping) && typeof mapping.contract === "string") await addContract(root, files, contracts, mapping.contract);
+    if (!graph) {
+      for (const [inputName, mapping] of Object.entries(definition.inputs)) {
+        const diagnostic = inputMappingError(nodeId, inputName, mapping, priorOutputs, callerInputs);
+        if (diagnostic) throw new NodulusError("CONFIGURATION_INVALID", diagnostic);
+        if (isRecord(mapping) && typeof mapping.contract === "string") await addContract(root, files, contracts, mapping.contract);
+      }
     }
     nodes.push({
       id: nodeId,
@@ -98,12 +104,39 @@ export async function inspectWorkflowDefinition(
       outputs: expectedOutputs.map((output) => ({ name: String(output.name), contract: String(output.contract) })),
     });
   }
-  if (workflow.feedbackRouting !== undefined) {
+  if (graph) {
+    validateGraphOutputs(graph.workflow, priorOutputs);
+    for (const node of nodes) {
+      const nodeId = String(node.id);
+      const inputs = node.inputs as Record<string, unknown>;
+      const ancestorIds = graph.ancestors.get(nodeId) ?? new Set<string>();
+      const ancestorOutputs = priorOutputs.filter(({ nodeId: sourceNodeId }) => ancestorIds.has(sourceNodeId));
+      for (const [inputName, mapping] of Object.entries(inputs)) {
+        if (isRecord(mapping) && Object.keys(mapping).some((key) => key !== "from" && key !== "contract")) {
+          throw new NodulusError("CONFIGURATION_INVALID", `Node '${nodeId}' input '${inputName}' mapping has an unknown property.`);
+        }
+        const diagnostic = inputMappingError(nodeId, inputName, mapping, ancestorOutputs, callerInputs);
+        if (diagnostic) throw new NodulusError("CONFIGURATION_INVALID", diagnostic);
+        if (isRecord(mapping) && typeof mapping.contract === "string") await addContract(root, files, contracts, mapping.contract);
+      }
+    }
+  }
+  if (!graph && workflow.feedbackRouting !== undefined) {
     const feedbackRouting = validateFeedbackRouting(workflow.feedbackRouting, priorOutputs.map(({ nodeId, outputs }) => ({ id: nodeId, outputs })), contracts);
     validateFeedbackRuntimeInputs(feedbackRouting, nodes.map((node) => ({ id: String(node.id), inputs: node.inputs as Record<string, unknown> })));
   }
   return {
-    workflow: { id: workflowId, sourcePath: workflowPath, nodes: workflow.nodes, ...(isRecord(workflow.inputs) ? { inputs: workflow.inputs } : {}), ...(workflow.feedbackRouting === undefined ? {} : { feedbackRouting: workflow.feedbackRouting }) },
+    workflow: graph
+      ? {
+        id: workflowId,
+        sourcePath: workflowPath,
+        nodes: workflow.nodes,
+        executionSupported: false,
+        execution: graph.workflow.execution,
+        outputs: graph.workflow.outputs,
+        ...(isRecord(workflow.inputs) ? { inputs: workflow.inputs } : {}),
+      }
+      : { id: workflowId, sourcePath: workflowPath, nodes: workflow.nodes, ...(isRecord(workflow.inputs) ? { inputs: workflow.inputs } : {}), ...(workflow.feedbackRouting === undefined ? {} : { feedbackRouting: workflow.feedbackRouting }) },
     nodes,
     contracts,
   };
