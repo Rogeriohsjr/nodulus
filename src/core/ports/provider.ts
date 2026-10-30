@@ -17,6 +17,8 @@ export type ProviderInvocation = {
   inputs: Record<string, unknown>;
   /** Profile options captured for this run, with credentials excluded. */
   providerProfile: Record<string, unknown>;
+  /** Marks graph-only provider error handling; absent preserves legacy response envelopes. */
+  executionMode?: "graph";
   /** Runtime-owned call identity; optional for existing custom callers. */
   call?: ProviderCallContext;
   providerProfileId?: string;
@@ -50,5 +52,5 @@ export interface ProviderPort {
   telemetryForCall?(callId: string): ProviderTelemetry | null;
   /** True only with completed process capture; null means launch is uncertain. */
   launchForCall?(callId: string): boolean | null;
-  isAvailable?(profile: Record<string, unknown>, options?: { signal?: AbortSignal; deadlineAtMs?: number }): Promise<boolean> | boolean;
+  isAvailable?(profile: Record<string, unknown>, options?: { signal?: AbortSignal; deadlineAtMs?: number; executionMode?: "graph" }): Promise<boolean> | boolean;
 }

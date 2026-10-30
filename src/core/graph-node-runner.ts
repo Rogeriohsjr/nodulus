@@ -10,6 +10,7 @@ import type { CapturedInputs, DefinitionContext, Node, OutputArtifact } from "./
 import { buildPrompt, parseProviderOutcome, resolveMappedInputs, validateOutputSet, validateValidatorVerdict } from "./execute-workflow.js";
 import type { GraphAcceptedRecord } from "./graph-state.js";
 import { createGraphProfileTimeoutReason, graphProfileTimeoutError, graphStopError } from "./ports/graph-stop.js";
+import { copyPhysicalFailureEvidence, getPhysicalFailureEvidence } from "./ports/physical-process.js";
 import { NodulusError } from "./shared/nodulus-error.js";
 
 export type GraphNodeSuccess = {
@@ -113,6 +114,7 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
     while (true) {
       currentAttemptRoot = `nodes/${node.id}/attempt-${String(currentAttempt).padStart(3, "0")}`;
       const invocation: ProviderInvocation = {
+        executionMode: "graph",
         call: { callId: currentCallId, attempt: currentAttempt, operation: currentOperation, ...(parentCallId ? { parentCallId } : {}) },
         providerProfileId: node.providerProfile,
         runId,
@@ -175,7 +177,7 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
               if (profileTimeout) throw profileTimeout;
               const stoppedBeforeProbe = graphStopError(availability.signal);
               if (stoppedBeforeProbe) throw stoppedBeforeProbe;
-              available = await provider.isAvailable(structuredClone(profile), { signal: availability.signal });
+              available = await provider.isAvailable(structuredClone(profile), { signal: availability.signal, executionMode: "graph" });
               const profileTimeoutAfterProbe = availability.deadlineError();
               if (profileTimeoutAfterProbe) throw profileTimeoutAfterProbe;
               const stoppedAfterReadiness = graphStopError(availability.signal);
@@ -232,7 +234,12 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
         callFailed = true;
         const profileTimeout = providerOperationDeadlineError?.() ??
           (providerOperationSignal === undefined ? undefined : graphProfileTimeoutError(providerOperationSignal));
-        callError = profileTimeout && (!isRecord(error) || error.code !== "PROVIDER_TIMEOUT") ? profileTimeout : error;
+        const physicalFailure = getPhysicalFailureEvidence(error);
+        const earlierPhysicalFailure = physicalFailure !== undefined && physicalFailure.terminationCause !== "cancelled";
+        if (earlierPhysicalFailure) callError = error;
+        else if (profileTimeout && (!isRecord(error) || error.code !== "PROVIDER_TIMEOUT")) {
+          callError = copyPhysicalFailureEvidence(profileTimeout, error);
+        } else callError = error;
         if (providerCallEntered) launch ??= safeLaunch(provider, currentCallId);
       }
 

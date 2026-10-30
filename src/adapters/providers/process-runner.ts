@@ -1,13 +1,24 @@
 import crossSpawn from "cross-spawn";
 import type { ChildProcess } from "node:child_process";
 import { performance } from "node:perf_hooks";
+import type { PhysicalTerminationCause, ProcessCleanupUnverified } from "../../core/ports/physical-process.js";
 
-export type ProcessResult = { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean; cancelled: boolean; started: boolean; outputLimitExceeded: boolean };
+export type ProcessResult = {
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  timedOut: boolean;
+  cancelled: boolean;
+  started: boolean;
+  outputLimitExceeded: boolean;
+  terminationCause?: PhysicalTerminationCause;
+  cleanupUnverified?: ProcessCleanupUnverified;
+};
 const OUTPUT_LIMIT = 2 * 1024 * 1024;
 const processGroupShutdownTimeoutMs = 2000;
 const processGroupPollIntervalMs = 10;
 
-type TerminationCause = "cancelled" | "timedOut" | "outputLimitExceeded";
+type TerminationCause = PhysicalTerminationCause;
 
 /** Runs an executable without shell interpolation and bounds time and captured output. */
 export function runProcess(executable: string, args: string[], options: {
@@ -37,13 +48,17 @@ export function runProcess(executable: string, args: string[], options: {
     let settled = false;
     let terminationCause: TerminationCause | undefined;
     let termination: Promise<void> | undefined;
+    let windowsTerminationAttempted = false;
     const beginTermination = (cause: TerminationCause) => {
       if (settled || terminationCause !== undefined) return;
       terminationCause = cause;
       cancelled = cause === "cancelled";
       timedOut = cause === "timedOut";
       outputLimitExceeded = cause === "outputLimitExceeded";
-      termination = Promise.resolve().then(() => killTree(child, cause));
+      termination = Promise.resolve().then(() => {
+        if (process.platform === "win32" && child.pid !== undefined) windowsTerminationAttempted = true;
+        return killTree(child, cause);
+      });
       void termination.catch(() => undefined);
     };
     const timer = setTimeout(() => beginTermination("timedOut"), Math.max(1, options.timeoutMs));
@@ -84,24 +99,46 @@ export function runProcess(executable: string, args: string[], options: {
       options.signal?.removeEventListener("abort", onAbort);
     }
     async function finishClose(exitCode: number | null): Promise<void> {
+      let cleanupUnverified: ProcessCleanupUnverified | undefined;
       try {
         await termination;
-        if (settled) {
-          resolve({
-            stdout: Buffer.concat(stdoutChunks).toString("utf8"),
-            stderr: Buffer.concat(stderrChunks).toString("utf8"),
-            exitCode,
-            timedOut,
-            cancelled,
-            started,
-            outputLimitExceeded,
-          });
-        }
       } catch (error) {
-        reject(error);
+        if (terminationCause === undefined) {
+          reject(error);
+          return;
+        }
+        cleanupUnverified = {
+          code: "PROCESS_TREE_UNVERIFIED",
+          message: `Process-tree cleanup could not be verified after ${terminationCause}: ${boundedError(error)}`.slice(0, 1200),
+          operationCause: terminationCause,
+        };
       }
+      if (cleanupUnverified === undefined && windowsTerminationAttempted && terminationCause !== undefined) {
+        cleanupUnverified = {
+          code: "PROCESS_TREE_UNVERIFIED",
+          message: "Windows root termination was attempted and the root closed, but descendant exit could not be verified.",
+          operationCause: terminationCause,
+        };
+      }
+      if (!settled) return;
+      resolve({
+        stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+        stderr: Buffer.concat(stderrChunks).toString("utf8"),
+        exitCode,
+        timedOut,
+        cancelled,
+        started,
+        outputLimitExceeded,
+        ...(terminationCause === undefined ? {} : { terminationCause }),
+        ...(cleanupUnverified === undefined ? {} : { cleanupUnverified }),
+      });
     }
   });
+}
+
+function boundedError(error: unknown): string {
+  try { return (error instanceof Error ? error.message : String(error)).slice(0, 900); }
+  catch { return "Cleanup failure could not be described safely."; }
 }
 
 function killTree(child: ChildProcess, cause: TerminationCause): Promise<void> {

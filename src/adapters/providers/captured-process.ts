@@ -59,6 +59,8 @@ async function runCapturedProcess(executable: string, args: string[], options: {
     cancelled: runProcessResult.cancelled,
     started: runProcessResult.started,
     outputLimitExceeded: runProcessResult.outputLimitExceeded,
+    ...(runProcessResult.terminationCause === undefined ? {} : { terminationCause: runProcessResult.terminationCause }),
+    ...(runProcessResult.cleanupUnverified === undefined ? {} : { cleanupUnverified: runProcessResult.cleanupUnverified }),
     startedAt: request.startedAt,
     endedAt: new Date().toISOString(),
     elapsedMs: Math.max(0, endTime - startTime),
