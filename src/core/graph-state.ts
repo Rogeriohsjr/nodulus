@@ -184,28 +184,32 @@ export class GraphStateWriter {
     return this.commit({ event: "graph.admission.closed" }, (next) => { next.graph.admissionClosed = true; });
   }
 
+  closeAdmissionWithPending(request: Record<string, unknown>): Promise<void> {
+    return this.commit({
+      event: "graph.admission.closed",
+      requestId: request.id,
+      nodeId: request.nodeId,
+    }, (next) => {
+      next.graph.admissionClosed = true;
+      projectPendingRequest(next, request);
+    });
+  }
+
+  recordPending(request: Record<string, unknown>): Promise<void> {
+    return this.commit({
+      event: "node.pending",
+      requestId: request.id,
+      nodeId: request.nodeId,
+      attempt: request.attempt,
+      callId: request.callId,
+    }, (next) => { projectPendingRequest(next, request); });
+  }
+
   pause(requests: Array<Record<string, unknown>>): Promise<void> {
     return this.commit({ event: "run.needs_input", requestIds: requests.map((request) => request.id) }, (next) => {
       next.status = "needs_input";
       next.graph.admissionClosed = true;
-      next.graph.pendingRequests = Object.fromEntries(requests.map((request) => {
-        const id = request.id;
-        if (typeof id !== "string" || id.length === 0) throw new Error("Graph pending request has no runtime ID.");
-        const nodeId = typeof request.nodeId === "string" ? request.nodeId : null;
-        const attempt = typeof request.attempt === "number" ? request.attempt : 0;
-        const requestText = json(request);
-        return [id, {
-          nodeId,
-          kind: nodeId === null ? "caller_inputs" : "node",
-          attempt,
-          requestRef: `pending/${id}.json`,
-          requestSha256: createHash("sha256").update(requestText, "utf8").digest("hex"),
-        }];
-      }));
-      for (const request of requests) {
-        const nodeId = typeof request.nodeId === "string" ? request.nodeId : undefined;
-        if (nodeId && next.graph.nodes[nodeId]) next.graph.nodes[nodeId] = { ...next.graph.nodes[nodeId], phase: "pending" };
-      }
+      for (const request of requests) projectPendingRequest(next, request);
     });
   }
 
@@ -290,6 +294,32 @@ export class GraphStateWriter {
     });
     this.queue = operation.catch((error: unknown) => { this.poison(error); });
     return operation;
+  }
+}
+
+function projectPendingRequest(checkpoint: GraphRunCheckpoint, request: Record<string, unknown>): void {
+  const id = request.id;
+  if (typeof id !== "string" || id.length === 0) throw new Error("Graph pending request has no runtime ID.");
+  const nodeId = typeof request.nodeId === "string" ? request.nodeId : null;
+  const attempt = typeof request.attempt === "number" ? request.attempt : 0;
+  const requestSha256 = createHash("sha256").update(json(request), "utf8").digest("hex");
+  const projection = {
+    nodeId,
+    kind: nodeId === null ? "caller_inputs" : "node",
+    attempt,
+    requestRef: `pending/${id}.json`,
+    requestSha256,
+  };
+  const existing = checkpoint.graph.pendingRequests[id];
+  if (existing) {
+    const fields = ["nodeId", "kind", "attempt", "requestRef", "requestSha256"] as const;
+    const matches = fields.every((field) => existing[field] === projection[field]) && Object.keys(existing).length === fields.length;
+    if (!matches) throw new Error(`Graph pending request '${id}' conflicts with its previously projected metadata.`);
+  } else {
+    checkpoint.graph.pendingRequests[id] = projection;
+  }
+  if (nodeId !== null && checkpoint.graph.nodes[nodeId]) {
+    checkpoint.graph.nodes[nodeId] = { ...checkpoint.graph.nodes[nodeId], phase: "pending" };
   }
 }
 

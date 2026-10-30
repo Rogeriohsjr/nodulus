@@ -257,9 +257,11 @@ export async function executeGraphWorkflow(
         abortActivePeers(completion.nodeId, "RUN_STORAGE_FAILED", message);
       }
     } else if (completion.outcome.status === "needs_input") {
-      pending.set(completion.nodeId, completion.outcome.request);
       admissionClosed = true;
-      try { await writer.closeAdmission(); }
+      try {
+        await writer.closeAdmissionWithPending(completion.outcome.request);
+        pending.set(completion.nodeId, completion.outcome.request);
+      }
       catch (error) {
         const message = messageOf(error);
         failed.push({ code: "RUN_STORAGE_FAILED", message, nodeId: completion.nodeId });
@@ -336,6 +338,7 @@ export async function executeGraphWorkflow(
         accepted.add(completion.nodeId);
         acceptedOutputs.set(completion.nodeId, new Map(completion.outcome.artifacts.map((artifact) => [artifact.name, structuredClone(artifact)])));
       } else if (completion.outcome.status === "needs_input") {
+        await writer.recordPending(completion.outcome.request);
         pending.set(completion.nodeId, completion.outcome.request);
       } else {
         if (provisionalFailure && (completion.outcome.preemptedByPhysicalFailure || completion.nodeId === provisionalFailure.nodeId)) {
