@@ -337,8 +337,7 @@ async function resumeGraphAnswerLocked(
       !Array.isArray(references) || references.some((reference) => !isRecord(reference) || typeof reference.path !== "string" ||
         (reference.mode !== "workspace" && reference.mode !== "snapshot") || !/^[0-9a-f]{64}$/.test(reference.sha256)) ||
       context.nodes.some((node) => !isRecord(node) || typeof node.id !== "string" || typeof node.providerProfile !== "string" ||
-        !Array.isArray(node.expectedOutputs) || node.expectedOutputs.some((output) => !isRecord(output) || typeof output.name !== "string" || typeof output.contract !== "string")) ||
-      !sameJson(checkpoint.graph.callerInputs, inputs.callerInputs)) {
+        !Array.isArray(node.expectedOutputs) || node.expectedOutputs.some((output) => !isRecord(output) || typeof output.name !== "string" || typeof output.contract !== "string"))) {
     throw new NodulusError("RUN_STATE_INVALID", "Paused graph captured definitions, inputs, or references do not match its checkpoint.");
   }
   let validatedWorkflow: GraphResumeContext["workflow"];
@@ -357,12 +356,12 @@ async function resumeGraphAnswerLocked(
   }
   await validateWorkspaceReferences(projectRoot, references, storage);
   let ledger: VerifiedGraphResumeLedger;
-  try { ledger = await verifyGraphResumeLedger(projectRoot, storage, context, checkpoint, eventsText); }
+  try { ledger = await verifyGraphResumeLedger(projectRoot, storage, context, checkpoint, eventsText, inputs.callerInputs); }
   catch (error) {
     if (error instanceof NodulusError) throw error;
     throw new NodulusError("RUN_STATE_INVALID", `Paused graph evidence could not be verified: ${messageOf(error)}`);
   }
-  const selected = ledger.requests.find((entry) => entry.id === request.requestId);
+  const selected = [...ledger.requests, ...ledger.callerRequests].find((entry) => entry.id === request.requestId);
   if (!selected || selected.answered) {
     throw new NodulusError("PENDING_REQUEST_MISMATCH", "The supplied request ID does not match an unanswered runtime graph request.");
   }
@@ -376,10 +375,32 @@ async function resumeGraphAnswerLocked(
   }
   validateAnswers(answer, selected.answerContract);
 
-  const remaining = ledger.requests.filter((entry) => !entry.answered && entry.id !== selected.id);
   const answerRef = `answers/${selected.id}.json`;
   const answerSha256 = createHash("sha256").update(answerText, "utf8").digest("hex");
   const writer = new GraphStateWriter(projectRoot, runId, storage, checkpoint, eventsText, ledger.metrics);
+  if (selected.kind === "caller_inputs") {
+    const otherUnanswered = ledger.callerRequests.some((entry) => entry.id !== selected.id && !entry.answered) ||
+      ledger.requests.some((entry) => !entry.answered);
+    if (otherUnanswered) throw new NodulusError("RUN_STATE_INVALID", "Caller-input continuation cannot resume while another runtime question is unanswered.");
+    const nextCallerInputs = { ...ledger.effectiveCallerInputs, ...answer };
+    await writer.recordFinalCallerAnswer(selected.id, answerRef, answerSha256, answerText, nextCallerInputs, ledger.metricDiagnostics);
+    const continuation: GraphContinuation = {
+      context: { ...context, engineVersion: ENGINE_VERSION },
+      inputs: { ...inputs, callerInputs: structuredClone(nextCallerInputs) },
+      writer,
+      acceptedNodes: context.workflow.nodes.filter((nodeId) => ledger.acceptedArtifacts.has(nodeId)),
+      acceptedArtifacts: ledger.acceptedArtifacts,
+      nodes: new Map(),
+    };
+    return executeGraphWorkflow({
+      projectRoot,
+      cwd: projectRoot,
+      workflow: context.workflow.id,
+      sources: [{ kind: "inline", text: inputs.request }],
+    }, { runId, runDirectory: "" }, provider, storage, new ProcessArtifactValidator(), continuation);
+  }
+
+  const remaining = ledger.requests.filter((entry) => !entry.answered && entry.id !== selected.id);
   if (remaining.length === 0) {
     const continuationNodes = new Map<string, GraphContinuationNode>();
     for (const pendingRequest of ledger.requests) {
@@ -396,7 +417,7 @@ async function resumeGraphAnswerLocked(
     await writer.recordFinalAnswer(selected.id, selected.nodeId, answerRef, answerSha256, answerText, ledger.metricDiagnostics);
     const continuation: GraphContinuation = {
       context: { ...context, engineVersion: ENGINE_VERSION },
-      inputs,
+      inputs: { ...inputs, callerInputs: structuredClone(ledger.effectiveCallerInputs) },
       writer,
       acceptedNodes: context.workflow.nodes.filter((nodeId) => ledger.acceptedArtifacts.has(nodeId)),
       acceptedArtifacts: ledger.acceptedArtifacts,

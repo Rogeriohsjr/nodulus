@@ -6,6 +6,7 @@ import type { DefinitionContext, OutputArtifact } from "./execute-workflow.js";
 import type { GraphAcceptedRecord, GraphRunCheckpoint } from "./graph-state.js";
 import type { IntakeStorage } from "./ports/intake-storage.js";
 import { NodulusError } from "./shared/nodulus-error.js";
+import { callerAnswerContract, missingCallerInputs } from "./caller-inputs.js";
 import type { GraphDefinition } from "./workflow-graph.js";
 
 export type GraphResumeContext = DefinitionContext & {
@@ -15,7 +16,8 @@ export type GraphResumeContext = DefinitionContext & {
   validatorHashes: Record<string, string>;
 };
 
-export type VerifiedPendingRequest = {
+export type VerifiedNodePendingRequest = {
+  kind: "node";
   id: string;
   nodeId: string;
   attempt: number;
@@ -25,10 +27,24 @@ export type VerifiedPendingRequest = {
   answered: boolean;
 };
 
+export type VerifiedCallerInputRequest = {
+  kind: "caller_inputs";
+  id: string;
+  nodeId: null;
+  attempt: 0;
+  request: Record<string, unknown>;
+  answerContract: unknown;
+  answered: boolean;
+};
+
+export type VerifiedPendingRequest = VerifiedNodePendingRequest | VerifiedCallerInputRequest;
+
 export type VerifiedGraphResumeLedger = {
   eventsText: string;
   events: Array<Record<string, unknown>>;
-  requests: VerifiedPendingRequest[];
+  requests: VerifiedNodePendingRequest[];
+  callerRequests: VerifiedCallerInputRequest[];
+  effectiveCallerInputs: Record<string, unknown>;
   acceptedArtifacts: Map<string, Map<string, OutputArtifact>>;
   answersByNode: Map<string, Record<string, unknown>>;
   metrics: unknown[];
@@ -69,6 +85,7 @@ export async function verifyGraphResumeLedger(
   context: GraphResumeContext,
   checkpoint: GraphRunCheckpoint,
   eventsText: string,
+  capturedCallerInputs: Record<string, unknown>,
 ): Promise<VerifiedGraphResumeLedger> {
   if (checkpoint.schemaVersion !== 2 || context.schemaVersion !== 2 || context.workflow.schemaVersion !== 2 ||
       checkpoint.engineVersion !== context.engineVersion || checkpoint.workflow !== context.workflow.id ||
@@ -131,43 +148,62 @@ export async function verifyGraphResumeLedger(
   const savedAnswers = new Map<string, Record<string, unknown>>();
   for (const requestId of requestIds) {
     const entry = pendingEntries[requestId];
-    if (!isRecord(entry) || !isUuid(requestId) || entry.kind !== "node" || typeof entry.nodeId !== "string" ||
-        !Number.isSafeInteger(entry.attempt) || Number(entry.attempt) < 1 ||
+    const isCallerRequest = isRecord(entry) && entry.kind === "caller_inputs";
+    if (!isRecord(entry) || !isUuid(requestId) ||
+        (isCallerRequest ? entry.nodeId !== null || entry.attempt !== 0 : entry.kind !== "node" || typeof entry.nodeId !== "string" || !Number.isSafeInteger(entry.attempt) || Number(entry.attempt) < 1) ||
         entry.requestRef !== `pending/${requestId}.json` || !isHash(entry.requestSha256) ||
         Object.keys(entry).some((key) => !["nodeId", "kind", "attempt", "requestRef", "requestSha256", "answerRef", "answerSha256"].includes(key)) ||
         ((entry.answerRef === undefined) !== (entry.answerSha256 === undefined))) {
       throw invalid(`Paused graph pending entry '${requestId}' is malformed or unsupported.`);
     }
-    const nodeId = entry.nodeId;
-    if (!context.workflow.nodes.includes(nodeId)) throw invalid(`Paused graph pending node '${nodeId}' is unknown.`);
+    const nodeId = isCallerRequest ? null : entry.nodeId as string;
+    if (!isCallerRequest && !context.workflow.nodes.includes(nodeId!)) throw invalid(`Paused graph pending node '${nodeId}' is unknown.`);
     const requestText = await readRequired(storage, projectRoot, checkpoint.runId, entry.requestRef, "pending request");
     if (hash(requestText) !== entry.requestSha256) throw invalid(`Pending request '${requestId}' does not match its checkpoint hash.`);
     const request = parseRecord(requestText, `pending request '${requestId}'`);
-    if (request.id !== requestId || request.nodeId !== nodeId || request.attempt !== entry.attempt || typeof request.callId !== "string" || !isUuid(request.callId) ||
+    if (isCallerRequest) {
+      if (request.id !== requestId || request.nodeId !== null || request.kind !== "caller_inputs" || request.attempt !== 0 ||
+          Object.keys(request).some((key) => !["id", "nodeId", "kind", "attempt", "questions", "answerContract"].includes(key)) ||
+          !Array.isArray(request.questions) || !isRecord(request.answerContract)) {
+        throw invalid(`Caller-input request '${requestId}' does not match its captured identity.`);
+      }
+      const missing = missingCallerInputs(context.workflow.inputs ?? {}, capturedCallerInputs, context.contracts);
+      const questions = missing.map(({ name }) => ({ id: name, message: `Provide the required '${name}' input.` }));
+      if (missing.length === 0 || !sameJson(request.questions, questions) ||
+          !sameJson(request.answerContract, callerAnswerContract(missing, context.contracts))) {
+        throw invalid(`Caller-input request '${requestId}' differs from its captured declarations.`);
+      }
+      if (requestIds.filter((id) => pendingEntries[id]?.kind === "caller_inputs").length !== 1) {
+        throw invalid("A graph run may contain only one caller-input request.");
+      }
+    } else if (request.id !== requestId || request.nodeId !== nodeId || request.attempt !== entry.attempt || typeof request.callId !== "string" || !isUuid(request.callId) ||
         !Array.isArray(request.questions) || request.questions.length === 0 || !isRecord(request.answerContract)) {
       throw invalid(`Pending request '${requestId}' does not match its node, attempt, or call identity.`);
     }
-    validateAnswerContract(request.answerContract, requestId);
-    const attemptRoot = `nodes/${nodeId}/attempt-${String(entry.attempt).padStart(3, "0")}`;
-    const savedResult = parseRecord(await readRequired(storage, projectRoot, checkpoint.runId, `${attemptRoot}/result.json`, "pending attempt result"), "pending attempt result");
-    if (savedResult.status !== "needs_input" || !sameJson(savedResult.request, request)) throw invalid(`Pending request '${requestId}' differs from its immutable attempt result.`);
-    const validation = parseRecord(await readRequired(storage, projectRoot, checkpoint.runId, `${attemptRoot}/validation.json`, "pending validation"), "pending validation");
-    if (validation.valid !== true || validation.outcome !== "needs_input" || !Array.isArray(validation.errors) || validation.errors.length !== 0) {
-      throw invalid(`Pending request '${requestId}' has invalid validation evidence.`);
-    }
-    const responseText = await readRequired(storage, projectRoot, checkpoint.runId, `${attemptRoot}/response.raw.txt`, "pending raw response");
-    let rawOutcome: Record<string, unknown>;
-    try { rawOutcome = parseRecord(responseText, "pending raw provider outcome"); }
-    catch { throw invalid(`Pending request '${requestId}' has invalid raw response evidence.`); }
-    if (rawOutcome.status !== "needs_input" || !isRecord(rawOutcome.request) || !sameJson(rawOutcome.request.questions, request.questions) || !sameJson(rawOutcome.request.answerContract, request.answerContract)) {
-      throw invalid(`Pending request '${requestId}' does not match its captured provider response.`);
-    }
-    const started = callStarts.get(request.callId);
-    if (!started || started.nodeId !== nodeId || started.attempt !== Number(entry.attempt) || started.operation !== "invoke") {
-      throw invalid(`Pending request '${requestId}' does not match its completed provider call.`);
-    }
-    if (!events.some((event) => (event.event === "graph.admission.closed" || event.event === "node.pending") && event.requestId === requestId && event.nodeId === nodeId)) {
-      throw invalid(`Pending request '${requestId}' has no matching graph pending event.`);
+    const answerContract = request.answerContract;
+    if (!isRecord(answerContract)) throw invalid(`Pending request '${requestId}' has no captured answer contract.`);
+    validateAnswerContract(answerContract, requestId);
+    let callId: string | undefined;
+    if (!isCallerRequest) {
+      const attemptRoot = `nodes/${nodeId}/attempt-${String(entry.attempt).padStart(3, "0")}`;
+      const savedResult = parseRecord(await readRequired(storage, projectRoot, checkpoint.runId, `${attemptRoot}/result.json`, "pending attempt result"), "pending attempt result");
+      if (savedResult.status !== "needs_input" || !sameJson(savedResult.request, request)) throw invalid(`Pending request '${requestId}' differs from its immutable attempt result.`);
+      const validation = parseRecord(await readRequired(storage, projectRoot, checkpoint.runId, `${attemptRoot}/validation.json`, "pending validation"), "pending validation");
+      if (validation.valid !== true || validation.outcome !== "needs_input" || !Array.isArray(validation.errors) || validation.errors.length !== 0) {
+        throw invalid(`Pending request '${requestId}' has invalid validation evidence.`);
+      }
+      const responseText = await readRequired(storage, projectRoot, checkpoint.runId, `${attemptRoot}/response.raw.txt`, "pending raw response");
+      let rawOutcome: Record<string, unknown>;
+      try { rawOutcome = parseRecord(responseText, "pending raw provider outcome"); }
+      catch { throw invalid(`Pending request '${requestId}' has invalid raw response evidence.`); }
+      if (rawOutcome.status !== "needs_input" || !isRecord(rawOutcome.request) || !sameJson(rawOutcome.request.questions, request.questions) || !sameJson(rawOutcome.request.answerContract, request.answerContract)) {
+        throw invalid(`Pending request '${requestId}' does not match its captured provider response.`);
+      }
+      callId = request.callId as string;
+      const started = callStarts.get(callId);
+      if (!started || started.nodeId !== nodeId || started.attempt !== Number(entry.attempt) || started.operation !== "invoke") {
+        throw invalid(`Pending request '${requestId}' does not match its completed provider call.`);
+      }
     }
 
     const answerRef = entry.answerRef;
@@ -178,7 +214,7 @@ export async function verifyGraphResumeLedger(
       const answerText = await readRequired(storage, projectRoot, checkpoint.runId, answerRef, "committed answer");
       if (hash(answerText) !== answerSha256) throw invalid(`Committed answer '${requestId}' does not match its checkpoint hash.`);
       const answer = parseRecord(answerText, `committed answer '${requestId}'`);
-      validateAnswer(request.answerContract, answer, requestId);
+      validateAnswer(answerContract, answer, requestId);
       savedAnswers.set(requestId, answer);
       answered = true;
     } else {
@@ -187,38 +223,46 @@ export async function verifyGraphResumeLedger(
     }
     const answerEvents = events.filter((event) => event.event === "request.answered" && event.requestId === requestId);
     if (answered) {
-      if (answerEvents.length !== 1 || !isExactAnswerEvent(answerEvents[0]!, checkpoint.runId, requestId, nodeId)) {
+      if (answerEvents.length !== 1 || !isExactAnswerEvent(answerEvents[0]!, checkpoint.runId, requestId, nodeId, isCallerRequest ? "caller_inputs" : "node")) {
         throw invalid(`Committed answer '${requestId}' has missing or contradictory event evidence.`);
+      }
+      if (isCallerRequest) {
+        const resumeEvents = events.filter((event) => event.event === "run.resumed" && event.requestId === requestId);
+        if (resumeEvents.length !== 1 || !Number.isSafeInteger(resumeEvents[0]!.sequence) ||
+            Number(resumeEvents[0]!.sequence) <= Number(answerEvents[0]!.sequence)) {
+          throw invalid(`Committed caller-input answer '${requestId}' has no matching later resume transition.`);
+        }
       }
     } else if (answerEvents.length > 0) {
       throw invalid(`Pending request '${requestId}' has an answer event without a committed answer.`);
+    } else if (isCallerRequest && events.some((event) => event.event === "run.resumed" && event.requestId === requestId)) {
+      throw invalid(`Caller-input request '${requestId}' has a resume event without a committed answer.`);
     }
-    const verified: VerifiedPendingRequest = {
-      id: requestId,
-      nodeId,
-      attempt: Number(entry.attempt),
-      callId: request.callId,
-      request,
-      answerContract: request.answerContract,
-      answered,
+    const verified: VerifiedPendingRequest = isCallerRequest ? {
+      kind: "caller_inputs", id: requestId, nodeId: null, attempt: 0, request, answerContract, answered,
+    } : {
+      kind: "node", id: requestId, nodeId: nodeId!, attempt: Number(entry.attempt), callId: callId!, request, answerContract, answered,
     };
-    if ([...verifiedRequests.values()].some((candidate) => candidate.callId === verified.callId)) {
+    if (verified.kind === "node" && [...verifiedRequests.values()].some((candidate) => candidate.kind === "node" && candidate.callId === verified.callId)) {
       throw invalid(`Pending request '${requestId}' duplicates another question for the same provider call.`);
     }
     verifiedRequests.set(requestId, verified);
   }
 
-  const introductions = new Map<string, { nodeId: string; sequence: number; closure: number; pending: number }>();
+  const introductions = new Map<string, { nodeId: string | null; sequence: number; closure: number; pending: number }>();
   for (const event of events) {
     const isClosure = event.event === "graph.admission.closed" && event.requestId !== undefined;
     const isPending = event.event === "node.pending";
     if (!isClosure && !isPending) continue;
-    if (typeof event.requestId !== "string" || typeof event.nodeId !== "string" || !Number.isSafeInteger(event.sequence)) {
+    if (typeof event.requestId !== "string" || (event.nodeId !== null && typeof event.nodeId !== "string") || !Number.isSafeInteger(event.sequence)) {
       throw invalid("Graph request introduction event is malformed.");
     }
     const request = verifiedRequests.get(event.requestId);
     if (!request || request.nodeId !== event.nodeId ||
-        (isPending && (event.attempt !== request.attempt || event.callId !== request.callId))) {
+        (request.kind === "caller_inputs" && (!isClosure || isPending || event.kind !== "caller_inputs" || event.attempt !== 0)) ||
+        (request.kind === "node" && (event.nodeId === null ||
+          (isPending && (event.attempt !== request.attempt || event.callId !== request.callId)))) ||
+        (isPending && request.kind !== "node")) {
       throw invalid(`Graph request introduction for '${event.requestId}' differs from its saved question.`);
     }
     const introduction = introductions.get(event.requestId) ?? {
@@ -236,9 +280,25 @@ export async function verifyGraphResumeLedger(
     if (!introduction || introduction.closure + introduction.pending !== 1) {
       throw invalid(`Graph request '${request.id}' must have exactly one introduction event.`);
     }
-    const completion = callCompletions.get(request.callId);
-    if (!completion || !Number.isSafeInteger(completion.sequence) || introduction.sequence <= Number(completion.sequence)) {
-      throw invalid(`Graph request '${request.id}' was introduced before its provider call completed.`);
+    if (request.kind === "node") {
+      const completion = callCompletions.get(request.callId);
+      if (!completion || !Number.isSafeInteger(completion.sequence) || introduction.sequence <= Number(completion.sequence)) {
+        throw invalid(`Graph request '${request.id}' was introduced before its provider call completed.`);
+      }
+    } else {
+      const allowedKeys = ["event", "requestId", "kind", "nodeId", "attempt", "runId", "timestamp", "sequence"];
+      const admissions = events.filter((event) => event.event === "node.started" || event.event === "provider.call.started");
+      const callerResume = events.find((event) => event.event === "run.resumed" && event.requestId === request.id);
+      if (introduction.closure !== 1 || introduction.pending !== 0 ||
+          events.some((event) => event.event === "graph.admission.closed" && event.requestId === request.id &&
+            Object.keys(event).some((key) => !allowedKeys.includes(key))) ||
+          events.some((event) => (event.event === "node.started" || event.event === "node.pending" || event.event === "provider.call.started") &&
+            Number(event.sequence) <= introduction.sequence) ||
+          (request.answered && (!callerResume || !Number.isSafeInteger(callerResume.sequence) ||
+            admissions.some((event) => !Number.isSafeInteger(event.sequence) || Number(event.sequence) <= Number(callerResume.sequence)))) ||
+          (!request.answered && admissions.length > 0)) {
+        throw invalid(`Caller-input request '${request.id}' has invalid pre-admission chronology.`);
+      }
     }
     const answerEvent = events.find((event) => event.event === "request.answered" && event.requestId === request.id);
     if (answerEvent && Number(answerEvent.sequence) <= introduction.sequence) {
@@ -262,7 +322,12 @@ export async function verifyGraphResumeLedger(
   const resumeSequence = priorResume ? Number(priorResume.sequence) : 0;
   const latestWaveIds = new Set([...introductions].filter(([, introduction]) => introduction.sequence > resumeSequence).map(([id]) => id));
   const orderedWaveIds = context.workflow.nodes.flatMap((nodeId) =>
-    [...verifiedRequests.values()].filter((entry) => entry.nodeId === nodeId && latestWaveIds.has(entry.id)).map((entry) => entry.id));
+    [...verifiedRequests.values()].filter((entry) => entry.kind === "node" && entry.nodeId === nodeId && latestWaveIds.has(entry.id)).map((entry) => entry.id));
+  const callerWaveIds = [...verifiedRequests.values()]
+    .filter((entry) => entry.kind === "caller_inputs" && latestWaveIds.has(entry.id))
+    .sort((left, right) => introductions.get(left.id)!.sequence - introductions.get(right.id)!.sequence)
+    .map((entry) => entry.id);
+  orderedWaveIds.unshift(...callerWaveIds);
   if (orderedWaveIds.length !== latestWaveIds.size || !sameJson(finalPause.requestIds, orderedWaveIds)) {
     throw invalid("Graph pause event does not match the latest event-backed question wave.");
   }
@@ -270,6 +335,22 @@ export async function verifyGraphResumeLedger(
     if (!request.answered && !latestWaveIds.has(request.id)) {
       throw invalid(`Historical request '${request.id}' is unanswered outside the latest question wave.`);
     }
+  }
+
+  const callerRequests = callerRequestsFrom(verifiedRequests);
+  const effectiveCallerInputs: Record<string, unknown> = { ...capturedCallerInputs };
+  const committedCallerAnswers = callerRequests.flatMap((entry) => {
+    if (!entry.answered) return [];
+    const answerEvent = events.find((event) => event.event === "request.answered" && event.requestId === entry.id)!;
+    return [{ entry, sequence: Number(answerEvent.sequence) }];
+  }).sort((left, right) => left.sequence - right.sequence);
+  for (const { entry } of committedCallerAnswers) {
+    const answer = savedAnswers.get(entry.id);
+    if (!answer) throw invalid(`Committed caller-input request '${entry.id}' has no verified answer object.`);
+    Object.assign(effectiveCallerInputs, answer);
+  }
+  if (!sameJson(checkpoint.graph.callerInputs, effectiveCallerInputs)) {
+    throw invalid("Graph caller-input checkpoint differs from its captured answers.");
   }
 
   const acceptedNodeIds: string[] = [];
@@ -281,7 +362,7 @@ export async function verifyGraphResumeLedger(
   for (const nodeId of context.workflow.nodes) {
     const nodeState = checkpoint.graph.nodes[nodeId];
     if (!isRecord(nodeState) || typeof nodeState.phase !== "string") throw invalid(`Graph node '${nodeId}' has no valid checkpoint phase.`);
-    const history = [...verifiedRequests.values()].filter((entry) => entry.nodeId === nodeId);
+    const history = [...verifiedRequests.values()].filter((entry): entry is VerifiedNodePendingRequest => entry.kind === "node" && entry.nodeId === nodeId);
     if (nodeState.phase === "accepted") {
       const node = context.nodes.find((candidate) => candidate.id === nodeId);
       const accepted = nodeState.accepted;
@@ -316,6 +397,13 @@ export async function verifyGraphResumeLedger(
       throw invalid(`Graph node '${nodeId}' has question history but is marked not started.`);
     }
   }
+  const unansweredCallerRequests = callerRequestsFrom(verifiedRequests).filter((entry) => !entry.answered);
+  if (unansweredCallerRequests.length > 0 &&
+      (unansweredCallerRequests.length !== 1 || acceptedNodeIds.length > 0 || callStarts.size > 0 ||
+        context.workflow.nodes.some((nodeId) => checkpoint.graph.nodes[nodeId]?.phase !== "not_started" || checkpoint.graph.nodes[nodeId]?.attempt !== 0) ||
+        checkpoint.completedNodes.length !== 0)) {
+    throw invalid("Unanswered caller inputs cannot coexist with admitted or completed graph nodes.");
+  }
   if (!sameJson(checkpoint.completedNodes, acceptedNodeIds)) throw invalid("Graph completed-node list differs from accepted checkpoint evidence.");
 
   const currentRequests = context.workflow.nodes.flatMap((nodeId) => {
@@ -328,12 +416,12 @@ export async function verifyGraphResumeLedger(
     return [latest];
   });
   const currentRequestIds = new Set(currentRequests.map((entry) => entry.id));
-  if ([...latestWaveIds].some((id) => !currentRequestIds.has(id))) {
+  if ([...latestWaveIds].some((id) => !currentRequestIds.has(id) && !callerWaveIds.includes(id))) {
     throw invalid("Latest pause wave contains a question that is not a current node continuation.");
   }
   const answersByNode = new Map<string, Record<string, unknown>>();
   const committedAnswers = [...verifiedRequests.values()].flatMap((entry) => {
-    if (!entry.answered) return [];
+    if (entry.kind !== "node" || !entry.answered) return [];
     const answerEvent = events.find((event) => event.event === "request.answered" && event.requestId === entry.id)!;
     return [{ entry, sequence: Number(answerEvent.sequence) }];
   }).sort((left, right) => left.sequence - right.sequence);
@@ -346,6 +434,8 @@ export async function verifyGraphResumeLedger(
     eventsText,
     events,
     requests: currentRequests,
+    callerRequests,
+    effectiveCallerInputs,
     acceptedArtifacts,
     answersByNode,
     metrics: metrics.rows,
@@ -357,11 +447,11 @@ function latestRequestForNode(
   requests: Map<string, VerifiedPendingRequest>,
   nodeId: string,
   callStarts: Map<string, Record<string, unknown>>,
-): VerifiedPendingRequest | undefined {
-  let latest: VerifiedPendingRequest | undefined;
+): VerifiedNodePendingRequest | undefined {
+  let latest: VerifiedNodePendingRequest | undefined;
   let latestSequence = -1;
   for (const request of requests.values()) {
-    if (request.nodeId !== nodeId) continue;
+    if (request.kind !== "node" || request.nodeId !== nodeId) continue;
     const start = callStarts.get(request.callId);
     if (!start || !Number.isSafeInteger(start.sequence)) throw invalid(`Pending request '${request.id}' has no ordered provider-call start.`);
     const sequence = Number(start.sequence);
@@ -372,6 +462,10 @@ function latestRequestForNode(
     }
   }
   return latest;
+}
+
+function callerRequestsFrom(requests: Map<string, VerifiedPendingRequest>): VerifiedCallerInputRequest[] {
+  return [...requests.values()].filter((request): request is VerifiedCallerInputRequest => request.kind === "caller_inputs");
 }
 
 async function verifyAcceptedNode(
@@ -601,9 +695,9 @@ function parseEvents(text: string, runId: string, nextEventSequence: number): Ar
   return events;
 }
 
-function isExactAnswerEvent(event: Record<string, unknown>, runId: string, requestId: string, nodeId: string): boolean {
+function isExactAnswerEvent(event: Record<string, unknown>, runId: string, requestId: string, nodeId: string | null, kind: "node" | "caller_inputs"): boolean {
   const keys = ["event", "requestId", "kind", "nodeId", "runId", "timestamp", "sequence"];
-  return event.event === "request.answered" && event.requestId === requestId && event.kind === "node" && event.nodeId === nodeId && event.runId === runId &&
+  return event.event === "request.answered" && event.requestId === requestId && event.kind === kind && event.nodeId === nodeId && event.runId === runId &&
     typeof event.timestamp === "string" && Number.isSafeInteger(event.sequence) && Object.keys(event).every((key) => keys.includes(key));
 }
 

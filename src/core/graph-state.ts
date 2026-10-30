@@ -264,6 +264,42 @@ export class GraphStateWriter {
     }, { [answerRef]: answerText });
   }
 
+  recordFinalCallerAnswer(
+    requestId: string,
+    answerRef: string,
+    answerSha256: string,
+    answerText: string,
+    callerInputs: Record<string, unknown>,
+    diagnostics: string[] = [],
+  ): Promise<void> {
+    const actualHash = createHash("sha256").update(answerText, "utf8").digest("hex");
+    if (answerRef !== `answers/${requestId}.json` || answerSha256 !== actualHash) {
+      throw new Error(`Graph answer '${requestId}' has an invalid path or digest.`);
+    }
+    return this.commit([
+      { event: "request.answered", requestId, kind: "caller_inputs", nodeId: null },
+      { event: "run.resumed", requestId },
+    ], (next) => {
+      const existing = next.graph.pendingRequests[requestId];
+      if (next.status !== "needs_input" || next.graph.admissionClosed !== true ||
+          !existing || existing.nodeId !== null || existing.kind !== "caller_inputs" || existing.attempt !== 0 ||
+          existing.requestRef !== `pending/${requestId}.json` || !isSha256(existing.requestSha256) ||
+          existing.answerRef !== undefined || existing.answerSha256 !== undefined) {
+        throw new Error(`Graph request '${requestId}' is not an unanswered caller-input request.`);
+      }
+      if (Object.entries(next.graph.pendingRequests).some(([id, entry]) => id !== requestId &&
+          (!entry || typeof entry.answerRef !== "string" || typeof entry.answerSha256 !== "string"))) {
+        throw new Error("Final caller-input answer cannot resume while another pending request is unanswered.");
+      }
+      next.graph.pendingRequests[requestId] = { ...existing, answerRef, answerSha256 };
+      next.graph.callerInputs = structuredClone(callerInputs);
+      next.phase = "execution";
+      next.status = "running";
+      next.graph.admissionClosed = true;
+      appendMetricDiagnostics(next, diagnostics);
+    }, { [answerRef]: answerText });
+  }
+
   pause(requests: Array<Record<string, unknown>>): Promise<void> {
     return this.commit({ event: "run.needs_input", requestIds: requests.map((request) => request.id) }, (next) => {
       next.status = "needs_input";
@@ -392,6 +428,10 @@ function projectPendingRequest(checkpoint: GraphRunCheckpoint, request: Record<s
   if (nodeId !== null && checkpoint.graph.nodes[nodeId]) {
     checkpoint.graph.nodes[nodeId] = { ...checkpoint.graph.nodes[nodeId], phase: "pending" };
   }
+}
+
+function isSha256(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
 }
 
 function json(value: unknown): string {
