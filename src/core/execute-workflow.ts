@@ -11,6 +11,7 @@ import { resolveOutputReference } from "./workflow-mapping.js";
 import { appendRunEvent, recordValidationEvent, traceProviderCall } from "./execution-events.js";
 import { feedbackArtifactReferences, validateFeedbackArtifactReferences, type FeedbackArtifactReference, type FeedbackRegionState } from "./feedback-routing.js";
 import { createFeedbackDeadline, feedbackDeadlineError } from "./feedback-deadline.js";
+import { callerAnswerContract, missingCallerInputs } from "./caller-inputs.js";
 
 export type Node = {
   id: string;
@@ -959,40 +960,6 @@ function messageOf(error: unknown): string {
 
 function json(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
-}
-
-function missingCallerInputs(
-  declared: Record<string, { contract: string }>,
-  values: Record<string, unknown>,
-  contracts: Record<string, unknown>,
-): Array<{ name: string; contract: string }> {
-  const missing: Array<{ name: string; contract: string }> = [];
-  for (const [name, declaration] of Object.entries(declared)) {
-    const schema = contracts[declaration.contract];
-    let valid = Object.hasOwn(values, name) && schema !== undefined;
-    if (valid) {
-      try {
-        valid = Boolean(new Ajv2020({ strict: false }).compile(schema as AnySchema)(values[name]));
-      } catch {
-        valid = false;
-      }
-    }
-    if (!valid) missing.push({ name, contract: declaration.contract });
-  }
-  return missing;
-}
-
-function callerAnswerContract(
-  missing: Array<{ name: string; contract: string }>,
-  contracts: Record<string, unknown>,
-): unknown {
-  return {
-    type: "object",
-    required: missing.map(({ name }) => name),
-    properties: Object.fromEntries(missing.map(({ name, contract }) => [name, { $ref: `#/$defs/${contract}` }])),
-    additionalProperties: false,
-    $defs: contracts,
-  };
 }
 
 async function readAcceptedArtifacts(

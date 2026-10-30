@@ -207,6 +207,22 @@ export class GraphStateWriter {
     }, (next) => { projectPendingRequest(next, request); });
   }
 
+  pauseForCallerInputs(request: Record<string, unknown>): Promise<void> {
+    const requestId = request.id;
+    if (typeof requestId !== "string" || requestId.length === 0 || request.nodeId !== null || request.kind !== "caller_inputs" || request.attempt !== 0) {
+      throw new Error("Graph caller-input request has an invalid identity.");
+    }
+    return this.commit([
+      { event: "graph.admission.closed", requestId, kind: "caller_inputs", nodeId: null, attempt: 0 },
+      { event: "run.needs_input", requestIds: [requestId] },
+    ], (next) => {
+      next.phase = "execution";
+      next.status = "needs_input";
+      next.graph.admissionClosed = true;
+      projectPendingRequest(next, request);
+    }, { [`pending/${requestId}.json`]: json(request) });
+  }
+
   recordAnswer(requestId: string, nodeId: string, answerRef: string, answerSha256: string, answerText: string, diagnostics: string[] = []): Promise<void> {
     const actualHash = createHash("sha256").update(answerText, "utf8").digest("hex");
     if (answerRef !== `answers/${requestId}.json` || answerSha256 !== actualHash) {

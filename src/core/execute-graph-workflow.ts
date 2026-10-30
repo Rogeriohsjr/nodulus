@@ -12,6 +12,7 @@ import { verifyCapturedGraphFiles } from "./graph-resume-evidence.js";
 import { isGraphEvidenceWriteError, runGraphNode, type GraphNodeOutcome } from "./graph-node-runner.js";
 import { createGraphStopReason } from "./ports/graph-stop.js";
 import { NodulusError } from "./shared/nodulus-error.js";
+import { callerAnswerContract, missingCallerInputs } from "./caller-inputs.js";
 
 type GraphContext = DefinitionContext & {
   schemaVersion: 2;
@@ -73,6 +74,27 @@ export async function executeGraphWorkflow(
     }
   } catch (error) {
     return finishError(writer, runId, errorCode(error, "RUN_STATE_INVALID"), messageOf(error));
+  }
+
+  if (!continuation) {
+    const missing = missingCallerInputs(context.workflow.inputs ?? {}, inputs.callerInputs ?? {}, context.contracts);
+    if (missing.length > 0) {
+      const id = randomUUID();
+      const callerRequest = {
+        id,
+        nodeId: null,
+        kind: "caller_inputs",
+        attempt: 0,
+        questions: missing.map(({ name }) => ({ id: name, message: `Provide the required '${name}' input.` })),
+        answerContract: callerAnswerContract(missing, context.contracts),
+      };
+      try {
+        await writer.pauseForCallerInputs(callerRequest);
+      } catch (error) {
+        return finishError(writer, runId, "RUN_STORAGE_FAILED", `Could not persist the caller-input pause: ${messageOf(error)}`);
+      }
+      return { runId, status: "needs_input", result: { request: callerRequest, requests: [callerRequest] } };
+    }
   }
 
   const acceptedOutputs = new Map<string, Map<string, OutputArtifact>>(
