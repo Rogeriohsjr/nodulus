@@ -317,6 +317,8 @@ test("PAR-012 serializes concurrent event, metric and accepted evidence publicat
     await fixture.waitForStarted(["delta"]);
     fixture.release("delta");
     await fixture.waitForFinished(["delta"]);
+    const runId = invocationFor(fixture, "delta").runId;
+    await waitForNodePhase(project, runId, "delta", "accepted", fixture);
     fixture.release("alpha");
     await fixture.waitForFinished(["alpha"]);
 

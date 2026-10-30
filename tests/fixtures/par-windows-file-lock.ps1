@@ -1,11 +1,15 @@
 param(
   [Parameter(Mandatory = $true)][string]$Target,
+  [Parameter(Mandatory = $true)][string]$Entry,
   [Parameter(Mandatory = $true)][string]$Started,
   [Parameter(Mandatory = $true)][string]$Release,
   [Parameter(Mandatory = $true)][int]$WatchdogMilliseconds
 )
 
 $ErrorActionPreference = "Stop"
+$entryTemporary = "$Entry.$PID.tmp"
+[System.IO.File]::WriteAllText($entryTemporary, (@{ pid = $PID; target = $Target } | ConvertTo-Json -Compress))
+[System.IO.File]::Move($entryTemporary, $Entry)
 $stream = [System.IO.File]::Open(
   $Target,
   [System.IO.FileMode]::Open,

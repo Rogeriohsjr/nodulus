@@ -25,3 +25,9 @@ These are passing characterizations of the P2 engine. Full P3 integration, its e
 ## Complete local exit
 
 Root independently ran npm run check at the frozen P3 tests and unchanged P2 source: exit0, lint/typecheck/build passed, 121 runtime files / 585 tests passed in 147.52s and 17 installed-archive tests passed in 69.97s. Log: .nodulus/checkpoints/parallel-phase2/p3-root-full-check.log. Expected failure-fixture diagnostics do not change the passing result. Source graph-node-runner remains A5F1102ECE7ABECD639868E4FA203D47E8BDA019C20DC84CB85B5AA0635C55C2. Exact-head hosted validation remains separate and gates P4 dispatch; no live inference or merge was performed.
+
+## First hosted head
+
+Root saved ad78303 as draft [PR34](https://github.com/Rogeriohsjr/nodulus/pull/34), based on PR33. Both Linux jobs, macOS PR, title checks passed; publication skipped. macOS push exposed an existing acceptance-order test race, while Windows jobs failed separately in fixture lock acquisition and owned-root removal. All six new P3 cases passed in these jobs. [Focused harness diagnosis](packets/p3-hosted-harness.md) records exact jobs, unchanged bounds and authorized test-only corrections/diagnostics. P3 hosted acceptance and P4 dispatch remain open; earlier local success is not relabeled as hosted success.
+
+Root/Sol accepted the deterministic acceptance barrier and failure-only diagnostics after bounded corrections. Root's4-case persistence and15-case Windows/P3 controls passed. The next full gate failed584/585 on a separate early fixture-child exit, with archive tests not run; the incident, physical retained evidence and source-backed diagnosis remain recorded in the linked packet. A narrowly corrected process diagnostic/abort observer subsequently passed Root's single4-case control with all original bounds. A new test-only checkpoint now requires its own complete local and hosted gates; all production files remain unchanged.

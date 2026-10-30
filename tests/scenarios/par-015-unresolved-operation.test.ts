@@ -68,7 +68,10 @@ test.each(cases)("PAR-015B2 seals late $operation after $cause ($behavior)", asy
     expect(isProcessAlive(held.pid)).toBe(true);
 
     if (scenario.cause === "graph_stop") fixture.stopFailure();
-    const operation = await waitForAbortedOperation(fixture, scenario.operation, Date.now() + scenarioBudgetMs);
+    const operation = await waitForAbortedOperation(fixture, scenario.operation, Date.now() + scenarioBudgetMs, heldKey, () => ({
+      returnedAt,
+      publicError: runError instanceof Error ? runError.message.slice(0, 500) : runError === undefined ? undefined : "non-Error public rejection",
+    }));
     expect(operation.signal?.aborted).toBe(true);
     if (scenario.cause === "graph_stop") {
       expect(operation.signal?.reason).toMatchObject({ source: "nodulus.graph", kind: "graph_stop", code: "GRAPH_CANCELLED" });
@@ -262,10 +265,32 @@ function snapshotRunFiles(project: string, runId: string): Map<string, Buffer> {
   return files;
 }
 
-async function waitForAbortedOperation(fixture: GraphUnresolvedProviderFixture, operation: HeldOperation, deadline: number) {
+async function waitForAbortedOperation(
+  fixture: GraphUnresolvedProviderFixture,
+  operation: HeldOperation,
+  deadline: number,
+  heldKey: string,
+  getPublicSettlement: () => { returnedAt?: number; publicError?: string },
+) {
   while (Date.now() < deadline) {
     const entry = fixture.operations.find((candidate) => candidate.nodeId === "held" && candidate.operation === operation);
-    if (entry?.signal?.aborted) return entry;
+    const processRecord = fixture.processes.find((record) => record.key === heldKey);
+    if (entry?.signal?.aborted) {
+      const signalAt = entry.abortedAt;
+      const publicSettlement = getPublicSettlement();
+      if (signalAt !== undefined && processRecord?.closedAtMonotonicMs !== undefined && processRecord.closedAtMonotonicMs < signalAt) {
+        throw new Error(`Held provider process closed before its abort signal; ${fixture.diagnostics()}`);
+      }
+      if (signalAt !== undefined && publicSettlement.returnedAt !== undefined && publicSettlement.returnedAt < signalAt) {
+        throw new Error(`Public run settled before the held operation was aborted (error=${publicSettlement.publicError ?? "none"}); ${fixture.diagnostics()}`);
+      }
+      return entry;
+    }
+    if (processRecord?.closeObserved) throw new Error(`Held provider process closed before the expected ${operation} abort; ${fixture.diagnostics()}`);
+    const publicSettlement = getPublicSettlement();
+    if (publicSettlement.returnedAt !== undefined) {
+      throw new Error(`Public run settled before the expected ${operation} abort (error=${publicSettlement.publicError ?? "none"}); ${fixture.diagnostics()}`);
+    }
     await delay(10);
   }
   throw new Error(`Timed out waiting for held ${operation} abort signal. ${fixture.diagnostics()}`);

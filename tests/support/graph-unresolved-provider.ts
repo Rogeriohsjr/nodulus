@@ -8,7 +8,22 @@ import type { ProviderInvocation, ProviderPort } from "../../src/application/run
 export type HeldOperation = "availability" | "invoke" | "repair_response";
 export type HeldBehavior = "resolve" | "reject";
 export type HeldProviderScenario = { operation: HeldOperation; behavior: HeldBehavior; profileTimeoutMs?: number };
-export type HeldProcessRecord = { key: string; operation: string; pid: number; aliveAtStart: boolean; exitCode?: number | null };
+export type HeldProcessRecord = {
+  key: string;
+  operation: string;
+  pid: number;
+  parentPid?: number;
+  aliveAtStart: boolean;
+  spawnedAtMonotonicMs: number;
+  spawnElapsedMs?: number;
+  closeObserved: boolean;
+  closedAtMonotonicMs?: number;
+  exitCode?: number | null;
+  closeSignal?: NodeJS.Signals | null;
+  stdoutTail: string;
+  stderrTail: string;
+  spawnError?: string;
+};
 
 export type GraphUnresolvedProviderFixture = {
   provider: ProviderPort;
@@ -60,24 +75,41 @@ export function createGraphUnresolvedProvider(project: string, scenario: HeldPro
   const hold = (key: string, operation: HeldOperation, behavior: HeldBehavior, value: string, callId?: string): Promise<string> => track(new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [scriptPath], { cwd: project, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
-    let stderr = "";
-    child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
-    child.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
-    child.once("error", reject);
+    let stdoutTail = "";
+    let stderrTail = "";
+    let record: HeldProcessRecord | undefined;
+    child.stdout?.on("data", (chunk: Buffer) => { const text = chunk.toString("utf8"); stdout += text; stdoutTail = appendTail(stdoutTail, text); if (record) record.stdoutTail = stdoutTail; });
+    child.stderr?.on("data", (chunk: Buffer) => { stderrTail = appendTail(stderrTail, chunk.toString("utf8")); if (record) record.stderrTail = stderrTail; });
+    child.once("error", (error) => {
+      if (record) record.spawnError = error instanceof Error ? error.message.slice(0, 500) : "non-Error child process failure";
+      reject(error);
+    });
     child.once("spawn", () => {
       if (!child.pid) { reject(new Error(`Held provider child '${key}' has no PID.`)); return; }
-      const record: HeldProcessRecord = { key, operation, pid: child.pid, aliveAtStart: isProcessAlive(child.pid) };
+      const spawnedAtMonotonicMs = performance.now();
+      record = {
+        key, operation, pid: child.pid, parentPid: process.pid, aliveAtStart: isProcessAlive(child.pid),
+        spawnedAtMonotonicMs, closeObserved: false, stdoutTail, stderrTail,
+      };
       processRecords.push(record);
       processes.set(key, { child, record });
       if (callId) launched.set(callId, true);
       child.stdin?.end(JSON.stringify({ controlDirectory, key, operation, behavior, value }));
     });
-    child.once("close", (code) => {
-      const processRecord = processes.get(key)?.record;
-      if (processRecord) processRecord.exitCode = code;
+    child.once("close", (code, signal) => {
+      const processRecord = record ?? processes.get(key)?.record;
+      if (processRecord) {
+        processRecord.closeObserved = true;
+        processRecord.closedAtMonotonicMs = performance.now();
+        processRecord.spawnElapsedMs = processRecord.closedAtMonotonicMs - processRecord.spawnedAtMonotonicMs;
+        processRecord.exitCode = code;
+        processRecord.closeSignal = signal;
+        processRecord.stdoutTail = stdoutTail;
+        processRecord.stderrTail = stderrTail;
+      }
       processes.delete(key);
       if (code === 0) resolve(stdout.trim());
-      else reject(new Error(`Held provider child '${key}' exited ${String(code)}: ${stderr.slice(0, 500)}`));
+      else reject(new Error(`Held provider child '${key}' exited ${String(code)}: ${stderrTail.slice(-500)}`));
     });
   }));
 
@@ -130,7 +162,11 @@ export function createGraphUnresolvedProvider(project: string, scenario: HeldPro
       const markerPath = path.join(controlDirectory, `started-${key}.json`);
       await waitForMarker(markerPath, deadline);
       const marker = JSON.parse(readFileSync(markerPath, "utf8")) as { pid: number; operation: string; key: string };
-      return { key, operation: marker.operation, pid: marker.pid, aliveAtStart: isProcessAlive(marker.pid) };
+      const processRecord = processRecords.find((record) => record.key === key);
+      if (!processRecord || marker.key !== key || marker.operation !== processRecord.operation || marker.pid !== processRecord.pid) {
+        throw new Error(`Started marker identity did not match the retained provider process record for '${key}'. ${diagnostics()}`);
+      }
+      return { ...processRecord, aliveAtStart: isProcessAlive(marker.pid) };
     },
     async drain(deadline) {
       while (pending.size > 0 || processes.size > 0) {
@@ -142,12 +178,24 @@ export function createGraphUnresolvedProvider(project: string, scenario: HeldPro
   };
 
   function diagnostics(): string {
-    const markers = ["held-availability", "held-invoke", "held-repair_response"].flatMap((key) => {
-      const marker = path.join(controlDirectory, `started-${key}.json`);
-      return existsSync(marker) ? [JSON.parse(readFileSync(marker, "utf8"))] : [];
+    const keys = ["held-availability", "held-invoke", "held-repair_response"];
+    const markers = keys.map((key) => ({
+      key,
+      started: existsSync(path.join(controlDirectory, `started-${key}.json`)),
+      release: existsSync(path.join(controlDirectory, `release-${key}`)),
+      finished: existsSync(path.join(controlDirectory, `finished-${key}.json`)),
+    }));
+    return JSON.stringify({
+      operations: operations.map(({ nodeId, operation, callId, abortedAt }) => ({ nodeId, operation, callId, abortedAt })),
+      processRecords,
+      markers,
+      activePids: [...processes.values()].map(({ record }) => record.pid),
     });
-    return JSON.stringify({ operations: operations.map(({ nodeId, operation, callId }) => ({ nodeId, operation, callId })), markers, activePids: [...processes.values()].map(({ record }) => record.pid) });
   }
+}
+
+function appendTail(current: string, addition: string): string {
+  return `${current}${addition}`.slice(-2000);
 }
 
 function isProcessAlive(pid: number): boolean {

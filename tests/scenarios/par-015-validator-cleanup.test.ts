@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, opendirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
@@ -162,8 +162,18 @@ async function runValidatorScenario(mode: Mode): Promise<void> {
   if (runSettled && processesExited && processIdentityKnown && cleanupErrors.length === 0) {
     try {
       assertOwnedProject(project, projectIdentity);
-      rmSync(project, { recursive: true, force: true });
     } catch (error) { cleanupErrors.push(toError(error)); }
+    if (cleanupErrors.length === 0) {
+      try { rmSync(project, { recursive: true, force: true }); }
+      catch (error) {
+        cleanupErrors.push(toError(error));
+        try {
+          cleanupErrors.push(new Error(`P15C3 removal failure state: ${describeRemovalFailureState(project, [validatorRootPid, intermediatePid, descendantPid])}`));
+        } catch {
+          cleanupErrors.push(new Error("P15C3 removal failure state could not be captured."));
+        }
+      }
+    }
   } else {
     cleanupErrors.push(new Error(`P15C3 project retained because run/process cleanup is uncertain: ${path.basename(project)}; validator=${String(validatorRootPid)}, intermediate=${String(intermediatePid)}, descendant=${String(descendantPid)}`));
   }
@@ -393,6 +403,80 @@ function safeDiagnostic(value: unknown): string {
     try { return String(value).slice(0, 300); } catch { return "uninspectable primitive rejection"; }
   }
   return "non-Error rejection value";
+}
+
+function describeRemovalFailureState(project: string, pids: Array<number | undefined>): string {
+  const entries: Array<Record<string, unknown>> = [];
+  const maximumEntries = 64;
+  const maximumDepth = 4;
+  let truncated = false;
+  let root: Record<string, unknown> | undefined;
+  let exists: boolean | null = null;
+  let rootStat: ReturnType<typeof lstatSync> | undefined;
+  try {
+    rootStat = lstatSync(project);
+    exists = true;
+    root = lstatSummary(rootStat);
+  } catch (error) {
+    exists = (error as NodeJS.ErrnoException).code === "ENOENT" ? false : null;
+    root = { error: safeDiagnostic(error) };
+  }
+  if (rootStat?.isDirectory()) {
+    try { visit(project, "", 0); }
+    catch (error) {
+      if (entries.length < maximumEntries) entries.push({ path: ".", error: safeDiagnostic(error) });
+      else truncated = true;
+    }
+  }
+  let nativeRoot: string | undefined;
+  let nativeRootError: string | undefined;
+  try { nativeRoot = realpathSync.native(project); }
+  catch (error) { nativeRootError = safeDiagnostic(error); }
+  const processes = pids.map((pid) => ({ pid: pid ?? null, state: pid === undefined ? "unavailable" : isProcessAlive(pid) ? "alive" : "not-alive" }));
+  return JSON.stringify({ lexicalRoot: project, nativeRoot: nativeRoot ?? null, nativeRootError: nativeRootError ?? null, exists, root: root ?? null, entries, truncated, processes });
+
+  function visit(directory: string, relativeDirectory: string, depth: number): void {
+    if (entries.length >= maximumEntries) {
+      truncated = true;
+      return;
+    }
+    if (depth >= maximumDepth) {
+      truncated = true;
+      return;
+    }
+    let handle: ReturnType<typeof opendirSync>;
+    try { handle = opendirSync(directory); }
+    catch (error) {
+      if (entries.length < maximumEntries) entries.push({ path: relativeDirectory || ".", error: safeDiagnostic(error) });
+      else truncated = true;
+      return;
+    }
+    try {
+      while (entries.length < maximumEntries) {
+        const entry = handle.readSync();
+        if (!entry) break;
+        const childPath = path.join(directory, entry.name);
+        const relativePath = relativeDirectory ? path.join(relativeDirectory, entry.name) : entry.name;
+        try {
+          const childStat = lstatSync(childPath);
+          entries.push({ path: relativePath, ...lstatSummary(childStat) });
+          if (childStat.isDirectory()) visit(childPath, relativePath, depth + 1);
+        } catch (error) {
+          if (entries.length < maximumEntries) entries.push({ path: relativePath, error: safeDiagnostic(error) });
+          else truncated = true;
+        }
+      }
+      if (entries.length >= maximumEntries) truncated = true;
+    } finally { handle.closeSync(); }
+  }
+}
+
+function lstatSummary(value: ReturnType<typeof lstatSync>): Record<string, unknown> {
+  return {
+    mode: value.mode,
+    type: value.isSymbolicLink() ? "symlink" : value.isDirectory() ? "directory" : value.isFile() ? "file" : "other",
+    size: value.size,
+  };
 }
 
 function toError(value: unknown): Error { return value instanceof Error ? value : new Error(safeDiagnostic(value)); }
