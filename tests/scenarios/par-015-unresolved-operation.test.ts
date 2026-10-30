@@ -5,6 +5,7 @@ import { performance } from "node:perf_hooks";
 import { expect, test } from "vitest";
 import { runWorkflow } from "../../src/index.js";
 import { createInitializedProject } from "../support/intake-project.js";
+import { observeOwnedNativeProcesses } from "../support/owned-native-processes.js";
 import { configureParallelProject, readParallelWorkflow } from "../support/parallel-project.js";
 import { readProjectJson, writeJson } from "../support/workflow-sequence.js";
 import { createGraphUnresolvedProvider, type GraphUnresolvedProviderFixture, type HeldOperation, type HeldBehavior } from "../support/graph-unresolved-provider.js";
@@ -30,6 +31,7 @@ test.each(cases)("PAR-015B2 seals late $operation after $cause ($behavior)", asy
   assertOwnedProject(project, ownedProject);
   configureScenario(project, scenario);
   const fixture = createGraphUnresolvedProvider(project, scenario);
+  const nativeObserver = observeOwnedNativeProcesses();
   let runId: string | undefined;
   let filesAtReturn: Map<string, Buffer> | undefined;
   let returnedAt: number | undefined;
@@ -66,6 +68,9 @@ test.each(cases)("PAR-015B2 seals late $operation after $cause ($behavior)", asy
     expect(held.pid).toBeGreaterThan(0);
     expect(held.aliveAtStart).toBe(true);
     expect(isProcessAlive(held.pid)).toBe(true);
+    expect(nativeObserver.observationFailure).toBe(false);
+    expect(nativeObserver.diagnostics.some((record) => record.pid === held.pid && record.stages.includes("spawn")),
+      "The passive observer must capture the actual held fixture child before asserting its lifetime.").toBe(true);
 
     if (scenario.cause === "graph_stop") fixture.stopFailure();
     const operation = await waitForAbortedOperation(fixture, scenario.operation, Date.now() + scenarioBudgetMs, heldKey, () => ({
@@ -162,32 +167,61 @@ test.each(cases)("PAR-015B2 seals late $operation after $cause ($behavior)", asy
       }
       await fixture.drain(cleanupDeadline);
       fixtureDrained = true;
-      if (scenario.operation === "repair_response") {
-        const rejectedChild = fixture.processes.find(({ key }) => key === "held-repair_response");
-        expect(rejectedChild?.exitCode, "The late rejection must come from the actual released child process.").toBe(23);
-      } else {
-        const resolvedKey = scenario.operation === "availability" ? "held-availability" : "held-invoke";
-        expect(fixture.processes.find(({ key }) => key === resolvedKey)?.exitCode, "The late valid response must come from the actual released child process.").toBe(0);
-        expect(existsSync(path.join(fixture.controlDirectory, `finished-${resolvedKey}.json`))).toBe(true);
-      }
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      if (runId && filesAtReturn) {
-        const afterLateSettlement = snapshotRunFiles(project, runId);
-        expect(afterLateSettlement).toEqual(filesAtReturn);
-      }
-      processesSafe = fixture.processes.every(({ pid }) => !isProcessAlive(pid));
-      expect(processesSafe, `Provider children should be stopped after drain. ${fixture.diagnostics()}`).toBe(true);
     } catch (error) {
       cleanupErrors.push(error);
     }
-    if (fixtureDrained && processesSafe && cleanupErrors.length === 0 && runId !== undefined && returnedAt !== undefined) {
+    if (fixtureDrained) {
+      try {
+        if (scenario.operation === "repair_response") {
+          const rejectedChild = fixture.processes.find(({ key }) => key === "held-repair_response");
+          expect(rejectedChild?.exitCode, "The late rejection must come from the actual released child process.").toBe(23);
+        } else {
+          const resolvedKey = scenario.operation === "availability" ? "held-availability" : "held-invoke";
+          expect(fixture.processes.find(({ key }) => key === resolvedKey)?.exitCode, "The late valid response must come from the actual released child process.").toBe(0);
+          expect(existsSync(path.join(fixture.controlDirectory, `finished-${resolvedKey}.json`))).toBe(true);
+        }
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        if (runId && filesAtReturn) {
+          const afterLateSettlement = snapshotRunFiles(project, runId);
+          expect(afterLateSettlement).toEqual(filesAtReturn);
+        }
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    let nativeObserverDrained = false;
+    try {
+      await nativeObserver.drain(cleanupDeadline);
+      nativeObserverDrained = true;
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+    if (nativeObserverDrained) {
+      try {
+        const observedChildren = nativeObserver.diagnostics;
+        expect(nativeObserver.observationFailure).toBe(false);
+        expect(observedChildren.length).toBeGreaterThan(0);
+        expect(fixture.processes.length).toBeGreaterThan(0);
+        for (const processRecord of fixture.processes) {
+          expect(processRecord.closeObserved, `Fixture child '${processRecord.key}' must have an actual close event.`).toBe(true);
+          expect(observedChildren.some((record) => record.pid === processRecord.pid
+            && record.stages.includes("spawn") && record.stages.includes("close")),
+          `Passive native observation must confirm spawn and close for fixture child '${processRecord.key}'.`).toBe(true);
+        }
+        processesSafe = fixture.processes.every(({ closeObserved }) => closeObserved);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    const cleanupVerified = fixtureDrained && processesSafe && cleanupErrors.length === 0 && runId !== undefined && returnedAt !== undefined;
+    if (!hasFailure && cleanupVerified) {
       try {
         assertOwnedProject(project, ownedProject);
         rmSync(project, { recursive: true, force: true });
       } catch (error) {
         cleanupErrors.push(error);
       }
-    } else {
+    } else if (!cleanupVerified) {
       cleanupErrors.push(new Error(`Retaining owned project because run/provider cleanup or verification is unconfirmed. ${fixture.diagnostics()}`));
     }
     if (cleanupErrors.length > 0) {
