@@ -52,7 +52,7 @@ export class GraphStateWriter {
   private events: string;
   private queue: Promise<void> = Promise.resolve();
   private poisoned: unknown;
-  private metrics: ProviderCallMetric[] = [];
+  private metrics: unknown[] = [];
 
   constructor(
     private readonly projectRoot: string,
@@ -60,9 +60,11 @@ export class GraphStateWriter {
     private readonly storage: IntakeStorage,
     checkpoint: GraphRunCheckpoint,
     eventContent: string,
+    metrics: unknown[] = [],
   ) {
     this.checkpoint = structuredClone(checkpoint);
     this.events = eventContent;
+    this.metrics = structuredClone(metrics);
   }
 
   snapshot(): GraphRunCheckpoint {
@@ -205,6 +207,47 @@ export class GraphStateWriter {
     }, (next) => { projectPendingRequest(next, request); });
   }
 
+  recordAnswer(requestId: string, nodeId: string, answerRef: string, answerSha256: string, answerText: string, diagnostics: string[] = []): Promise<void> {
+    const actualHash = createHash("sha256").update(answerText, "utf8").digest("hex");
+    if (answerRef !== `answers/${requestId}.json` || answerSha256 !== actualHash) {
+      throw new Error(`Graph answer '${requestId}' has an invalid path or digest.`);
+    }
+    return this.commit({ event: "request.answered", requestId, kind: "node", nodeId }, (next) => {
+      const existing = next.graph.pendingRequests[requestId];
+      if (!existing || existing.nodeId !== nodeId || existing.kind !== "node" || existing.answerRef !== undefined || existing.answerSha256 !== undefined) {
+        throw new Error(`Graph request '${requestId}' is not an unanswered node request.`);
+      }
+      next.graph.pendingRequests[requestId] = { ...existing, answerRef, answerSha256 };
+      appendMetricDiagnostics(next, diagnostics);
+    }, { [answerRef]: answerText });
+  }
+
+  recordFinalAnswer(requestId: string, nodeId: string, answerRef: string, answerSha256: string, answerText: string, diagnostics: string[] = []): Promise<void> {
+    const actualHash = createHash("sha256").update(answerText, "utf8").digest("hex");
+    if (answerRef !== `answers/${requestId}.json` || answerSha256 !== actualHash) {
+      throw new Error(`Graph answer '${requestId}' has an invalid path or digest.`);
+    }
+    return this.commit([
+      { event: "request.answered", requestId, kind: "node", nodeId },
+      { event: "run.resumed", requestId },
+    ], (next) => {
+      const existing = next.graph.pendingRequests[requestId];
+      if (next.status !== "needs_input" || next.graph.admissionClosed !== true ||
+          !existing || existing.nodeId !== nodeId || existing.kind !== "node" || existing.answerRef !== undefined || existing.answerSha256 !== undefined) {
+        throw new Error(`Graph request '${requestId}' is not an unanswered node request.`);
+      }
+      if (Object.entries(next.graph.pendingRequests).some(([id, entry]) => id !== requestId &&
+          (!entry || typeof entry.answerRef !== "string" || typeof entry.answerSha256 !== "string"))) {
+        throw new Error("Final graph answer cannot resume while another pending request is unanswered.");
+      }
+      next.graph.pendingRequests[requestId] = { ...existing, answerRef, answerSha256 };
+      next.phase = "execution";
+      next.status = "running";
+      next.graph.admissionClosed = true;
+      appendMetricDiagnostics(next, diagnostics);
+    }, { [answerRef]: answerText });
+  }
+
   pause(requests: Array<Record<string, unknown>>): Promise<void> {
     return this.commit({ event: "run.needs_input", requestIds: requests.map((request) => request.id) }, (next) => {
       next.status = "needs_input";
@@ -313,8 +356,20 @@ function projectPendingRequest(checkpoint: GraphRunCheckpoint, request: Record<s
   const existing = checkpoint.graph.pendingRequests[id];
   if (existing) {
     const fields = ["nodeId", "kind", "attempt", "requestRef", "requestSha256"] as const;
-    const matches = fields.every((field) => existing[field] === projection[field]) && Object.keys(existing).length === fields.length;
+    const keys = Object.keys(existing);
+    const hasAnswerRefField = Object.hasOwn(existing, "answerRef");
+    const hasAnswerSha256Field = Object.hasOwn(existing, "answerSha256");
+    const hasAnswerRef = typeof existing.answerRef === "string";
+    const validAnswerProjection = hasAnswerRefField === hasAnswerSha256Field &&
+      (!hasAnswerRefField || (hasAnswerRef && existing.answerRef === `answers/${id}.json` && typeof existing.answerSha256 === "string" && /^[0-9a-f]{64}$/.test(existing.answerSha256)));
+    const allowed = new Set<string>([...fields, "answerRef", "answerSha256"]);
+    const matches = fields.every((field) => existing[field] === projection[field]) && validAnswerProjection &&
+      keys.every((key) => allowed.has(key)) && (keys.length === fields.length || keys.length === fields.length + 2);
     if (!matches) throw new Error(`Graph pending request '${id}' conflicts with its previously projected metadata.`);
+    checkpoint.graph.pendingRequests[id] = {
+      ...projection,
+      ...(hasAnswerRefField ? { answerRef: existing.answerRef, answerSha256: existing.answerSha256 } : {}),
+    };
   } else {
     checkpoint.graph.pendingRequests[id] = projection;
   }
@@ -330,6 +385,10 @@ function json(value: unknown): string {
 function appendDiagnostic(checkpoint: GraphRunCheckpoint, diagnostic: string): void {
   const diagnostics = Array.isArray(checkpoint.diagnostics) ? checkpoint.diagnostics as unknown[] : [];
   checkpoint.diagnostics = [...diagnostics, diagnostic];
+}
+
+function appendMetricDiagnostics(checkpoint: GraphRunCheckpoint, diagnostics: string[]): void {
+  for (const diagnostic of diagnostics.slice(0, 65)) appendDiagnostic(checkpoint, diagnostic);
 }
 
 function safeOptionalError(error: unknown): string {

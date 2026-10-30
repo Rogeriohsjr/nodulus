@@ -6,6 +6,7 @@ import { ProcessArtifactValidator } from "../adapters/validation/process-artifac
 import type { IntakeStorage } from "../core/ports/intake-storage.js";
 import { NodulusError } from "../core/shared/nodulus-error.js";
 import { executeWorkflow } from "../core/execute-workflow.js";
+import { executeGraphWorkflow, type GraphContinuation, type GraphContinuationNode } from "../core/execute-graph-workflow.js";
 import { appendRunEvent } from "../core/execution-events.js";
 import type { ApplicationRunResult, ProviderPort } from "./run-workflow.js";
 import { readCallEvidence, type CallEvidence } from './call-evidence.js';
@@ -16,6 +17,9 @@ import type { PricingSnapshot } from "../core/cost-estimate.js";
 import { createFeedbackDeadline } from "../core/feedback-deadline.js";
 import type { FeedbackRegionState } from "../core/feedback-routing.js";
 import { validateFeedbackResumeEvidence } from "../core/feedback-evidence.js";
+import { GraphStateWriter, type GraphRunCheckpoint } from "../core/graph-state.js";
+import { verifyCapturedGraphFiles, verifyGraphResumeLedger, type GraphResumeContext, type VerifiedGraphResumeLedger } from "../core/graph-resume-evidence.js";
+import { validateGraphDefinition } from "../core/workflow-graph.js";
 
 export type ResumeWorkflowRequest = {
   projectRoot: string;
@@ -187,6 +191,9 @@ async function resumeWorkflowLocked(
   if (checkpoint.status === "running") {
     throw new NodulusError("RUN_RECOVERY_REQUIRED", `Run '${runId}' has an interrupted invocation with uncertain completion; inspect its saved attempts and recover it manually instead of replaying it.`);
   }
+  if (checkpoint.schemaVersion === 2) {
+    return resumeGraphAnswerLocked(request, provider, storage, checkpoint as unknown as GraphRunCheckpoint);
+  }
   if (checkpoint.status !== "needs_input") {
     throw new NodulusError("RUN_NOT_PAUSED", `Run '${runId}' is '${checkpoint.status}', not paused for input.`);
   }
@@ -279,6 +286,136 @@ async function resumeWorkflowLocked(
   }, intake, provider, storage, new ProcessArtifactValidator(), state);
 }
 
+async function resumeGraphAnswerLocked(
+  request: ResumeWorkflowRequest,
+  provider: ProviderPort,
+  storage: IntakeStorage,
+  checkpoint: GraphRunCheckpoint,
+): Promise<ApplicationRunResult> {
+  const { projectRoot, runId } = request;
+  if (checkpoint.status !== "needs_input") {
+    throw new NodulusError("RUN_NOT_PAUSED", `Run '${runId}' is '${checkpoint.status}', not paused for input.`);
+  }
+  const pendingEntries = checkpoint.graph?.pendingRequests;
+  if (!pendingEntries || typeof pendingEntries !== "object" || Array.isArray(pendingEntries)) {
+    throw new NodulusError("RUN_STATE_INVALID", "Paused graph has no valid pending request ledger.");
+  }
+  const selectedEntry = Object.hasOwn(pendingEntries, request.requestId) ? pendingEntries[request.requestId] : undefined;
+  if (!selectedEntry || selectedEntry.answerRef !== undefined || selectedEntry.answerSha256 !== undefined) {
+    throw new NodulusError("PENDING_REQUEST_MISMATCH", "The supplied request ID does not match an unanswered runtime graph request.");
+  }
+
+  let definitionsText: string;
+  let inputsText: string;
+  let referencesText: string;
+  let eventsText: string;
+  let context: GraphResumeContext;
+  let inputs: SavedInputs & { schemaVersion?: number; workflow?: string };
+  let references: SavedReference[];
+  try {
+    [definitionsText, inputsText, referencesText, eventsText] = await Promise.all([
+      storage.readRunFile(projectRoot, runId, "context/definitions.json"),
+      storage.readRunFile(projectRoot, runId, "inputs.json"),
+      storage.readRunFile(projectRoot, runId, "references.json"),
+      storage.readRunFile(projectRoot, runId, "events.jsonl"),
+    ]);
+    context = JSON.parse(definitionsText) as GraphResumeContext;
+    inputs = JSON.parse(inputsText) as SavedInputs & { schemaVersion?: number; workflow?: string };
+    references = JSON.parse(referencesText) as SavedReference[];
+  } catch (error) {
+    throw new NodulusError("RUN_STATE_INVALID", `Paused graph '${runId}' has unreadable captured evidence: ${messageOf(error)}`);
+  }
+
+  if (!isRecord(context) || !isRecord(context.workflow) || !isRecord(checkpoint.graph) || !isRecord(checkpoint.graph.callerInputs) ||
+      !isRecord(inputs) || !isRecord(inputs.callerInputs) ||
+      context.schemaVersion !== 2 || context.engineVersion !== ENGINE_VERSION || context.workflow.schemaVersion !== 2 ||
+      context.workflow.id !== checkpoint.workflow || !Array.isArray(context.nodes) || !Array.isArray(context.workflow.nodes) ||
+      !context.validatorHashes || typeof context.validatorHashes !== "object" || Array.isArray(context.validatorHashes) ||
+      !isRecord(context.contracts) || !isRecord(context.providerProfiles) ||
+      inputs.schemaVersion !== 2 || inputs.workflow !== context.workflow.id || typeof inputs.request !== "string" ||
+      !Array.isArray(inputs.instructions) || inputs.instructions.some((instruction) => !isRecord(instruction) || typeof instruction.path !== "string" || typeof instruction.content !== "string") ||
+      !Array.isArray(references) || references.some((reference) => !isRecord(reference) || typeof reference.path !== "string" ||
+        (reference.mode !== "workspace" && reference.mode !== "snapshot") || !/^[0-9a-f]{64}$/.test(reference.sha256)) ||
+      context.nodes.some((node) => !isRecord(node) || typeof node.id !== "string" || typeof node.providerProfile !== "string" ||
+        !Array.isArray(node.expectedOutputs) || node.expectedOutputs.some((output) => !isRecord(output) || typeof output.name !== "string" || typeof output.contract !== "string")) ||
+      !sameJson(checkpoint.graph.callerInputs, inputs.callerInputs)) {
+    throw new NodulusError("RUN_STATE_INVALID", "Paused graph captured definitions, inputs, or references do not match its checkpoint.");
+  }
+  let validatedWorkflow: GraphResumeContext["workflow"];
+  try { validatedWorkflow = validateGraphDefinition(context.workflow as unknown as Record<string, unknown>, context.workflow.id).workflow; }
+  catch (error) { throw new NodulusError("RUN_STATE_INVALID", `Paused graph definition is invalid: ${messageOf(error)}`); }
+  if (!sameJson(validatedWorkflow, context.workflow) ||
+      context.nodes.length !== context.workflow.nodes.length ||
+      new Set(context.nodes.map((node) => node.id)).size !== context.nodes.length ||
+      context.workflow.nodes.some((nodeId) => !context.nodes.some((node) => node.id === nodeId))) {
+    throw new NodulusError("RUN_STATE_INVALID", "Paused graph definitions do not match the captured validated workflow.");
+  }
+  try { await verifyCapturedGraphFiles(projectRoot, storage, context, definitionsText, inputsText, referencesText, checkpoint); }
+  catch (error) {
+    if (error instanceof NodulusError) throw error;
+    throw new NodulusError("RUN_STATE_INVALID", `Paused graph captured files could not be verified: ${messageOf(error)}`);
+  }
+  await validateWorkspaceReferences(projectRoot, references, storage);
+  let ledger: VerifiedGraphResumeLedger;
+  try { ledger = await verifyGraphResumeLedger(projectRoot, storage, context, checkpoint, eventsText); }
+  catch (error) {
+    if (error instanceof NodulusError) throw error;
+    throw new NodulusError("RUN_STATE_INVALID", `Paused graph evidence could not be verified: ${messageOf(error)}`);
+  }
+  const selected = ledger.requests.find((entry) => entry.id === request.requestId);
+  if (!selected || selected.answered) {
+    throw new NodulusError("PENDING_REQUEST_MISMATCH", "The supplied request ID does not match an unanswered runtime graph request.");
+  }
+  let answerText: string;
+  let answer: Record<string, unknown>;
+  try {
+    answerText = json(request.answers);
+    answer = parseRecord(answerText, "answers");
+  } catch (error) {
+    throw new NodulusError("ANSWERS_INVALID", `Answers must be a serializable JSON object: ${messageOf(error)}`);
+  }
+  validateAnswers(answer, selected.answerContract);
+
+  const remaining = ledger.requests.filter((entry) => !entry.answered && entry.id !== selected.id);
+  const answerRef = `answers/${selected.id}.json`;
+  const answerSha256 = createHash("sha256").update(answerText, "utf8").digest("hex");
+  const writer = new GraphStateWriter(projectRoot, runId, storage, checkpoint, eventsText, ledger.metrics);
+  if (remaining.length === 0) {
+    const continuationNodes = new Map<string, GraphContinuationNode>();
+    for (const pendingRequest of ledger.requests) {
+      const answers = {
+        ...(ledger.answersByNode.get(pendingRequest.nodeId) ?? {}),
+        ...(pendingRequest.id === selected.id ? answer : {}),
+      };
+      continuationNodes.set(pendingRequest.nodeId, {
+        attempt: pendingRequest.attempt + 1,
+        parentCallId: pendingRequest.callId,
+        answers: structuredClone(answers),
+      });
+    }
+    await writer.recordFinalAnswer(selected.id, selected.nodeId, answerRef, answerSha256, answerText, ledger.metricDiagnostics);
+    const continuation: GraphContinuation = {
+      context: { ...context, engineVersion: ENGINE_VERSION },
+      inputs,
+      writer,
+      acceptedNodes: context.workflow.nodes.filter((nodeId) => ledger.acceptedArtifacts.has(nodeId)),
+      acceptedArtifacts: ledger.acceptedArtifacts,
+      nodes: continuationNodes,
+    };
+    return executeGraphWorkflow({
+      projectRoot,
+      cwd: projectRoot,
+      workflow: context.workflow.id,
+      sources: [{ kind: "inline", text: inputs.request }],
+    }, { runId, runDirectory: "" }, provider, storage, new ProcessArtifactValidator(), continuation);
+  }
+
+  await writer.recordAnswer(selected.id, selected.nodeId, answerRef, answerSha256, answerText, ledger.metricDiagnostics);
+  const requests = remaining.map((entry) => entry.request);
+  void provider;
+  return { runId, status: "needs_input", result: { request: requests[0], requests } };
+}
+
 async function readCheckpoint(projectRoot: string, runId: string, storage: IntakeStorage): Promise<RunCheckpoint> {
   if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(runId)) {
     throw new NodulusError("RUN_NOT_FOUND", `Run '${runId}' was not found.`);
@@ -342,6 +479,14 @@ function parseRecord(contents: string, description: string): Record<string, unkn
     throw new NodulusError("RUN_STATE_INVALID", `Saved ${description} must be a JSON object.`);
   }
   return value as Record<string, unknown>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function messageOf(error: unknown): string {

@@ -1,5 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
-import path from "node:path";
+import { randomUUID } from "node:crypto";
 import type { IntakeRequest, IntakeResult } from "./intake-request.js";
 import type { ArtifactValidator } from "./ports/artifact-validator.js";
 import type { IntakeStorage } from "./ports/intake-storage.js";
@@ -9,6 +8,7 @@ import type { CapturedInputs, DefinitionContext, OutputArtifact } from "./execut
 import { resolveOutputReference } from "./workflow-mapping.js";
 import type { GraphDefinition } from "./workflow-graph.js";
 import { GraphStateWriter, type GraphRunCheckpoint, type GraphRunErrorDetails } from "./graph-state.js";
+import { verifyCapturedGraphFiles } from "./graph-resume-evidence.js";
 import { isGraphEvidenceWriteError, runGraphNode, type GraphNodeOutcome } from "./graph-node-runner.js";
 import { createGraphStopReason } from "./ports/graph-stop.js";
 import { NodulusError } from "./shared/nodulus-error.js";
@@ -22,6 +22,15 @@ type GraphContext = DefinitionContext & {
 type GraphRunResponse = { runId: string; status: "success" | "needs_input" | "error"; result: unknown };
 type ActiveNode = { nodeId: string; attempt: number; callId: string; startedAtMs: number; resources: string[]; controller: AbortController; promise: Promise<{ nodeId: string; outcome: GraphNodeOutcome }> };
 type GraphFailure = { code: string; message: string; nodeId?: string; callId?: string; launch?: boolean | null; cause?: GraphRunErrorDetails["cause"] };
+export type GraphContinuationNode = { attempt: number; parentCallId: string; answers: Record<string, unknown> };
+export type GraphContinuation = {
+  context: GraphContext;
+  inputs: CapturedInputs;
+  writer: GraphStateWriter;
+  acceptedNodes: string[];
+  acceptedArtifacts: Map<string, Map<string, OutputArtifact>>;
+  nodes: Map<string, GraphContinuationNode>;
+};
 
 /** Execute a captured schema-2 graph through an isolated scheduler and node runner. */
 export async function executeGraphWorkflow(
@@ -30,27 +39,47 @@ export async function executeGraphWorkflow(
   provider: ProviderPort,
   storage: IntakeStorage,
   artifactValidator: ArtifactValidator,
+  continuation?: GraphContinuation,
 ): Promise<GraphRunResponse> {
   const runId = intake.runId;
-  const contextText = await storage.readRunFile(request.projectRoot, runId, "context/definitions.json");
-  const inputText = await storage.readRunFile(request.projectRoot, runId, "inputs.json");
-  const referencesText = await storage.readRunFile(request.projectRoot, runId, "references.json");
-  const context = JSON.parse(contextText) as GraphContext;
-  const inputs = JSON.parse(inputText) as CapturedInputs;
-  const checkpoint = JSON.parse(await storage.readRunFile(request.projectRoot, runId, "run.json")) as GraphRunCheckpoint;
-  const events = await storage.readRunFile(request.projectRoot, runId, "events.jsonl");
-  const writer = new GraphStateWriter(request.projectRoot, runId, storage, checkpoint, events);
+  let context: GraphContext;
+  let inputs: CapturedInputs;
+  let checkpoint: GraphRunCheckpoint;
+  let writer: GraphStateWriter;
+  let contextText: string | undefined;
+  let inputText: string | undefined;
+  let referencesText: string | undefined;
+  if (continuation) {
+    context = continuation.context;
+    inputs = continuation.inputs;
+    writer = continuation.writer;
+    checkpoint = writer.snapshot();
+  } else {
+    contextText = await storage.readRunFile(request.projectRoot, runId, "context/definitions.json");
+    inputText = await storage.readRunFile(request.projectRoot, runId, "inputs.json");
+    referencesText = await storage.readRunFile(request.projectRoot, runId, "references.json");
+    context = JSON.parse(contextText) as GraphContext;
+    inputs = JSON.parse(inputText) as CapturedInputs;
+    checkpoint = JSON.parse(await storage.readRunFile(request.projectRoot, runId, "run.json")) as GraphRunCheckpoint;
+    const events = await storage.readRunFile(request.projectRoot, runId, "events.jsonl");
+    writer = new GraphStateWriter(request.projectRoot, runId, storage, checkpoint, events);
+  }
   try {
     if (context.schemaVersion !== 2 || checkpoint.schemaVersion !== 2 || context.workflow.schemaVersion !== 2) {
       throw new NodulusError("RUN_STATE_INVALID", "The captured graph execution version is invalid.");
     }
-    await verifyCapturedFiles(request.projectRoot, storage, context, contextText, inputText, referencesText, checkpoint);
+    if (!continuation && contextText !== undefined && inputText !== undefined && referencesText !== undefined) {
+      await verifyCapturedGraphFiles(request.projectRoot, storage, context, contextText, inputText, referencesText, checkpoint);
+    }
   } catch (error) {
     return finishError(writer, runId, errorCode(error, "RUN_STATE_INVALID"), messageOf(error));
   }
 
-  const acceptedOutputs = new Map<string, Map<string, OutputArtifact>>();
-  const accepted = new Set<string>();
+  const acceptedOutputs = new Map<string, Map<string, OutputArtifact>>(
+    continuation ? [...continuation.acceptedArtifacts].map(([nodeId, artifacts]) => [nodeId, new Map([...artifacts].map(([name, artifact]) => [name, structuredClone(artifact)]))]) : [],
+  );
+  const accepted = new Set(continuation?.acceptedNodes ?? []);
+  const resumeNodes = continuation?.nodes ?? new Map<string, GraphContinuationNode>();
   const failed: GraphFailure[] = [];
   const pending = new Map<string, Record<string, unknown>>();
   const active = new Map<string, ActiveNode>();
@@ -143,7 +172,8 @@ export async function executeGraphWorkflow(
         const resourceKeys = resourceKeysFor(workflow, node.id);
         if (resourceConflicts(resourcesHeld, resourceKeys)) continue;
 
-        const attempt = Number(checkpoint.graph.nodes[node.id]?.attempt ?? 0) + 1;
+        const resumeNode = resumeNodes.get(node.id);
+        const attempt = resumeNode?.attempt ?? (Number(checkpoint.graph.nodes[node.id]?.attempt ?? 0) + 1);
         const callId = randomUUID();
         const attemptRoot = `nodes/${node.id}/attempt-${String(attempt).padStart(3, "0")}`;
         try {
@@ -153,7 +183,7 @@ export async function executeGraphWorkflow(
             await writer.fail(node.id, reason?.code ?? "GRAPH_CANCELLED", reason?.message ?? "Graph admission closed before this reserved node launched.");
             break;
           }
-          await writer.callStarted(node.id, attempt, callId);
+          await writer.callStarted(node.id, attempt, callId, "invoke", resumeNode?.parentCallId);
           if (admissionClosed) {
             const reason = initiatingFailure;
             await writer.fail(node.id, reason?.code ?? "GRAPH_CANCELLED", reason?.message ?? "Graph admission closed before this reserved node launched.");
@@ -181,6 +211,7 @@ export async function executeGraphWorkflow(
           signal: controller.signal,
           acceptedOutputs,
           ancestorIds: ancestors.get(node.id) ?? new Set<string>(),
+          ...(resumeNode ? { answers: structuredClone(resumeNode.answers), parentCallId: resumeNode.parentCallId } : {}),
           onRequiredWriteFailure: (error) => writer.poison(error),
           onStopIntent: (stopNodeId, stopCode, message) => {
             admissionClosed = true;
@@ -418,31 +449,6 @@ export async function executeGraphWorkflow(
   return { runId, status: "success", result };
 }
 
-async function verifyCapturedFiles(
-  projectRoot: string,
-  storage: IntakeStorage,
-  context: GraphContext,
-  definitionsText: string,
-  inputsText: string,
-  referencesText: string,
-  checkpoint: GraphRunCheckpoint,
-): Promise<void> {
-  const captured = checkpoint.graph.captured;
-  if (captured.definitionsSha256 !== hash(definitionsText) ||
-      captured.inputsSha256 !== hash(inputsText) || captured.referencesSha256 !== hash(referencesText)) {
-    throw new NodulusError("RUN_STATE_INVALID", "Captured graph intake files do not match their saved hashes.");
-  }
-  const pricingHash = captured.pricingSha256;
-  if (typeof pricingHash === "string" && pricingHash !== hash(await storage.readRunFile(projectRoot, checkpoint.runId, "pricing.json"))) {
-    throw new NodulusError("RUN_STATE_INVALID", "Captured graph pricing data does not match its saved hash.");
-  }
-  for (const [relative, expectedHash] of Object.entries(context.validatorHashes)) {
-    const absolute = path.resolve(projectRoot, relative);
-    const contents = await storage.readUtf8(absolute);
-    if (hash(contents) !== expectedHash) throw new NodulusError("CONFIGURATION_INVALID", `Captured validator '${relative}' has changed since intake.`);
-  }
-}
-
 function dependencyAncestors(workflow: GraphDefinition): Map<string, Set<string>> {
   const result = new Map<string, Set<string>>();
   const visit = (nodeId: string): Set<string> => {
@@ -540,7 +546,6 @@ function safeLaunch(provider: ProviderPort, callId: string): boolean | null {
   try { return provider.launchForCall?.(callId) ?? null; }
   catch { return null; }
 }
-function hash(value: string): string { return createHash("sha256").update(value, "utf8").digest("hex"); }
 function json(value: unknown): string { return `${JSON.stringify(value, null, 2)}\n`; }
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function errorCode(error: unknown, fallback: string): string {

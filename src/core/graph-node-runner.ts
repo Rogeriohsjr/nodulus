@@ -103,6 +103,8 @@ export type GraphNodeRunnerContext = {
   signal: AbortSignal;
   acceptedOutputs: Map<string, Map<string, OutputArtifact>>;
   ancestorIds: Set<string>;
+  answers?: Record<string, unknown>;
+  parentCallId?: string;
   onRequiredWriteFailure?: (error: Error) => void;
   onStopIntent?: (nodeId: string, code: "GRAPH_CANCELLED" | "PROVIDER_TIMEOUT", message: string) => void;
   onCallStarted?: (attempt: number, callId: string, operation: "invoke" | "repair_response", parentCallId?: string) => Promise<void>;
@@ -114,7 +116,7 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
   let currentAttempt = attempt;
   let currentCallId = initialCallId;
   let currentOperation: "invoke" | "repair_response" = "invoke";
-  let parentCallId: string | undefined;
+  let parentCallId = args.parentCallId;
   let launch: boolean | null = null;
   let raw = "";
   let currentAttemptRoot = `nodes/${node.id}/attempt-${String(attempt).padStart(3, "0")}`;
@@ -125,10 +127,11 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
     const mappedInputs = structuredClone(mapped.values);
     const profile = structuredClone(context.providerProfiles[node.providerProfile] ?? {});
     const operationTimeoutMs = profileTimeoutMs(profile);
+    const ownAnswers = structuredClone(args.answers ?? {});
     const nodeInstructions = inputs.instructions.filter((item) =>
       node.instructions.some((instruction) => path.resolve(request.projectRoot, instruction) === path.resolve(item.path)),
     );
-    const prompt = buildPrompt(context, node, nodeInstructions, mappedInputs, {});
+    const prompt = buildPrompt(context, node, nodeInstructions, mappedInputs, ownAnswers);
     let issue: { code: string; errors: string[]; stderr?: string } | undefined;
     let parsed: ReturnType<typeof parseProviderOutcome> | undefined;
     let validArtifacts: OutputArtifact[] | undefined;
@@ -151,6 +154,7 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
         prompt,
         inputs: structuredClone(mappedInputs),
         providerProfile: structuredClone(profile),
+        ...(Object.keys(ownAnswers).length > 0 ? { answers: structuredClone(ownAnswers) } : {}),
         signal: args.signal,
       };
       const invocationRecord = {
