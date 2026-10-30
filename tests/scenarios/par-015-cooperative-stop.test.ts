@@ -207,6 +207,7 @@ async function exerciseCooperativeStop(mode: StopMode): Promise<void> {
   let run: Promise<RunOutcome> | undefined;
   let outcome: RunOutcome | undefined;
   let primaryError: unknown;
+  let hasPrimaryError = false;
   const cleanupErrors: Error[] = [];
 
   try {
@@ -294,6 +295,29 @@ async function exerciseCooperativeStop(mode: StopMode): Promise<void> {
     }
   } catch (error) {
     primaryError = error;
+    hasPrimaryError = true;
+    try {
+      const publicError = outcome?.kind === "result"
+        ? (outcome.result.result as { error?: { code?: unknown } }).error
+        : outcome?.kind === "rejection" && typeof outcome.error === "object" && outcome.error !== null && "code" in outcome.error
+          ? outcome.error as { code?: unknown }
+          : undefined;
+      const snapshot = {
+        retainedProject: project,
+        mode,
+        outcomeKind: outcome?.kind ?? "unavailable",
+        runId: outcome?.kind === "result" ? outcome.result.runId : null,
+        publicErrorCode: typeof publicError?.code === "string" ? publicError.code.slice(0, 120) : null,
+        firstApiProcessSnapshot: outcome ? {
+          processes: outcome.processSnapshot.processes.slice(0, 16).map(({ role, pid, alive }) => ({ role: role.slice(0, 80), pid, alive })),
+          processesTruncated: outcome.processSnapshot.processes.length > 16,
+          readError: outcome.processSnapshot.readError?.slice(0, 300) ?? null,
+        } : null,
+      };
+      process.stderr.write(`P15 retained project after primary scenario failure: ${project}; first API outcome snapshot: ${JSON.stringify(snapshot).slice(0, 3000)}\n`);
+    } catch {
+      try { process.stderr.write(`P15 retained project after primary scenario failure: ${project}; first API outcome snapshot unavailable.\n`); } catch { /* Preserve the primary scenario failure if stderr is unavailable. */ }
+    }
   }
 
   const cleanupDeadline = Date.now() + cleanupWatchdogMs;
@@ -325,17 +349,19 @@ async function exerciseCooperativeStop(mode: StopMode): Promise<void> {
     cleanupErrors.push(error instanceof Error ? error : new Error(String(error)));
   }
   if (runSettled && operationsDrained && processesExited) {
-    try {
-      assertOwnedProject(project);
-      rmSync(path.resolve(project), { recursive: true, force: true });
+    if (!hasPrimaryError) {
+      try {
+        assertOwnedProject(project);
+        rmSync(path.resolve(project), { recursive: true, force: true });
+      }
+      catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
     }
-    catch (error) { cleanupErrors.push(error instanceof Error ? error : new Error(String(error))); }
   } else {
     cleanupErrors.push(new Error(`P15 owned project retained because run/provider/process cleanup was uncertain: ${path.basename(project)}`));
   }
 
-  if (primaryError && cleanupErrors.length > 0) throw new AggregateError([primaryError, ...cleanupErrors], "P15 scenario failed and cleanup reported additional diagnostics.");
-  if (primaryError) throw primaryError;
+  if (hasPrimaryError && cleanupErrors.length > 0) throw new AggregateError([primaryError, ...cleanupErrors], "P15 scenario failed and cleanup reported additional diagnostics.");
+  if (hasPrimaryError) throw primaryError;
   if (cleanupErrors.length > 0) throw new AggregateError(cleanupErrors, "P15 scenario cleanup failed.");
 }
 
