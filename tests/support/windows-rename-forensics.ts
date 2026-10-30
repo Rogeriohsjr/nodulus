@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, realpathSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -241,7 +241,13 @@ function boundedError(error: unknown): string {
 
 function isTargetRenameFailure(error: unknown, target: string): boolean {
   if (errorCode(error) !== "EPERM" || !(error instanceof Error)) return false;
-  return error.message.toLowerCase().includes(target.toLowerCase());
+  try {
+    const physicalTarget = realpathSync(target).toLowerCase();
+    const message = error.message.toLowerCase();
+    return message.includes(`-> '${physicalTarget}'`) || message.includes(`-> "${physicalTarget}"`);
+  } catch {
+    return false;
+  }
 }
 
 function errorCode(error: unknown): string | null {
