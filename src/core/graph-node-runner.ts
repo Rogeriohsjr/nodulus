@@ -196,6 +196,8 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
             launch = false;
             throw stoppedBeforeReadiness;
           }
+          launch = false;
+          await assertCurrentValidatorPolicy(args);
           if (provider.isAvailable) {
             launch = false;
             const availability = createProfileOperationSignal(args.signal, operationTimeoutMs, "availability");
@@ -228,6 +230,8 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
               const stoppedAfterReadiness = graphStopError(availability.signal);
               if (stoppedAfterReadiness) throw stoppedAfterReadiness;
             } finally { availability.dispose(); }
+            providerOperationSignal = undefined;
+            providerOperationDeadlineError = undefined;
             if (!available) throw Object.assign(new Error(`Provider profile '${node.providerProfile}' is unavailable.`), { code: "PROVIDER_UNAVAILABLE" });
           }
           const stoppedBeforeInvoke = graphStopError(args.signal);
@@ -235,6 +239,8 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
             launch = false;
             throw stoppedBeforeInvoke;
           }
+          launch = false;
+          await assertCurrentValidatorPolicy(args);
           launch = null;
           providerStage = "invoke";
           const operationSignal = createProfileOperationSignal(args.signal, operationTimeoutMs, "invoke");
@@ -268,6 +274,8 @@ export async function runGraphNode(args: GraphNodeRunnerContext): Promise<GraphN
           if (!provider.repairResponse) throw new NodulusError("RESPONSE_REPAIR_UNAVAILABLE", "Safe response-only repair is unavailable; the full provider action will not be replayed.");
           const stoppedBeforeRepair = graphStopError(args.signal);
           if (stoppedBeforeRepair) throw stoppedBeforeRepair;
+          launch = false;
+          await assertCurrentValidatorPolicy(args);
           launch = null;
           const operationSignal = createProfileOperationSignal(args.signal, operationTimeoutMs, "response-only repair");
           providerOperationSignal = operationSignal.signal;
@@ -671,6 +679,24 @@ function notifyStopIntent(args: GraphNodeRunnerContext, nodeId: string, signal: 
 }
 
 function hash(value: string): string { return createHash("sha256").update(value, "utf8").digest("hex"); }
+async function assertCurrentValidatorPolicy(args: GraphNodeRunnerContext): Promise<void> {
+  const validators = new Set(args.node.expectedOutputs.flatMap((output) => output.validator ? [output.validator] : []));
+  for (const validator of validators) {
+    const expectedHash = args.context.validatorHashes?.[validator];
+    if (!expectedHash) {
+      throw new NodulusError("CONFIGURATION_INVALID", `Captured validator '${validator}' has no recorded policy hash.`);
+    }
+    let contents: string;
+    try { contents = await args.storage.readUtf8(path.resolve(args.request.projectRoot, validator)); }
+    catch (error) {
+      throw new NodulusError("CONFIGURATION_INVALID", `Captured validator '${validator}' could not be read: ${messageOf(error)}`);
+    }
+    if (hash(contents) !== expectedHash) {
+      throw new NodulusError("CONFIGURATION_INVALID", `Captured validator '${validator}' changed after intake.`);
+    }
+  }
+}
+
 function json(value: unknown): string { return `${JSON.stringify(value, null, 2)}\n`; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null; }
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }

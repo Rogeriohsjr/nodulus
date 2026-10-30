@@ -1,6 +1,6 @@
 # Parallel workflows
 
-Status: P1 is accepted locally and its exact-head hosted checks passed. P2 has independently reviewed scheduling, repair, resource and stop/deadline foundations. The pushed e7a0852 checkpoint passed Windows, macOS and Linux push/PR checks; later uncommitted unresolved-operation, evidence-fence and cleanup work requires a new hosted gate. Root's latest focused validator/provider check passed15/15, and both durable-acceptance crash characterizations passed. Build, typecheck and lint pass at that checkpoint. The earlier full local gate failed1/556 on an incidental Windows checkpoint rename EPERM; the actor remains unknown and that historical failure is retained. Concurrent publication failures, pre-probe policy checks, remaining joins/recovery/delivery and the new full integration gate remain pending. Partial draft PR #33 and the stack remain unmerged.
+Status: P1 is accepted locally and on its hosted head. P2 is now accepted locally: Root's final npm run check passed579 runtime and17 installed-package tests, including lint/typecheck/build. The reviewed source covers bounded calls/resources, durable acceptance, deadline/cancellation evidence, unresolved operations, cleanup uncertainty and real crash/publication/policy cases. See [P2 exit evidence](phase2-exit.md). Previous checkpoint5d775ba passed Windows/macOS/Linux push/PR checks; the final P2 head still requires its own hosted gate before P3 execution. Historical unexpected Windows rename denials remain unattributed. Join/output coverage, graph recovery, delivery and final stack integration remain pending; all PRs remain draft and unmerged.
 
 ## Scope and prerequisites
 
@@ -36,5 +36,6 @@ Accepted foundations include [P10 scheduling](packets/p10-graph-scheduling-imple
 - [Evidence record](evidence.md)
 - [Coordinator quality review](coordinator-review.md)
 - [Phase stack and execution ledger](stack.md)
+- [P2 local exit evidence](phase2-exit.md)
 - [Frozen graph runtime decisions](runtime-contract.md)
 - [P01 test packet](packets/p01-graph-inspection-tests.md)

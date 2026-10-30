@@ -1,6 +1,6 @@
 # Scenario plan
 
-Acceptance is recorded per scenario with the evidence below. Runtime choices are frozen in `runtime-contract.md`; an unchecked box remains pending even when a smaller foundation packet has passed.
+Acceptance is recorded per scenario with the evidence below. Runtime choices are frozen in `runtime-contract.md`; an unchecked box remains pending even when a smaller foundation packet has passed. [P2 exit evidence](phase2-exit.md) records the complete local gate and the separate hosted prerequisite for P3.
 
 ## P0 — contract and prerequisites
 
@@ -19,13 +19,13 @@ P1 is complete only when PAR-001 through PAR-004 pass their own test, implementa
 
 ## P2 — concurrent scheduler and safe runtime
 
-- [ ] PAR-010 — Admit at most `maxConcurrency` active nodes; a slot covers readiness probes, inference, response-only repair, executable validation and durable acceptance publication. Release it only when the node is accepted or its pause/error is stable and its processes have settled. Prove overlap with barriers, limit 1 serialization, and that slow validation or repair does not release a slot early.
-- [ ] PAR-011 — Release a dependent only after every predecessor has an accepted, schema-validated artifact; independent branches continue while another branch is active.
-- [ ] PAR-012 — Serialize checkpoint/event transitions with unique monotonic sequence and no lost updates under overlap.
-- [ ] PAR-013 — Isolate call, attempt, repair-session and telemetry state by call identity; test concurrent provider completion and usage reporting (including `usageForLastCall` shared-state hazard), and response-only corrections on one branch without replaying or changing another branch's actions or evidence.
+- [x] PAR-010 — Admit at most `maxConcurrency` active nodes; a slot covers readiness probes, inference, response-only repair, executable validation and durable acceptance publication. Release it only when the node is accepted or its pause/error is stable and its processes have settled. Prove overlap with barriers, limit 1 serialization, and that slow validation or repair does not release a slot early.
+- [x] PAR-011 — Release a dependent only after every predecessor has an accepted, schema-validated artifact; independent branches continue while another branch is active.
+- [x] PAR-012 — Serialize checkpoint/event transitions with unique monotonic sequence and no lost updates under overlap.
+- [x] PAR-013 — Isolate call, attempt, repair-session and telemetry state by call identity; test concurrent provider completion and usage reporting (including `usageForLastCall` shared-state hazard), and response-only corrections on one branch without replaying or changing another branch's actions or evidence.
 - [x] PAR-014 — Enforce the reviewed exclusive workspace/resource and write policy for validators/scripts and shared files; demonstrate conflicts are rejected or serialized per that policy. Eight real-process cases, Root/Sol review and Root's 75/75 accumulated graph check are recorded in evidence.md; this is within-run coordination only.
-- [ ] PAR-015 — Distinguish graph-stop cancellation, node/validator timeout and feedback-region deadline diagnostics. Exercise prelaunch and in-flight cancellation with real fixture descendants; preserve launched/unknown evidence, settle child processes before declaring a stable stop, and keep legacy feedback deadline codes unchanged for feedback workflows.
-- [ ] PAR-016 — Exercise interruption before and after durable node acceptance publication. Node artifact, validation and provenance records must be durable before the checkpoint exposes the node as accepted or any successor starts. Use the checkpoint as resume authority; diagnose incomplete or contradictory evidence and never infer replay permission from an orphan artifact or an event alone.
+- [x] PAR-015 — Distinguish graph-stop cancellation, node/validator timeout and feedback-region deadline diagnostics. Exercise prelaunch and in-flight cancellation with real fixture descendants; preserve launched/unknown evidence, settle child processes before declaring a stable stop, and keep legacy feedback deadline codes unchanged for feedback workflows.
+- [x] PAR-016 — Exercise interruption before and after durable node acceptance publication. Node artifact, validation and provenance records must be durable before the checkpoint exposes the node as accepted or any successor starts. Use the checkpoint as resume authority; diagnose incomplete or contradictory evidence and never infer replay permission from an orphan artifact or an event alone.
 
 ## P3 — joins, outputs and completion
 
