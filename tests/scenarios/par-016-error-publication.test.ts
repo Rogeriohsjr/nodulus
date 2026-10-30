@@ -109,9 +109,11 @@ async function runPublicationFailureCase(mode: ReadyRecord["mode"]): Promise<voi
     expect(workerResult, `P16C worker failed: ${workerResult.stderr || workerResult.stdout}`).toMatchObject({ code: 0, signal: null });
     const report = JSON.parse(workerResult.stdout) as RunReport;
     expect(report.runId).toBe(ready.runId);
-    expect(report.outcome?.kind).toBe("result");
-    expect(report.outcome?.result?.status).toBe("error");
-    const publicError = report.outcome.result.result?.error;
+    const outcome = report.outcome;
+    expect(outcome?.kind).toBe("result");
+    if (!outcome || outcome.kind !== "result" || !outcome.result) throw new Error(`P16C worker omitted a result envelope: ${workerResult.stdout}`);
+    expect(outcome.result.status).toBe("error");
+    const publicError = outcome.result.result?.error;
     expect(publicError).toMatchObject({ code: "RUN_STORAGE_FAILED", nodeId: "root", cause: { code: "CONTROL_NODE_ERROR", message: "controlled terminal node failure", nodeId: "root", callId: expect.any(String), launch: true } });
 
     const events = readExternalEvents(stateDirectory);
@@ -204,26 +206,21 @@ async function runPublicationFailureCase(mode: ReadyRecord["mode"]): Promise<voi
       }
     }
     try {
-      const started = path.join(stateDirectory, "started-root.json");
-      if (existsSync(started)) {
-        const record = JSON.parse(readFileSync(started, "utf8")) as { pid?: unknown; nodeId?: unknown };
-        if (record.nodeId !== "root" || typeof record.pid !== "number" || !Number.isSafeInteger(record.pid) || record.pid <= 0) {
-          cleanupErrors.push("Root provider PID marker is malformed; project retained.");
-          setupSafeToRemove = false;
-        } else if (!pidExited(record.pid)) {
-          try { process.kill(record.pid); }
-          catch (error) { cleanupErrors.push(`Could not stop owned provider ${record.pid}: ${messageOf(error)}`); }
-          if (!await waitForPidExit(record.pid, remaining(cleanupDeadline))) cleanupErrors.push(`Provider ${record.pid} exit could not be confirmed.`);
-        }
+      const closure = providerCloseEvidence(stateDirectory, project, ready?.runId);
+      if (closure.started && (!closure.closed || !workerSettled)) {
+        cleanupErrors.push("Nested provider closure was not established from completed capture and transport evidence; project retained.");
+        setupSafeToRemove = false;
       }
     } catch (error) {
-      cleanupErrors.push(`Provider ownership could not be verified: ${messageOf(error)}`);
+      cleanupErrors.push(`Nested provider closure evidence could not be verified: ${messageOf(error)}`);
+      setupSafeToRemove = false;
     }
     if (mode === "events_blocker" && ready && workerSettled) {
       try { restoreOwnedEventBackup(project, canonicalProject, ready); }
       catch (error) { cleanupErrors.push(`Portable event target restoration failed: ${messageOf(error)}`); setupSafeToRemove = false; }
     }
     if (cleanupErrors.length > 0) setupSafeToRemove = false;
+    if (hasPrimaryError) setupSafeToRemove = false;
     if (setupSafeToRemove) {
       try {
         assertOwnedProject(project, canonicalProject);
@@ -233,9 +230,10 @@ async function runPublicationFailureCase(mode: ReadyRecord["mode"]): Promise<voi
   }
 
   if (cleanupErrors.length > 0) {
-    const detail = `${cleanupErrors.join("; ")} Project retained at ${project}.`;
-    if (primaryError instanceof Error) primaryError.message += ` Cleanup: ${detail}`;
-    else if (!hasPrimaryError) { primaryError = new Error(detail); hasPrimaryError = true; }
+    if (hasPrimaryError) {
+      throw new AggregateError([primaryError, ...cleanupErrors.map((detail) => new Error(detail))], `P16C primary failure; project retained at ${project}.`);
+    }
+    throw new AggregateError(cleanupErrors.map((detail) => new Error(detail)), `P16C cleanup failed; project retained at ${project}.`);
   }
   if (hasPrimaryError) throw primaryError;
 }
@@ -340,18 +338,25 @@ function oneEvent(events: ExternalEvent[], event: string): ExternalEvent {
   return match;
 }
 
-function pidExited(pid: number): boolean {
-  try { process.kill(pid, 0); return false; }
-  catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH"; }
-}
-
-async function waitForPidExit(pid: number, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (pidExited(pid)) return true;
-    await delay(20);
+function providerCloseEvidence(directory: string, project: string, runId: string | undefined): { started: boolean; closed: boolean } {
+  const startedPath = path.join(directory, "started-root.json");
+  if (!existsSync(startedPath)) return { started: false, closed: true };
+  const started = JSON.parse(readFileSync(startedPath, "utf8")) as { pid?: unknown; nodeId?: unknown; callId?: unknown };
+  if (started.nodeId !== "root" || typeof started.pid !== "number" || !Number.isSafeInteger(started.pid) || started.pid <= 0 ||
+      typeof started.callId !== "string" || typeof runId !== "string") {
+    return { started: true, closed: false };
   }
-  return pidExited(pid);
+  const captures = readExternalEvents(directory).filter((event) => event.event === "provider_process_captured");
+  const matches = captures.filter((event) => event.nodeId === "root" && event.callId === started.callId && event.pid === started.pid);
+  if (matches.length !== 1) return { started: true, closed: false };
+  const capture = matches[0];
+  if (!capture || capture.started !== true || capture.exitCode !== 0 || capture.timedOut !== false ||
+      capture.cancelled !== false || capture.outputLimitExceeded !== false || typeof capture.transportSha256 !== "string") {
+    return { started: true, closed: false };
+  }
+  const transportPath = path.join(project, ".nodulus", "runs", runId, "calls", started.callId, "transport.json");
+  if (sha256(readFileSync(transportPath)) !== capture.transportSha256) return { started: true, closed: false };
+  return { started: true, closed: true };
 }
 
 function assertOwnedProject(project: string, canonicalProject: string): void {

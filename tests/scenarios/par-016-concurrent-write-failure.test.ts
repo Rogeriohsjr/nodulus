@@ -29,6 +29,8 @@ test("PAR-016 a required artifact write failure poisons before releasing a captu
   const canonicalProject = realpathSync.native(project);
   const stateDirectory = path.join(project, ".nodulus", "fixtures", "par-016-concurrent-write-state");
   let worker: ChildHandle | undefined;
+  let workerClosed = false;
+  let runIdForCleanup: string | undefined;
   let primaryError: unknown;
   let hasPrimaryError = false;
   const cleanupErrors: string[] = [];
@@ -39,6 +41,7 @@ test("PAR-016 a required artifact write failure poisons before releasing a captu
     const deadline = Date.now() + scenarioDeadlineMs;
     worker = startChild(["run", project, stateDirectory]);
     const workerResult = await waitForChild(worker, remaining(deadline));
+    workerClosed = true;
     expect(workerResult, `Concurrent failure worker failed: ${workerResult.stderr || workerResult.stdout}`).toMatchObject({ code: 0, signal: null });
     const report = JSON.parse(workerResult.stdout) as CaseReport;
     expect(report.outcome?.kind).toBe("result");
@@ -46,6 +49,7 @@ test("PAR-016 a required artifact write failure poisons before releasing a captu
     const runId = report.runId;
     expect(typeof runId).toBe("string");
     if (typeof runId !== "string") throw new Error(`Worker omitted run ID: ${workerResult.stdout}`);
+    runIdForCleanup = runId;
 
     const events = readEvents(stateDirectory);
     const bHeld = oneEvent(events, "b_raw_delivery_held");
@@ -132,22 +136,20 @@ test("PAR-016 a required artifact write failure poisons before releasing a captu
       try {
         if (worker.child.exitCode === null && worker.child.signalCode === null) worker.child.kill();
         await waitForChild(worker, remaining(cleanupDeadline));
+        workerClosed = true;
       } catch (error) {
         cleanupErrors.push(`Owned scenario worker ${String(worker.child.pid)} did not close cleanly: ${messageOf(error)}`);
       }
     }
-    for (const nodeId of ["a", "b", "successor"]) {
-      try {
-        const pid = readProviderPid(stateDirectory, nodeId);
-        if (pid === undefined || ownedPidExited(pid)) continue;
-        try { process.kill(pid); }
-        catch (error) { cleanupErrors.push(`Could not stop owned provider ${pid}: ${messageOf(error)}`); }
-        if (!await waitForPidExit(pid, remaining(cleanupDeadline))) cleanupErrors.push(`Owned provider ${pid} exit could not be confirmed.`);
-      } catch (error) {
-        cleanupErrors.push(`Provider ${nodeId} ownership could not be verified: ${messageOf(error)}`);
+    try {
+      const closure = providerCloseEvidence(stateDirectory, project, runIdForCleanup);
+      if (closure.started && (!closure.closed || !workerClosed)) {
+        cleanupErrors.push(`Nested provider closure was not established; project retained at ${project}.`);
       }
+    } catch (error) {
+      cleanupErrors.push(`Nested provider closure evidence could not be verified: ${messageOf(error)}`);
     }
-    if (cleanupErrors.length === 0) {
+    if (!hasPrimaryError && cleanupErrors.length === 0) {
       try {
         assertOwnedProject(project, canonicalProject);
         rmSync(project, { recursive: true, force: true });
@@ -156,14 +158,10 @@ test("PAR-016 a required artifact write failure poisons before releasing a captu
       }
     }
   }
-  if (cleanupErrors.length > 0) {
-    const detail = `${cleanupErrors.join("; ")} Project retained at ${project}.`;
-    if (primaryError instanceof Error) primaryError.message += ` Cleanup: ${detail}`;
-    else if (!hasPrimaryError) {
-      primaryError = new Error(detail);
-      hasPrimaryError = true;
-    }
+  if (hasPrimaryError && cleanupErrors.length > 0) {
+    throw new AggregateError([primaryError, ...cleanupErrors.map((detail) => new Error(detail))], `P16 concurrent-write primary failure; project retained at ${project}.`);
   }
+  if (cleanupErrors.length > 0) throw new AggregateError(cleanupErrors.map((detail) => new Error(detail)), `P16 concurrent-write cleanup failed; project retained at ${project}.`);
   if (hasPrimaryError) throw primaryError;
 }, testCeilingMs);
 
@@ -250,28 +248,31 @@ function oneNodeEvent(events: LoggedEvent[], name: string, nodeId: string): Logg
   return match;
 }
 
-function readProviderPid(directory: string, nodeId: string): number | undefined {
-  const file = path.join(directory, `started-${nodeId}.json`);
-  if (!existsSync(file)) return undefined;
-  const record = JSON.parse(readFileSync(file, "utf8")) as { pid?: unknown; nodeId?: unknown };
-  if (typeof record.pid !== "number" || !Number.isSafeInteger(record.pid) || record.pid <= 0 || record.nodeId !== nodeId) {
-    throw new Error(`Owned provider PID record '${nodeId}' is invalid.`);
+function providerCloseEvidence(directory: string, project: string, runId: string | undefined): { started: boolean; closed: boolean } {
+  const starts = ["a", "b", "successor"].flatMap((nodeId) => {
+    const file = path.join(directory, `started-${nodeId}.json`);
+    if (!existsSync(file)) return [];
+    const record = JSON.parse(readFileSync(file, "utf8")) as { pid?: unknown; nodeId?: unknown; callId?: unknown };
+    if (typeof record.pid !== "number" || !Number.isSafeInteger(record.pid) || record.pid <= 0 ||
+        record.nodeId !== nodeId || typeof record.callId !== "string") throw new Error(`Nested provider start record '${nodeId}' is malformed.`);
+    return [{ nodeId, pid: record.pid, callId: record.callId }];
+  });
+  if (starts.length === 0) return { started: false, closed: true };
+  const captures = readEvents(directory).filter((event) => event.event === "provider_process_captured");
+  for (const { nodeId, pid, callId } of starts) {
+    const matches = captures.filter((event) => event.nodeId === nodeId && event.callId === callId && event.pid === pid);
+    if (matches.length !== 1) return { started: true, closed: false };
+    const capture = matches[0];
+    if (!capture || capture.started !== true || capture.exitCode !== 0 || capture.timedOut !== false ||
+        capture.cancelled !== false || capture.outputLimitExceeded !== false || typeof capture.transportSha256 !== "string") {
+      return { started: true, closed: false };
+    }
+    if (runId !== undefined) {
+      const transportPath = path.join(project, ".nodulus", "runs", runId, "calls", callId, "transport.json");
+      if (sha256(readFileSync(transportPath)) !== capture.transportSha256) return { started: true, closed: false };
+    }
   }
-  return record.pid;
-}
-
-function ownedPidExited(pid: number): boolean {
-  try { process.kill(pid, 0); return false; }
-  catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH"; }
-}
-
-async function waitForPidExit(pid: number, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (ownedPidExited(pid)) return true;
-    await new Promise<void>((resolve) => setTimeout(resolve, 20));
-  }
-  return ownedPidExited(pid);
+  return { started: true, closed: true };
 }
 
 function assertOwnedProject(project: string, canonicalProject: string): void {

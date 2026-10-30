@@ -55,6 +55,7 @@ async function runPolicyCase(mode: CaseMode): Promise<void> {
   let worker: ChildHandle | undefined;
   let primaryError: unknown;
   let hasPrimaryError = false;
+  let workerClosed = false;
   const cleanupErrors: Error[] = [];
 
   try {
@@ -89,6 +90,7 @@ async function runPolicyCase(mode: CaseMode): Promise<void> {
     writeFileSync(path.join(stateDirectory, `release-${startedNode}.json`), "release\n", { encoding: "utf8", flag: "wx" });
 
     const childResult = await waitForChild(worker, remaining(scenarioDeadline));
+    workerClosed = true;
     expect(childResult, `P16D scenario worker failed: ${childResult.stderr || childResult.stdout}`).toMatchObject({ code: 0, signal: null });
     const report = JSON.parse(childResult.stdout) as ScenarioReport;
     expect(report.runId).toBe(runId);
@@ -161,7 +163,7 @@ async function runPolicyCase(mode: CaseMode): Promise<void> {
     try { writeFileSync(path.join(stateDirectory, "release-a.json"), "cleanup\n", "utf8"); } catch (error) { if (!isAlreadyExists(error)) cleanupErrors.push(toError(error)); }
     try { writeFileSync(path.join(stateDirectory, "release-held.json"), "cleanup\n", "utf8"); } catch (error) { if (!isAlreadyExists(error)) cleanupErrors.push(toError(error)); }
     if (worker) {
-      try { await waitForChild(worker, Math.min(5_000, remaining(cleanupDeadline))); }
+      try { await waitForChild(worker, Math.min(5_000, remaining(cleanupDeadline))); workerClosed = true; }
       catch (error) {
         try {
           if (worker.child.exitCode === null && worker.child.signalCode === null) {
@@ -170,19 +172,19 @@ async function runPolicyCase(mode: CaseMode): Promise<void> {
           }
         }
         catch (killError) { cleanupErrors.push(toError(killError)); }
-        try { await waitForChild(worker, remaining(cleanupDeadline)); }
+        try { await waitForChild(worker, remaining(cleanupDeadline)); workerClosed = true; }
         catch (drainError) { cleanupErrors.push(toError(drainError)); }
       }
     }
-    for (const nodeId of ["a", "held", "b", "successor"]) {
-      try {
-        const pid = readOwnedPid(stateDirectory, nodeId);
-        if (pid === undefined || ownedPidExited(pid)) continue;
-        try { process.kill(pid); } catch (error) { cleanupErrors.push(toError(error)); }
-        if (!await waitForPidExit(pid, remaining(cleanupDeadline))) cleanupErrors.push(new Error(`Owned P16D provider PID ${pid} exit was not confirmed.`));
-      } catch (error) { cleanupErrors.push(toError(error)); }
+    try {
+      const closure = providerCloseEvidence(stateDirectory, project);
+      if (closure.started && (!closure.closed || !workerClosed)) {
+        cleanupErrors.push(new Error(`P16D nested provider closure was not established; project retained at ${project}.`));
+      }
+    } catch (error) {
+      cleanupErrors.push(new Error(`P16D nested provider closure evidence could not be verified: ${messageOf(error)}`));
     }
-    if (cleanupErrors.length === 0) {
+    if (!hasPrimaryError && cleanupErrors.length === 0) {
       try { assertOwnedProject(project, canonicalProject); rmSync(project, { recursive: true, force: true }); }
       catch (error) { cleanupErrors.push(toError(error)); }
     }
@@ -261,18 +263,31 @@ async function waitForJson(file: string, deadline: number, label: string): Promi
 function readJson(file: string): Record<string, unknown> { return JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>; }
 function readEvents(directory: string): FixtureEvent[] { return parseJsonLines(readFileSync(path.join(directory, "events.jsonl"), "utf8")) as FixtureEvent[]; }
 function parseJsonLines(text: string): unknown[] { return text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as unknown); }
-function readOwnedPid(directory: string, nodeId: string): number | undefined {
-  const file = path.join(directory, `started-${nodeId}.json`);
-  if (!existsSync(file)) return undefined;
-  const record = readJson(file);
-  if (record.nodeId !== nodeId || typeof record.pid !== "number" || !Number.isSafeInteger(record.pid) || record.pid <= 0) throw new Error(`P16D owned PID record for '${nodeId}' is invalid.`);
-  return record.pid;
-}
-function ownedPidExited(pid: number): boolean { try { process.kill(pid, 0); return false; } catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH"; } }
-async function waitForPidExit(pid: number, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) { if (ownedPidExited(pid)) return true; await new Promise((resolve) => setTimeout(resolve, 20)); }
-  return ownedPidExited(pid);
+function providerCloseEvidence(directory: string, project: string): { started: boolean; closed: boolean } {
+  const starts = ["a", "held", "b", "successor"].flatMap((nodeId) => {
+    const file = path.join(directory, `started-${nodeId}.json`);
+    if (!existsSync(file)) return [];
+    const record = readJson(file);
+    if (record.nodeId !== nodeId || typeof record.pid !== "number" || !Number.isSafeInteger(record.pid) || record.pid <= 0 ||
+        typeof record.callId !== "string" || typeof record.runId !== "string") {
+      throw new Error(`P16D nested provider start record '${nodeId}' is malformed.`);
+    }
+    return [{ nodeId, pid: record.pid, callId: record.callId, runId: record.runId }];
+  });
+  if (starts.length === 0) return { started: false, closed: true };
+  const captures = readEvents(directory).filter((event) => event.event === "provider_process_captured");
+  for (const { nodeId, pid, callId, runId } of starts) {
+    const matches = captures.filter((event) => event.nodeId === nodeId && event.callId === callId && event.pid === pid);
+    if (matches.length !== 1) return { started: true, closed: false };
+    const capture = matches[0];
+    if (!capture || capture.started !== true || capture.exitCode !== 0 || capture.timedOut !== false ||
+        capture.cancelled !== false || capture.outputLimitExceeded !== false || typeof capture.transportSha256 !== "string") {
+      return { started: true, closed: false };
+    }
+    const transportPath = path.join(project, ".nodulus", "runs", runId, "calls", callId, "transport.json");
+    if (sha256(readFileSync(transportPath)) !== capture.transportSha256) return { started: true, closed: false };
+  }
+  return { started: true, closed: true };
 }
 function assertOwnedProject(project: string, canonicalProject: string): void {
   const actual = realpathSync.native(project);
@@ -296,3 +311,4 @@ function assertAcceptedHashes(runRoot: string, accepted: AcceptedRecord): void {
 function remaining(deadline: number): number { return Math.max(0, deadline - Date.now()); }
 function isAlreadyExists(error: unknown): boolean { return typeof error === "object" && error !== null && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST"; }
 function toError(error: unknown): Error { return error instanceof Error ? error : new Error("Non-Error P16D cleanup failure."); }
+function messageOf(error: unknown): string { return error instanceof Error ? error.message : "Non-Error cleanup failure."; }

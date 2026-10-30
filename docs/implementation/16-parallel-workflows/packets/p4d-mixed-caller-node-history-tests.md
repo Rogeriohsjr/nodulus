@@ -1,0 +1,19 @@
+# PAR037 mixed caller and node history
+
+Test-first preparation for D2. D1 now passes the initial caller pause controls; unchanged PAR037 reaches three resume-ledger failures. Add this mixed fresh-process regression before the D2 source writer starts, so historical caller answers are exercised together with later node questions.
+
+The sole Luna writer owns only `tests/scenarios/par-037-caller-node-history.test.ts` and `tests/fixtures/par-037-caller-node-history-provider.mjs`. Reuse `par-033-fresh-resume-driver.mjs` unchanged: its real public API/default adapter, nonce envelope, six activity observations and public/delegated settlement flags already have accepted proof. All other tests, fixtures, core/application modules and helpers remain frozen.
+
+Use a real initialized project with one schema2 root, typed declared caller.goal, captured profile/instruction/schema, and one required output alias. Create the fixtures directory before writing into it. The local Codex CLI fixture handles real probes and output files. On root attempt1 it returns a node question; on attempt2 it returns the valid required report. Enforce that the actual prompt contains the separately supplied caller goal, and corroborate its mapped value through real saved invocation evidence. The request text and instructions must not contain that goal value as an alternative source.
+
+Run this sequence in fresh driver processes, each with its own nonce and retained ChildProcess identity:
+
+1. Initial run pauses for caller.goal with zero provider methods, no admission/call evidence, null node/attempt0 and exact request ref/hash. Save immutable inputs bytes/hash.
+2. A wrong caller request UUID is rejected as PENDING_REQUEST_MISMATCH with no run-tree mutation or provider activity.
+3. A valid caller answer permits root attempt1, which asks its own node question. Verify mapped caller data, captured profile/instruction, node answers absent, no node-question parent call, successful transport, distinct runtime question UUID and durable caller answer/hash. Preserve inputs.json bytes.
+4. Change only the committed caller answer bytes, retaining its checkpoint hash. Submit a valid node answer through a fresh driver: require RUN_STATE_INVALID, zero provider methods and byte-identical post-corruption run/fixture state. Restore the exact caller answer bytes only after those assertions pass; never repair corruption in finally after an unexpected acceptance.
+5. Submit the valid node answer through another fresh driver. Root attempt2 must receive only its node answer and map the original caller goal; its parent call is root attempt1. Final success requires the real valid report/alias, all required nodes accepted, preserved caller and node answer refs/hashes/history and unchanged inputs.json. No fictional caller call/metric or accepted-work replay is permitted.
+
+Track actual public-driver close/error/stdio immediately, consume every operation, retain complete bounded UTF-8 output and require the single complete nonce/protocol envelope with settlement flags. Do not compare numeric PIDs across closed lifetimes, signal marker PIDs, parse a truncated output tail or fabricate cleanup errors after complete drain. Reuse the proven PAR033 lifecycle pattern without importing its test module. Remove only the exact owned native temp project after successful assertions and actual child/delegate completion; retain failed or uncertain evidence.
+
+Keep the established absolute 20s scenario/profile, shared 10s cleanup, 35s case and 60s fixture bounds. Freeze hashes for Root/Sol static review and strict test types/lint/fixture syntax before Root's first behavioral execution. An initial unsupported-caller failure is relevant RED; setup/import/type failures are not. Do not change D2 source to make this test pass until its checkpoint is reviewed.

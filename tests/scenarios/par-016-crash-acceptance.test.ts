@@ -51,6 +51,7 @@ async function verifyCrashBoundary(milestone: "before_acceptance" | "after_accep
   const deadline = Date.now() + scenarioDeadlineMs;
   let worker: ChildHandle | undefined;
   let inspector: ChildHandle | undefined;
+  let workerClosed = false;
   let retainProject = false;
   let primaryError: unknown;
   let hasPrimaryError = false;
@@ -59,6 +60,7 @@ async function verifyCrashBoundary(milestone: "before_acceptance" | "after_accep
   try {
     worker = startChild(["run", project, milestone, marker, providerState]);
     const workerResult = await waitForChild(worker, remaining(deadline));
+    workerClosed = true;
     expect(workerResult, `Crash worker output: ${workerResult.stderr || workerResult.stdout}`).toMatchObject({ code: 0, signal: null });
     expect(existsSync(marker), `Crash milestone marker was not written. ${workerResult.stderr || workerResult.stdout}`).toBe(true);
     const markerRecord = JSON.parse(readFileSync(marker, "utf8")) as Record<string, unknown>;
@@ -70,7 +72,6 @@ async function verifyCrashBoundary(milestone: "before_acceptance" | "after_accep
     const providerRecord = readProviderRecord(providerState, "root");
     expect(providerRecord).toMatchObject({ nodeId: "root", finished: true });
     expect(markerRecord.providerPid).toBe(providerRecord.pid);
-    expect(ownedPidExited(providerRecord.pid)).toBe(true);
     expect(existsSync(path.join(providerState, "started-successor.json"))).toBe(false);
 
     const runDirectory = path.join(project, ".nodulus", "runs", runId);
@@ -117,7 +118,10 @@ async function verifyCrashBoundary(milestone: "before_acceptance" | "after_accep
       providerInvokeCount?: unknown;
     };
     expect(report.status).toBe("running");
-    expect(report.checkpoint.status).toBe("running");
+    const inspectedCheckpoint = report.checkpoint;
+    expect(inspectedCheckpoint).toBeDefined();
+    if (!inspectedCheckpoint) throw new Error("Fresh recovery inspector omitted checkpoint state.");
+    expect(inspectedCheckpoint.status).toBe("running");
     expect(report.resumeError).toMatchObject({ code: "RUN_RECOVERY_REQUIRED" });
     expect(report.providerProbeCount).toBe(0);
     expect(report.providerInvokeCount).toBe(0);
@@ -135,27 +139,20 @@ async function verifyCrashBoundary(milestone: "before_acceptance" | "after_accep
           handle.child.kill();
         }
         await waitForChild(handle, remaining(cleanupDeadline));
+        if (handle === worker) workerClosed = true;
       } catch (error) {
         cleanupErrors.push(`Owned worker ${String(handle.child.pid)} did not close cleanly: ${messageOf(error)}`);
       }
     }
     try {
-      if (existsSync(providerState)) {
-        for (const nodeId of ["root", "successor"]) {
-          const record = tryReadProviderRecord(providerState, nodeId);
-          if (!record) continue;
-          if (!ownedPidExited(record.pid)) {
-            try { process.kill(record.pid); }
-            catch (error) { cleanupErrors.push(`Could not stop owned provider ${record.pid}: ${messageOf(error)}`); }
-            if (!await waitForPidExit(record.pid, remaining(cleanupDeadline))) {
-              cleanupErrors.push(`Owned provider ${record.pid} exit could not be confirmed.`);
-            }
-          }
-        }
+      const closure = providerClosureEvidence(providerState, marker, milestone, workerClosed, worker?.child.pid);
+      if (closure.started && !closure.closed) {
+        cleanupErrors.push(`Nested provider close was not established from the completed crash milestone and worker close; project retained at ${project}.`);
       }
     } catch (error) {
-      cleanupErrors.push(`Provider process cleanup failed: ${messageOf(error)}`);
+      cleanupErrors.push(`Nested provider close evidence could not be verified: ${messageOf(error)}`);
     }
+    if (hasPrimaryError) retainProject = true;
     if (cleanupErrors.length > 0) retainProject = true;
     if (!retainProject) {
       try {
@@ -167,14 +164,10 @@ async function verifyCrashBoundary(milestone: "before_acceptance" | "after_accep
       }
     }
   }
-  if (cleanupErrors.length > 0) {
-    const detail = `${cleanupErrors.join("; ")} Project retained at ${project}.`;
-    if (primaryError instanceof Error) primaryError.message += ` Cleanup: ${detail}`;
-    else if (!hasPrimaryError) {
-      primaryError = new Error(detail);
-      hasPrimaryError = true;
-    }
+  if (hasPrimaryError && cleanupErrors.length > 0) {
+    throw new AggregateError([primaryError, ...cleanupErrors.map((detail) => new Error(detail))], `P16 crash primary failure; project retained at ${project}.`);
   }
+  if (cleanupErrors.length > 0) throw new AggregateError(cleanupErrors.map((detail) => new Error(detail)), `P16 crash cleanup failed; project retained at ${project}.`);
   if (hasPrimaryError) throw primaryError;
 }
 
@@ -254,39 +247,33 @@ function requireDirectoryEntries(directory: string): import("node:fs").Dirent[] 
   return readdirSync(directory, { withFileTypes: true });
 }
 
-function readProviderRecord(directory: string, nodeId: string): { pid: number; nodeId: string; finished: boolean } {
+function readProviderRecord(directory: string, nodeId: string): { pid: number; nodeId: string; callId: string; finished: boolean } {
   const started = JSON.parse(readFileSync(path.join(directory, `started-${nodeId}.json`), "utf8")) as { pid?: unknown; nodeId?: unknown; callId?: unknown };
-  const record = JSON.parse(readFileSync(path.join(directory, `finished-${nodeId}.json`), "utf8")) as { pid?: unknown; nodeId?: unknown };
+  const record = JSON.parse(readFileSync(path.join(directory, `finished-${nodeId}.json`), "utf8")) as { pid?: unknown; nodeId?: unknown; callId?: unknown; finished?: unknown };
   if (typeof record.pid !== "number" || !Number.isSafeInteger(record.pid) || record.pid <= 0 || record.nodeId !== nodeId ||
-      started.pid !== record.pid || started.nodeId !== nodeId || typeof started.callId !== "string") {
+      record.finished !== true || started.pid !== record.pid || started.nodeId !== nodeId || typeof started.callId !== "string" || record.callId !== started.callId) {
     throw new Error(`Provider exit evidence for '${nodeId}' is invalid.`);
   }
-  return { pid: record.pid as number, nodeId, finished: true };
+  return { pid: record.pid, nodeId, callId: started.callId, finished: true };
 }
 
-function tryReadProviderRecord(directory: string, nodeId: string): { pid: number } | undefined {
-  try {
-    const record = JSON.parse(readFileSync(path.join(directory, `started-${nodeId}.json`), "utf8")) as { pid?: unknown; nodeId?: unknown };
-    if (typeof record.pid !== "number" || !Number.isSafeInteger(record.pid) || record.pid <= 0 || record.nodeId !== nodeId) throw new Error(`Provider PID evidence for '${nodeId}' is invalid.`);
-    return { pid: record.pid as number };
-  } catch (error) {
-    if (isMissingFile(error)) return undefined;
-    throw error;
-  }
-}
-
-function ownedPidExited(pid: number): boolean {
-  try { process.kill(pid, 0); return false; }
-  catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH"; }
-}
-
-async function waitForPidExit(pid: number, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (ownedPidExited(pid)) return true;
-    await new Promise<void>((resolve) => setTimeout(resolve, 20));
-  }
-  return ownedPidExited(pid);
+function providerClosureEvidence(directory: string, marker: string, milestone: string, workerClosed: boolean, workerPid: number | undefined): { started: boolean; closed: boolean } {
+  const startPath = path.join(directory, "started-root.json");
+  if (!existsSync(startPath)) return { started: false, closed: true };
+  const started = JSON.parse(readFileSync(startPath, "utf8")) as { pid?: unknown; nodeId?: unknown; callId?: unknown };
+  if (typeof started.pid !== "number" || !Number.isSafeInteger(started.pid) || started.pid <= 0 ||
+      started.nodeId !== "root" || typeof started.callId !== "string") throw new Error("Root provider start evidence is malformed.");
+  let finished: ReturnType<typeof readProviderRecord>;
+  try { finished = readProviderRecord(directory, "root"); }
+  catch (error) { if (isMissingFile(error)) return { started: true, closed: false }; throw error; }
+  if (finished.pid !== started.pid || finished.callId !== started.callId || !finished.finished) return { started: true, closed: false };
+  if (!existsSync(marker)) return { started: true, closed: false };
+  const milestoneRecord = JSON.parse(readFileSync(marker, "utf8")) as { milestone?: unknown; workerPid?: unknown; providerPid?: unknown };
+  return {
+    started: true,
+    closed: workerClosed && workerPid !== undefined && milestoneRecord.milestone === milestone &&
+      milestoneRecord.workerPid === workerPid && milestoneRecord.providerPid === started.pid,
+  };
 }
 
 function assertOwnedProject(project: string, canonicalProject: string): void {

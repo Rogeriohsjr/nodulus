@@ -29,8 +29,9 @@ export function startWindowsFileLock(project: string, target: string, watchdogMs
     "-NoProfile", "-NonInteractive", "-File", lockerScript,
     "-Target", target, "-Entry", entryPath, "-Started", startedPath, "-Release", releasePath, "-WatchdogMilliseconds", String(watchdogMs),
   ], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
-  const pid = child.pid;
-  if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) throw new Error("PowerShell lock process did not expose a valid PID.");
+  const childPid = child.pid;
+  if (typeof childPid !== "number" || !Number.isSafeInteger(childPid) || childPid <= 0) throw new Error("PowerShell lock process did not expose a valid PID.");
+  const pid: number = childPid;
   let exitError: unknown;
   let stderr = "";
   let stdout = "";

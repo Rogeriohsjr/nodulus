@@ -14,6 +14,8 @@ Root and Sol review frozen changes before Root runs the unchanged affected cases
 
 ## H2: child captures already established by the worker
 
+The strict test check justified one explicit support-file exception: capture the already-validated PID locally in windows-file-lock.ts. This fixes only type narrowing; its lock protocol, execution and timers remain unchanged. Root/Sol reviewed that narrow diff alongside the five parent tests.
+
 After H1 freezes, the next sole-writer packet covers the five PAR016 scenarios: validator-policy, crash-acceptance, concurrent-write-failure, error-publication and inflight-acceptance. Do not edit their fixtures without a separate concrete need and review.
 
 Sol verified that their worker fixtures await the real runCapturedProcess child close before recording provider_process_captured or returning raw data. Successful reports and intentional crash milestones follow those captures; the parent also awaits the retained worker ChildProcess close. Preserve those actual capture/transport/milestone assertions. On these proven paths, remove redundant marker-PID kill/poll loops.

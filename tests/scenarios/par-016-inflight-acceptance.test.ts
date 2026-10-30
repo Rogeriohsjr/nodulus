@@ -47,6 +47,8 @@ test("PAR-016B2 preserves a durable sibling acceptance while its storage return 
   const canonicalProject = realpathSync.native(project);
   const stateDirectory = path.join(project, ".nodulus", "fixtures", "par-016-inflight-state");
   let worker: ChildHandle | undefined;
+  let workerClosed = false;
+  let runIdForCleanup: string | undefined;
   let primaryError: unknown;
   let hasPrimaryError = false;
   const cleanupErrors: string[] = [];
@@ -57,6 +59,7 @@ test("PAR-016B2 preserves a durable sibling acceptance while its storage return 
     const deadline = Date.now() + scenarioBudgetMs;
     worker = startScenarioChild(["run", project, stateDirectory, String(deadline)]);
     const childResult = await waitForChild(worker, remaining(deadline));
+    workerClosed = true;
     expect(childResult, `P16B2 scenario worker failed: ${childResult.stderr || childResult.stdout}`).toMatchObject({ code: 0, signal: null });
     const report = JSON.parse(childResult.stdout) as ScenarioReport;
     expect(report.outcome?.kind).toBe("result");
@@ -66,6 +69,7 @@ test("PAR-016B2 preserves a durable sibling acceptance while its storage return 
     expect(report.bAcceptanceCaptured).toBe(true);
     expect(typeof report.runId).toBe("string");
     if (typeof report.runId !== "string") throw new Error(`P16B2 worker omitted run ID: ${childResult.stdout}`);
+    runIdForCleanup = report.runId;
 
     const events = readFixtureEvents(stateDirectory);
     const aCaptured = oneEvent(events, "provider_process_captured", (event) => event.nodeId === "a");
@@ -167,18 +171,18 @@ test("PAR-016B2 preserves a durable sibling acceptance while its storage return 
       try {
         if (worker.child.exitCode === null && worker.child.signalCode === null) worker.child.kill();
         await waitForChild(worker, remaining(cleanupDeadline));
+        workerClosed = true;
       } catch (error) { cleanupErrors.push(`P16B2 scenario worker ${String(worker.child.pid)} did not close cleanly: ${messageOf(error)}`); }
     }
-    for (const nodeId of ["a", "b", "c"]) {
-      try {
-        const pid = readProviderPid(stateDirectory, nodeId);
-        if (pid === undefined || ownedPidExited(pid)) continue;
-        try { process.kill(pid); }
-        catch (error) { cleanupErrors.push(`Could not stop owned P16B2 provider ${pid}: ${messageOf(error)}`); }
-        if (!await waitForPidExit(pid, remaining(cleanupDeadline))) cleanupErrors.push(`Owned P16B2 provider ${pid} exit was not confirmed.`);
-      } catch (error) { cleanupErrors.push(`P16B2 provider ${nodeId} ownership could not be verified: ${messageOf(error)}`); }
+    try {
+      const closure = providerCloseEvidence(stateDirectory, project, runIdForCleanup);
+      if (closure.started && (!closure.closed || !workerClosed)) {
+        cleanupErrors.push(`P16B2 nested provider closure was not established; project retained at ${project}.`);
+      }
+    } catch (error) {
+      cleanupErrors.push(`P16B2 nested provider closure evidence could not be verified: ${messageOf(error)}`);
     }
-    if (cleanupErrors.length === 0) {
+    if (!hasPrimaryError && cleanupErrors.length === 0) {
       try { assertOwnedProject(project, canonicalProject); rmSync(project, { recursive: true, force: true }); }
       catch (error) { cleanupErrors.push(`Owned project was retained: ${messageOf(error)}`); }
     }
@@ -259,24 +263,31 @@ function oneEvent(events: FixtureEvent[], name: string, predicate: (event: Fixtu
   if (!match) throw new Error(`Missing P16B2 milestone '${name}'.`);
   return match;
 }
-function readProviderPid(directory: string, nodeId: string): number | undefined {
-  const file = path.join(directory, `started-${nodeId}.json`);
-  if (!existsSync(file)) return undefined;
-  const record = JSON.parse(readFileSync(file, "utf8")) as { pid?: unknown; nodeId?: unknown };
-  if (typeof record.pid !== "number" || !Number.isSafeInteger(record.pid) || record.pid <= 0 || record.nodeId !== nodeId) throw new Error(`Invalid owned P16B2 PID record for '${nodeId}'.`);
-  return record.pid;
-}
-function ownedPidExited(pid: number): boolean {
-  try { process.kill(pid, 0); return false; }
-  catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH"; }
-}
-async function waitForPidExit(pid: number, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (ownedPidExited(pid)) return true;
-    await new Promise((resolve) => setTimeout(resolve, 20));
+function providerCloseEvidence(directory: string, project: string, runId: string | undefined): { started: boolean; closed: boolean } {
+  const starts = ["a", "b", "c"].flatMap((nodeId) => {
+    const file = path.join(directory, `started-${nodeId}.json`);
+    if (!existsSync(file)) return [];
+    const record = JSON.parse(readFileSync(file, "utf8")) as { pid?: unknown; nodeId?: unknown; callId?: unknown };
+    if (record.nodeId !== nodeId || typeof record.pid !== "number" || !Number.isSafeInteger(record.pid) || record.pid <= 0 ||
+        typeof record.callId !== "string") throw new Error(`P16B2 nested provider start record '${nodeId}' is malformed.`);
+    return [{ nodeId, pid: record.pid, callId: record.callId }];
+  });
+  if (starts.length === 0) return { started: false, closed: true };
+  const captures = readFixtureEvents(directory).filter((event) => event.event === "provider_process_captured");
+  for (const { nodeId, pid, callId } of starts) {
+    const matches = captures.filter((event) => event.nodeId === nodeId && event.callId === callId && event.pid === pid);
+    if (matches.length !== 1) return { started: true, closed: false };
+    const capture = matches[0];
+    if (!capture || capture.started !== true || capture.exitCode !== 0 || capture.timedOut !== false ||
+        capture.cancelled !== false || capture.outputLimitExceeded !== false || typeof capture.transportSha256 !== "string") {
+      return { started: true, closed: false };
+    }
+    if (runId !== undefined) {
+      const transportPath = path.join(project, ".nodulus", "runs", runId, "calls", callId, "transport.json");
+      if (sha256(readFileSync(transportPath)) !== capture.transportSha256) return { started: true, closed: false };
+    }
   }
-  return ownedPidExited(pid);
+  return { started: true, closed: true };
 }
 function assertOwnedProject(project: string, canonicalProject: string): void {
   const actual = realpathSync.native(project);
