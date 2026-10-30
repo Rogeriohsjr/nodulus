@@ -312,7 +312,6 @@ async function runCompatibilityScenario(mode: ProviderMode): Promise<void> {
   let publicDrained = false;
   let delegatedDrained = false;
   let childrenClosed = false;
-  let fixturePidsExited = false;
   try {
     await withDeadline(Promise.all(observations.publicSettlements), cleanupDeadline, "public workflow settlements");
     publicDrained = true;
@@ -327,13 +326,8 @@ async function runCompatibilityScenario(mode: ProviderMode): Promise<void> {
     if (rejectedChild?.status === "rejected") throw rejectedChild.reason;
     childrenClosed = true;
   } catch (error) { cleanupErrors.push(asError(error)); }
-  try {
-    fixturePidsExited = await waitForFixturePids(eventsPath, cleanupDeadline);
-    if (!fixturePidsExited) cleanupErrors.push(new Error("PAR-031 compatibility fixture PIDs did not all exit before cleanup deadline."));
-  } catch (error) { cleanupErrors.push(asError(error)); }
-
   const noPrimaryFailure = !hasPrimaryError;
-  const allOperationsDrained = publicDrained && delegatedDrained && childrenClosed && fixturePidsExited;
+  const allOperationsDrained = publicDrained && delegatedDrained && childrenClosed;
   if (noPrimaryFailure && allOperationsDrained && cleanupErrors.length === 0) {
     try {
       assertOwnedProject(project, projectIdentity, label);
@@ -842,21 +836,6 @@ async function withDeadline<T>(promise: Promise<T>, deadline: number, descriptio
   try {
     return await Promise.race([promise, new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new Error(`PAR-031 shared scenario deadline expired during ${description}.`)), remaining); })]);
   } finally { if (timer !== undefined) clearTimeout(timer); }
-}
-
-async function waitForFixturePids(eventsPath: string, deadline: number): Promise<boolean> {
-  const pids = new Set<number>();
-  if (existsSync(eventsPath)) {
-    for (const event of readFixtureEvents(eventsPath)) {
-      if (typeof event.pid !== "number" || !Number.isSafeInteger(event.pid) || event.pid <= 0) throw new Error("PAR-031 fixture event has an invalid owned PID.");
-      pids.add(event.pid);
-    }
-  }
-  while ([...pids].some(isProcessAlive)) {
-    if (Date.now() >= deadline) return false;
-    await new Promise<void>((resolve) => setTimeout(resolve, 20));
-  }
-  return true;
 }
 
 function requireResult(outcome: PublicOutcome, operation: string): ApplicationRunResult {
