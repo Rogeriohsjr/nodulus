@@ -127,9 +127,8 @@ export async function verifyGraphResumeLedger(
       throw invalid("Paused graph contains request event evidence without a matching pending ledger entry.");
     }
   }
-  const byNode = new Map<string, VerifiedPendingRequest>();
   const verifiedRequests = new Map<string, VerifiedPendingRequest>();
-  const answersByNode = new Map<string, Record<string, unknown>>();
+  const savedAnswers = new Map<string, Record<string, unknown>>();
   for (const requestId of requestIds) {
     const entry = pendingEntries[requestId];
     if (!isRecord(entry) || !isUuid(requestId) || entry.kind !== "node" || typeof entry.nodeId !== "string" ||
@@ -140,7 +139,7 @@ export async function verifyGraphResumeLedger(
       throw invalid(`Paused graph pending entry '${requestId}' is malformed or unsupported.`);
     }
     const nodeId = entry.nodeId;
-    if (!context.workflow.nodes.includes(nodeId) || byNode.has(nodeId)) throw invalid(`Paused graph pending node '${nodeId}' is unknown or duplicated.`);
+    if (!context.workflow.nodes.includes(nodeId)) throw invalid(`Paused graph pending node '${nodeId}' is unknown.`);
     const requestText = await readRequired(storage, projectRoot, checkpoint.runId, entry.requestRef, "pending request");
     if (hash(requestText) !== entry.requestSha256) throw invalid(`Pending request '${requestId}' does not match its checkpoint hash.`);
     const request = parseRecord(requestText, `pending request '${requestId}'`);
@@ -149,10 +148,6 @@ export async function verifyGraphResumeLedger(
       throw invalid(`Pending request '${requestId}' does not match its node, attempt, or call identity.`);
     }
     validateAnswerContract(request.answerContract, requestId);
-    const nodeState = checkpoint.graph.nodes[nodeId];
-    if (!isRecord(nodeState) || nodeState.phase !== "pending" || nodeState.attempt !== entry.attempt || nodeState.callId !== request.callId || nodeState.accepted !== undefined) {
-      throw invalid(`Pending request '${requestId}' differs from node '${nodeId}' checkpoint state.`);
-    }
     const attemptRoot = `nodes/${nodeId}/attempt-${String(entry.attempt).padStart(3, "0")}`;
     const savedResult = parseRecord(await readRequired(storage, projectRoot, checkpoint.runId, `${attemptRoot}/result.json`, "pending attempt result"), "pending attempt result");
     if (savedResult.status !== "needs_input" || !sameJson(savedResult.request, request)) throw invalid(`Pending request '${requestId}' differs from its immutable attempt result.`);
@@ -184,7 +179,7 @@ export async function verifyGraphResumeLedger(
       if (hash(answerText) !== answerSha256) throw invalid(`Committed answer '${requestId}' does not match its checkpoint hash.`);
       const answer = parseRecord(answerText, `committed answer '${requestId}'`);
       validateAnswer(request.answerContract, answer, requestId);
-      answersByNode.set(nodeId, answer);
+      savedAnswers.set(requestId, answer);
       answered = true;
     } else {
       const orphanAnswer = await readOptional(storage, projectRoot, checkpoint.runId, `answers/${requestId}.json`);
@@ -207,8 +202,74 @@ export async function verifyGraphResumeLedger(
       answerContract: request.answerContract,
       answered,
     };
-    byNode.set(nodeId, verified);
+    if ([...verifiedRequests.values()].some((candidate) => candidate.callId === verified.callId)) {
+      throw invalid(`Pending request '${requestId}' duplicates another question for the same provider call.`);
+    }
     verifiedRequests.set(requestId, verified);
+  }
+
+  const introductions = new Map<string, { nodeId: string; sequence: number; closure: number; pending: number }>();
+  for (const event of events) {
+    const isClosure = event.event === "graph.admission.closed" && event.requestId !== undefined;
+    const isPending = event.event === "node.pending";
+    if (!isClosure && !isPending) continue;
+    if (typeof event.requestId !== "string" || typeof event.nodeId !== "string" || !Number.isSafeInteger(event.sequence)) {
+      throw invalid("Graph request introduction event is malformed.");
+    }
+    const request = verifiedRequests.get(event.requestId);
+    if (!request || request.nodeId !== event.nodeId ||
+        (isPending && (event.attempt !== request.attempt || event.callId !== request.callId))) {
+      throw invalid(`Graph request introduction for '${event.requestId}' differs from its saved question.`);
+    }
+    const introduction = introductions.get(event.requestId) ?? {
+      nodeId: request.nodeId,
+      sequence: Number(event.sequence),
+      closure: 0,
+      pending: 0,
+    };
+    if (isClosure) introduction.closure += 1;
+    if (isPending) introduction.pending += 1;
+    introductions.set(event.requestId, introduction);
+  }
+  for (const request of verifiedRequests.values()) {
+    const introduction = introductions.get(request.id);
+    if (!introduction || introduction.closure + introduction.pending !== 1) {
+      throw invalid(`Graph request '${request.id}' must have exactly one introduction event.`);
+    }
+    const completion = callCompletions.get(request.callId);
+    if (!completion || !Number.isSafeInteger(completion.sequence) || introduction.sequence <= Number(completion.sequence)) {
+      throw invalid(`Graph request '${request.id}' was introduced before its provider call completed.`);
+    }
+    const answerEvent = events.find((event) => event.event === "request.answered" && event.requestId === request.id);
+    if (answerEvent && Number(answerEvent.sequence) <= introduction.sequence) {
+      throw invalid(`Graph request '${request.id}' was answered before it was introduced.`);
+    }
+  }
+
+  const pauseEvents = events.filter((event) => event.event === "run.needs_input");
+  const finalPause = pauseEvents.at(-1);
+  if (!finalPause || !Array.isArray(finalPause.requestIds) || !finalPause.requestIds.every((id) => typeof id === "string")) {
+    throw invalid("Graph pause event does not contain a valid request list.");
+  }
+  const finalPauseSequence = finalPause.sequence;
+  if (!Number.isSafeInteger(finalPauseSequence) || events.some((event) => event.event === "run.resumed" && Number(event.sequence) > Number(finalPauseSequence))) {
+    throw invalid("Graph pause event is not the latest run transition.");
+  }
+  if ([...introductions.values()].some((introduction) => introduction.sequence >= Number(finalPauseSequence))) {
+    throw invalid("Graph question was introduced at or after the latest pause event.");
+  }
+  const priorResume = [...events].reverse().find((event) => event.event === "run.resumed" && Number(event.sequence) < Number(finalPauseSequence));
+  const resumeSequence = priorResume ? Number(priorResume.sequence) : 0;
+  const latestWaveIds = new Set([...introductions].filter(([, introduction]) => introduction.sequence > resumeSequence).map(([id]) => id));
+  const orderedWaveIds = context.workflow.nodes.flatMap((nodeId) =>
+    [...verifiedRequests.values()].filter((entry) => entry.nodeId === nodeId && latestWaveIds.has(entry.id)).map((entry) => entry.id));
+  if (orderedWaveIds.length !== latestWaveIds.size || !sameJson(finalPause.requestIds, orderedWaveIds)) {
+    throw invalid("Graph pause event does not match the latest event-backed question wave.");
+  }
+  for (const request of verifiedRequests.values()) {
+    if (!request.answered && !latestWaveIds.has(request.id)) {
+      throw invalid(`Historical request '${request.id}' is unanswered outside the latest question wave.`);
+    }
   }
 
   const acceptedNodeIds: string[] = [];
@@ -220,37 +281,97 @@ export async function verifyGraphResumeLedger(
   for (const nodeId of context.workflow.nodes) {
     const nodeState = checkpoint.graph.nodes[nodeId];
     if (!isRecord(nodeState) || typeof nodeState.phase !== "string") throw invalid(`Graph node '${nodeId}' has no valid checkpoint phase.`);
+    const history = [...verifiedRequests.values()].filter((entry) => entry.nodeId === nodeId);
     if (nodeState.phase === "accepted") {
-      if (byNode.has(nodeId)) throw invalid(`Graph node '${nodeId}' is both accepted and pending.`);
       const node = context.nodes.find((candidate) => candidate.id === nodeId);
       const accepted = nodeState.accepted;
       if (!node || !isRecord(accepted)) throw invalid(`Accepted graph node '${nodeId}' has no evidence manifest.`);
-      acceptedArtifacts.set(nodeId, await verifyAcceptedNode(storage, projectRoot, checkpoint, events, nodeId, node, accepted as unknown as GraphAcceptedRecord, context.contracts));
+      const acceptedRecord = accepted as unknown as GraphAcceptedRecord;
+      if (history.some((entry) => !entry.answered || acceptedRecord.attempt <= entry.attempt)) {
+        throw invalid(`Accepted graph node '${nodeId}' has unanswered history or an acceptance attempt before its questions.`);
+      }
+      const acceptedStart = callStarts.get(acceptedRecord.callId);
+      const acceptanceEvents = events.filter((event) => event.event === "node.accepted" && event.nodeId === nodeId && event.callId === acceptedRecord.callId && event.attempt === acceptedRecord.attempt);
+      const latestHistorySequence = history.reduce((latest, entry) => {
+        const introduction = introductions.get(entry.id)!;
+        const completion = callCompletions.get(entry.callId)!;
+        const answerEvent = events.find((event) => event.event === "request.answered" && event.requestId === entry.id)!;
+        return Math.max(latest, introduction.sequence, Number(completion.sequence), Number(answerEvent.sequence));
+      }, 0);
+      if (history.length > 0 && (!acceptedStart || !Number.isSafeInteger(acceptedStart.sequence) || Number(acceptedStart.sequence) <= latestHistorySequence ||
+          acceptanceEvents.length !== 1 || !Number.isSafeInteger(acceptanceEvents[0]!.sequence) ||
+          Number(acceptanceEvents[0]!.sequence) <= latestHistorySequence || Number(acceptanceEvents[0]!.sequence) <= Number(acceptedStart.sequence))) {
+        throw invalid(`Accepted graph node '${nodeId}' acceptance does not follow its complete question history.`);
+      }
+      acceptedArtifacts.set(nodeId, await verifyAcceptedNode(storage, projectRoot, checkpoint, events, nodeId, node, acceptedRecord, context.contracts));
       acceptedNodeIds.push(nodeId);
     } else if (nodeState.phase === "pending") {
-      if (!byNode.has(nodeId)) throw invalid(`Pending graph node '${nodeId}' has no runtime request entry.`);
+      const latest = latestRequestForNode(verifiedRequests, nodeId, callStarts);
+      if (nodeState.accepted !== undefined || !latest || latest.callId !== nodeState.callId || latest.attempt !== nodeState.attempt) {
+        throw invalid(`Pending graph node '${nodeId}' has no matching latest runtime request entry.`);
+      }
     } else if (nodeState.phase !== "not_started") {
       throw invalid(`Graph node '${nodeId}' is active, failed, or uncertain and cannot be resumed as a paused answer.`);
+    } else if (history.length > 0) {
+      throw invalid(`Graph node '${nodeId}' has question history but is marked not started.`);
     }
   }
   if (!sameJson(checkpoint.completedNodes, acceptedNodeIds)) throw invalid("Graph completed-node list differs from accepted checkpoint evidence.");
 
-  const orderedIds = context.workflow.nodes.flatMap((nodeId) => {
-    const entry = [...verifiedRequests.values()].find((candidate) => candidate.nodeId === nodeId);
-    return entry ? [entry.id] : [];
+  const currentRequests = context.workflow.nodes.flatMap((nodeId) => {
+    const nodeState = checkpoint.graph.nodes[nodeId];
+    if (nodeState?.phase !== "pending") return [];
+    const latest = latestRequestForNode(verifiedRequests, nodeId, callStarts);
+    if (!latest || latest.callId !== nodeState.callId || latest.attempt !== nodeState.attempt) {
+      throw invalid(`Pending graph node '${nodeId}' has no matching latest runtime request entry.`);
+    }
+    return [latest];
   });
-  const pauseEvents = events.filter((event) => event.event === "run.needs_input");
-  const finalPause = pauseEvents.at(-1);
-  if (!finalPause || !sameJson(finalPause.requestIds, orderedIds)) throw invalid("Graph pause event does not match the declaration-ordered pending request ledger.");
+  const currentRequestIds = new Set(currentRequests.map((entry) => entry.id));
+  if ([...latestWaveIds].some((id) => !currentRequestIds.has(id))) {
+    throw invalid("Latest pause wave contains a question that is not a current node continuation.");
+  }
+  const answersByNode = new Map<string, Record<string, unknown>>();
+  const committedAnswers = [...verifiedRequests.values()].flatMap((entry) => {
+    if (!entry.answered) return [];
+    const answerEvent = events.find((event) => event.event === "request.answered" && event.requestId === entry.id)!;
+    return [{ entry, sequence: Number(answerEvent.sequence) }];
+  }).sort((left, right) => left.sequence - right.sequence);
+  for (const { entry } of committedAnswers) {
+    const answer = savedAnswers.get(entry.id);
+    if (!answer) throw invalid(`Committed answer '${entry.id}' has no verified answer object.`);
+    answersByNode.set(entry.nodeId, { ...(answersByNode.get(entry.nodeId) ?? {}), ...answer });
+  }
   return {
     eventsText,
     events,
-    requests: orderedIds.map((id) => verifiedRequests.get(id)!),
+    requests: currentRequests,
     acceptedArtifacts,
     answersByNode,
     metrics: metrics.rows,
     metricDiagnostics: metrics.diagnostics,
   };
+}
+
+function latestRequestForNode(
+  requests: Map<string, VerifiedPendingRequest>,
+  nodeId: string,
+  callStarts: Map<string, Record<string, unknown>>,
+): VerifiedPendingRequest | undefined {
+  let latest: VerifiedPendingRequest | undefined;
+  let latestSequence = -1;
+  for (const request of requests.values()) {
+    if (request.nodeId !== nodeId) continue;
+    const start = callStarts.get(request.callId);
+    if (!start || !Number.isSafeInteger(start.sequence)) throw invalid(`Pending request '${request.id}' has no ordered provider-call start.`);
+    const sequence = Number(start.sequence);
+    if (sequence === latestSequence) throw invalid(`Node '${nodeId}' has ambiguous question call ordering.`);
+    if (sequence > latestSequence) {
+      latest = request;
+      latestSequence = sequence;
+    }
+  }
+  return latest;
 }
 
 async function verifyAcceptedNode(

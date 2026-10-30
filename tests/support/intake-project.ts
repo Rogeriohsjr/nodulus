@@ -13,7 +13,21 @@ export function createInitializedProject(label: string): string {
     timeout: 10_000,
   });
   if (result.error || result.status !== 0) {
-    throw new Error(`Project fixture init failed: ${result.error?.message ?? result.stderr}`);
+    const spawnError = result.error as NodeJS.ErrnoException | undefined;
+    const diagnostic = {
+      project,
+      pid: result.pid ?? null,
+      status: result.status,
+      signal: result.signal,
+      error: spawnError ? {
+        name: typeof spawnError.name === "string" ? spawnError.name.slice(0, 80) : null,
+        code: typeof spawnError.code === "string" || typeof spawnError.code === "number" ? String(spawnError.code).slice(0, 80) : null,
+        message: typeof spawnError.message === "string" ? spawnError.message.slice(0, 240) : null,
+      } : null,
+      stdoutBytes: result.stdout === undefined || result.stdout === null ? 0 : Buffer.isBuffer(result.stdout) ? result.stdout.byteLength : Buffer.byteLength(result.stdout, "utf8"),
+      stderrBytes: result.stderr === undefined || result.stderr === null ? 0 : Buffer.isBuffer(result.stderr) ? result.stderr.byteLength : Buffer.byteLength(result.stderr, "utf8"),
+    };
+    throw new Error(`Project fixture init failed: ${JSON.stringify(diagnostic)}`);
   }
 
   const settingsPath = path.join(project, ".nodulus", "settings.json");
