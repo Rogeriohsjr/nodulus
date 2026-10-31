@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
@@ -6,11 +6,12 @@ import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
 import { expect, test } from "vitest";
 import { createDefaultProviderPort } from "../../src/adapters/providers/default-provider-port.js";
-import { runWorkflow } from "../../src/index.js";
+import { getRunStatus, inspectRun, runWorkflow } from "../../src/index.js";
 import { configureParallelProject, readParallelWorkflow } from "../support/parallel-project.js";
 import { createInitializedProject } from "../support/intake-project.js";
 import { readProjectJson, writeJson } from "../support/workflow-sequence.js";
 import { observeOwnedNativeProcesses, type OwnedNativeProcessObserver } from "../support/owned-native-processes.js";
+import { observeReadStorage } from "../support/read-only-storage-observer.js";
 import { startWindowsProcessPin, type WindowsProcessPin } from "../support/windows-process-pin.js";
 
 type Mode = "readiness" | "repair";
@@ -61,6 +62,9 @@ async function runStageScenario(mode: Mode): Promise<void> {
   let primaryError: unknown;
   let hasPrimaryError = false;
   const cleanupErrors: Error[] = [];
+  const queryPromises: Promise<unknown>[] = [];
+  const pendingQueries = new Set<Promise<unknown>>();
+  let queriesDrained = true;
   let runId: string | undefined;
 
   const capturePinnedProcessSnapshot = (): Snapshot | undefined => {
@@ -182,6 +186,53 @@ async function runStageScenario(mode: Mode): Promise<void> {
       expect(existsSync(path.join(project, ".nodulus", "runs", runId, "calls", heldCallId, "transport.json"))).toBe(false);
       expect(readFixtureEvents(eventsAbsolute).some((event) => event.role === "codex-readiness" && event.stage === "inference-started")).toBe(false);
     }
+
+    if (!runId || !outcome?.result) throw new Error("The held graph did not produce a saved run before inspection.");
+    const readStorage = observeReadStorage();
+    const runDirectory = path.join(project, ".nodulus", "runs", runId);
+    const fixtureDirectory = path.join(project, ".nodulus", "fixtures");
+    const runTreeBefore = snapshotTree(runDirectory);
+    const fixtureTreeBefore = snapshotTree(fixtureDirectory);
+    const fixtureEventsBefore = readFixtureEvents(eventsAbsolute);
+    const nativeProcessesBefore = nativeProcessSnapshot(processObserver);
+    const savedCheckpoint = readCheckpoint(project, runId);
+    const savedEvents = readRunEvents(project, runId);
+    const status = await withDeadline(
+      trackQuery(getRunStatus(project, runId, readStorage.storage), queryPromises, pendingQueries),
+      scenarioDeadline,
+      "cleanup recovery status query",
+    );
+    expect(readStorage.mutations).toEqual(emptyStorageMutations());
+    expect(status.status).toBe("error");
+    expect(status.checkpoint).toEqual(savedCheckpoint);
+    expect(status.events).toEqual(savedEvents);
+    expect(status.pendingRequests).toEqual([]);
+    expect(status).not.toHaveProperty("pendingRequest");
+    const inspection = await withDeadline(
+      trackQuery(inspectRun(project, runId, readStorage.storage), queryPromises, pendingQueries),
+      scenarioDeadline,
+      "cleanup recovery inspection query",
+    );
+    expect(readStorage.mutations).toEqual(emptyStorageMutations());
+    expect(inspection.checkpoint).toEqual(savedCheckpoint);
+    expect(inspection.events).toEqual(savedEvents);
+    expect(inspection.timeline).toEqual(savedEvents);
+    const uncertainty = inspection.uncertainty;
+    const nextActions = inspection.nextActions;
+    expect(inspection.status).toBe("error");
+    expect(inspection.pendingRequests).toEqual([]);
+    expect(inspection).not.toHaveProperty("pendingRequest");
+    expect(Array.isArray(uncertainty)).toBe(true);
+    expect(Array.isArray(nextActions)).toBe(true);
+    if (!Array.isArray(uncertainty) || !Array.isArray(nextActions)) throw new Error("Inspection did not return uncertainty and next-action lists.");
+    expect(uncertainty.join(" ")).toContain("held");
+    expect(uncertainty.join(" ")).toMatch(/cleanup/i);
+    expect(uncertainty.join(" ")).toMatch(/unverified|unconfirmed/i);
+    expect(nextActions).toEqual(["inspect_attempts", "do_not_replay_uncertain_call"]);
+    expect(snapshotTree(runDirectory)).toEqual(runTreeBefore);
+    expect(snapshotTree(fixtureDirectory)).toEqual(fixtureTreeBefore);
+    expect(readFixtureEvents(eventsAbsolute)).toEqual(fixtureEventsBefore);
+    expect(nativeProcessSnapshot(processObserver)).toEqual(nativeProcessesBefore);
   } catch (error) {
     primaryError = error;
     hasPrimaryError = true;
@@ -202,6 +253,14 @@ async function runStageScenario(mode: Mode): Promise<void> {
   if (run) {
     try { outcome ??= await withDeadline(run, pinProofDeadline, "owned graph run cleanup"); runSettled = true; }
     catch (error) { cleanupErrors.push(toError(error)); }
+  }
+
+  try {
+    if (pendingQueries.size > 0) await withDeadline(Promise.allSettled(queryPromises).then(() => undefined), cleanupDeadline, "read-only query settlement");
+    queriesDrained = true;
+  } catch (error) {
+    queriesDrained = false;
+    cleanupErrors.push(toError(error));
   }
 
   const pinExits: Array<{ targetPid: number; exitCode: number }> = [];
@@ -258,7 +317,7 @@ async function runStageScenario(mode: Mode): Promise<void> {
   if (!runSettled) cleanupErrors.push(new Error("P15C2 retained the project because the public workflow did not settle within the shared cleanup deadline."));
   if (!observerDrained) cleanupErrors.push(new Error("P15C2 retained the project because owned Node child-process handles did not all close."));
 
-  if (runSettled && nativeTargetsDrained && observerDrained && cleanupErrors.length === 0) {
+  if (runSettled && queriesDrained && nativeTargetsDrained && observerDrained && cleanupErrors.length === 0) {
     if (!hasPrimaryError) {
       try {
         assertOwnedProject(project, projectIdentity);
@@ -449,6 +508,61 @@ function readOwnedPid(value: unknown, labelText: string): number {
 }
 
 function hash(value: Buffer): string { return createHash("sha256").update(value).digest("hex"); }
+
+function emptyStorageMutations() {
+  return { createRun: 0, writeRunFiles: 0, acquireRunLock: 0, releaseRunLock: 0 };
+}
+
+function nativeProcessSnapshot(observer: OwnedNativeProcessObserver | undefined) {
+  if (!observer) throw new Error("P15C2 native process observer was not initialized before status inspection.");
+  expect(observer.observationFailure).toBe(false);
+  return {
+    observationFailure: observer.observationFailure,
+    diagnostics: observer.diagnostics.map(({ identity, pid, stages, exitCode, signal, errorName }) => ({ identity, pid, stages: [...stages], exitCode, signal, errorName })),
+  };
+}
+
+function trackQuery<T>(promise: Promise<T>, queries: Promise<unknown>[], pending: Set<Promise<unknown>>): Promise<T> {
+  let tracked: Promise<T>;
+  tracked = promise.then((value) => {
+    pending.delete(tracked);
+    return value;
+  }, (error: unknown) => {
+    pending.delete(tracked);
+    throw error;
+  });
+  queries.push(tracked);
+  pending.add(tracked);
+  void tracked.catch(() => undefined);
+  return tracked;
+}
+
+function snapshotTree(root: string): Map<string, { kind: "directory" | "file"; bytes?: Buffer }> {
+  const snapshot = new Map<string, { kind: "directory" | "file"; bytes?: Buffer }>();
+  let totalBytes = 0;
+  const visit = (directory: string, relativeDirectory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (snapshot.size >= 2048) throw new Error(`Snapshot exceeded 2048 entries under '${root}'.`);
+      const absolute = path.join(directory, entry.name);
+      const relative = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+      const metadata = lstatSync(absolute);
+      if (metadata.isSymbolicLink()) throw new Error(`Unexpected symbolic link while snapshotting '${root}'.`);
+      if (metadata.isDirectory()) {
+        if (!entry.isDirectory()) throw new Error(`Filesystem kind changed while snapshotting '${root}'.`);
+        snapshot.set(relative, { kind: "directory" });
+        visit(absolute, relative);
+      } else if (metadata.isFile()) {
+        if (!entry.isFile() || metadata.size > 8 * 1024 * 1024 - totalBytes) throw new Error(`Snapshot exceeded 8 MiB or encountered a kind change under '${root}'.`);
+        const bytes = readFileSync(absolute);
+        if (bytes.length !== metadata.size) throw new Error(`File size changed while snapshotting '${root}'.`);
+        totalBytes += bytes.length;
+        snapshot.set(relative, { kind: "file", bytes });
+      } else throw new Error(`Unexpected filesystem entry while snapshotting '${root}'.`);
+    }
+  };
+  visit(root, "");
+  return snapshot;
+}
 
 async function withDeadline<T>(promise: Promise<T> | undefined, deadline: number, labelText: string): Promise<T> {
   if (!promise) throw new Error(`P15C2 ${labelText} is unavailable.`);

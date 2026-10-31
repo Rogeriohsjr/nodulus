@@ -75,12 +75,16 @@ export async function inspectRun(
   const regions = isRecord(routing.regions) ? routing.regions : {};
   const uncertainCalls = Object.values(regions).filter(isRecord).flatMap((region) => Array.isArray(region.uncertainCalls) ? region.uncertainCalls.filter(isRecord) : []);
   const externallyUncertain = uncertainCalls.some((call) => call.launchStatus === "launched" || call.launchStatus === "uncertain");
+  const graphRecovery = graphRecoveryRequirement(status.checkpoint);
   const uncertainty = deriveUncertainty(status.status, status.checkpoint, status.callEvidence ?? [], diagnostics);
+  uncertainty.push(...graphRecovery.messages);
   if (externallyUncertain) uncertainty.push("A provider call may have launched without a confirmed completion; its external effect is uncertain.");
   const hasVerifiedGraphRequests = status.status === "needs_input" && Array.isArray(status.pendingRequests) && status.pendingRequests.length > 0;
-  const nextActions = hasVerifiedGraphRequests && !externallyUncertain && !(status.callEvidence ?? []).some((call) => call.status === "incomplete")
-    ? ["provide_pending_input"]
-    : deriveNextActions(status.status, status.pendingRequest, status.callEvidence ?? [], externallyUncertain);
+  const nextActions = graphRecovery.required
+    ? ["inspect_attempts", "do_not_replay_uncertain_call"]
+    : hasVerifiedGraphRequests && !externallyUncertain && !(status.callEvidence ?? []).some((call) => call.status === "incomplete")
+      ? ["provide_pending_input"]
+      : deriveNextActions(status.status, status.pendingRequest, status.callEvidence ?? [], externallyUncertain);
 
   return {
     ...status,
@@ -102,6 +106,25 @@ function hasRoutedEvidence(checkpoint: unknown, events: unknown[]): boolean {
   const savedRegions = isRecord(checkpoint) && isRecord(checkpoint.feedbackRouting) && isRecord(checkpoint.feedbackRouting.regions)
     ? Object.keys(checkpoint.feedbackRouting.regions).length > 0 : false;
   return savedRegions || events.some((event) => isRecord(event) && typeof event.event === "string" && event.event.startsWith("feedback."));
+}
+
+function graphRecoveryRequirement(checkpoint: unknown): { required: boolean; messages: string[] } {
+  if (!isRecord(checkpoint) || checkpoint.schemaVersion !== 2 || !isRecord(checkpoint.graph)) {
+    return { required: false, messages: [] };
+  }
+  const graph = checkpoint.graph;
+  const nodeIds = (value: unknown): string[] => Array.isArray(value)
+    ? [...new Set(value.filter((item): item is string => typeof item === "string" && item.length > 0))]
+    : [];
+  const uncertainNodeIds = nodeIds(graph.uncertainNodeIds);
+  const cleanupUnverifiedNodeIds = nodeIds(graph.cleanupUnverifiedNodeIds);
+  const required = graph.recoveryRequired === true || uncertainNodeIds.length > 0 || cleanupUnverifiedNodeIds.length > 0;
+  const messages = [
+    ...uncertainNodeIds.map((nodeId) => `Graph recovery is required for node '${nodeId}' because provider completion is unresolved.`),
+    ...cleanupUnverifiedNodeIds.map((nodeId) => `Graph recovery is required for node '${nodeId}' because process cleanup is unverified.`),
+  ];
+  if (required && messages.length === 0) messages.push("Graph recovery is required because saved provider or process state is unresolved.");
+  return { required, messages };
 }
 
 async function readCapturedDefinitions(projectRoot: string, runId: string, storage: IntakeStorage): Promise<unknown> {

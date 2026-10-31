@@ -1,14 +1,15 @@
-import { existsSync, readFileSync, realpathSync, readdirSync, rmSync, writeFileSync, type Dirent } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync, readdirSync, rmSync, writeFileSync, type Dirent } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { expect, test } from "vitest";
-import { runWorkflow } from "../../src/index.js";
+import { getRunStatus, inspectRun, runWorkflow } from "../../src/index.js";
 import { createInitializedProject } from "../support/intake-project.js";
 import { observeOwnedNativeProcesses } from "../support/owned-native-processes.js";
 import { configureParallelProject, readParallelWorkflow } from "../support/parallel-project.js";
 import { readProjectJson, writeJson } from "../support/workflow-sequence.js";
 import { createGraphUnresolvedProvider, type GraphUnresolvedProviderFixture, type HeldOperation, type HeldBehavior } from "../support/graph-unresolved-provider.js";
+import { observeReadStorage } from "../support/read-only-storage-observer.js";
 
 type HeldCase = { operation: HeldOperation; behavior: HeldBehavior; cause: "graph_stop" | "profile_timeout"; profileTimeoutMs?: number };
 const graceMs = 5000;
@@ -40,6 +41,9 @@ test.each(cases)("PAR-015B2 seals late $operation after $cause ($behavior)", asy
   let runError: unknown;
   let fixtureDrained = false;
   let processesSafe = false;
+  let queriesDrained = true;
+  const pendingQueries = new Set<Promise<unknown>>();
+  const queryPromises: Promise<unknown>[] = [];
   const startedAt = performance.now();
   const runPromise = runWorkflow({
     projectRoot: project,
@@ -153,6 +157,54 @@ test.each(cases)("PAR-015B2 seals late $operation after $cause ($behavior)", asy
 
     // The fixture child remains externally held until after the public-return snapshot.
     expect([...filesAtReturn.keys()].some((name) => name.endsWith("events.jsonl"))).toBe(true);
+
+    const readStorage = observeReadStorage();
+    const runDirectory = path.join(project, ".nodulus", "runs", runId);
+    const fixtureDirectory = path.join(project, ".nodulus", "fixtures");
+    const readOnlyBefore = snapshotTree(runDirectory);
+    const fixtureTreeBefore = snapshotTree(fixtureDirectory);
+    const operationCountBefore = fixture.operations.length;
+    const processCountBefore = fixture.processes.length;
+    const eventCountBefore = readEvents(project, runId).length;
+    const nativeBefore = nativeObserverSnapshot(nativeObserver);
+    const statusPromise = trackQuery(getRunStatus(project, runId, readStorage.storage), queryPromises, pendingQueries);
+    const status = await withRemainingScenario(statusPromise, startedAt, scenarioBudgetMs, "unresolved graph status query");
+    expect(readStorage.mutations).toEqual(emptyStorageMutations());
+    expect(status.status).toBe("error");
+    expect(status.checkpoint).toEqual(checkpoint);
+    expect(status.events).toEqual(events);
+    expect(status.pendingRequests).toEqual([]);
+    expect(status).not.toHaveProperty("pendingRequest");
+    expect(status.callEvidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ nodeId: "held", callId: heldCallId, status: "incomplete" }),
+    ]));
+    const inspected = await withRemainingScenario(
+      trackQuery(inspectRun(project, runId, readStorage.storage), queryPromises, pendingQueries),
+      startedAt,
+      scenarioBudgetMs,
+      "unresolved graph inspection query",
+    );
+    expect(readStorage.mutations).toEqual(emptyStorageMutations());
+    expect(inspected.checkpoint).toEqual(checkpoint);
+    expect(inspected.events).toEqual(events);
+    expect(inspected.timeline).toEqual(events);
+    const uncertainty = inspected.uncertainty;
+    const nextActions = inspected.nextActions;
+    expect(inspected.status).toBe("error");
+    expect(inspected.pendingRequests).toEqual([]);
+    expect(inspected).not.toHaveProperty("pendingRequest");
+    expect(Array.isArray(uncertainty)).toBe(true);
+    expect(Array.isArray(nextActions)).toBe(true);
+    if (!Array.isArray(uncertainty) || !Array.isArray(nextActions)) throw new Error("Inspection did not return uncertainty and next-action lists.");
+    expect(uncertainty.join(" ")).toContain("held");
+    expect(uncertainty.join(" ")).toMatch(/recovery/i);
+    expect(nextActions).toEqual(["inspect_attempts", "do_not_replay_uncertain_call"]);
+    expect(fixture.operations).toHaveLength(operationCountBefore);
+    expect(fixture.processes).toHaveLength(processCountBefore);
+    expect(readEvents(project, runId)).toHaveLength(eventCountBefore);
+    expect(snapshotTree(runDirectory)).toEqual(readOnlyBefore);
+    expect(snapshotTree(fixtureDirectory)).toEqual(fixtureTreeBefore);
+    expect(nativeObserverSnapshot(nativeObserver)).toEqual(nativeBefore);
   } catch (error) {
     failure = error;
     hasFailure = true;
@@ -168,6 +220,13 @@ test.each(cases)("PAR-015B2 seals late $operation after $cause ($behavior)", asy
       await fixture.drain(cleanupDeadline);
       fixtureDrained = true;
     } catch (error) {
+      cleanupErrors.push(error);
+    }
+    try {
+      await drainQueries(queryPromises, pendingQueries, cleanupDeadline);
+      queriesDrained = true;
+    } catch (error) {
+      queriesDrained = false;
       cleanupErrors.push(error);
     }
     if (fixtureDrained) {
@@ -213,7 +272,7 @@ test.each(cases)("PAR-015B2 seals late $operation after $cause ($behavior)", asy
         cleanupErrors.push(error);
       }
     }
-    const cleanupVerified = fixtureDrained && processesSafe && cleanupErrors.length === 0 && runId !== undefined && returnedAt !== undefined;
+    const cleanupVerified = fixtureDrained && queriesDrained && processesSafe && cleanupErrors.length === 0 && runId !== undefined && returnedAt !== undefined;
     if (!hasFailure && cleanupVerified) {
       try {
         assertOwnedProject(project, ownedProject);
@@ -333,6 +392,84 @@ async function waitForAbortedOperation(
 function isProcessAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
   catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
+}
+
+function emptyStorageMutations() {
+  return { createRun: 0, writeRunFiles: 0, acquireRunLock: 0, releaseRunLock: 0 };
+}
+
+function snapshotTree(root: string): Map<string, { kind: "directory" | "file"; bytes?: Buffer }> {
+  const snapshot = new Map<string, { kind: "directory" | "file"; bytes?: Buffer }>();
+  let totalBytes = 0;
+  const visit = (directory: string, relativeDirectory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true }) as Dirent[]) {
+      if (snapshot.size >= 2048) throw new Error(`Snapshot exceeded 2048 entries under '${root}'.`);
+      const absolute = path.join(directory, entry.name);
+      const relative = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+      const metadata = lstatSync(absolute);
+      if (metadata.isSymbolicLink()) throw new Error(`Unexpected symbolic link while snapshotting '${root}'.`);
+      if (metadata.isDirectory()) {
+        if (!entry.isDirectory()) throw new Error(`Filesystem kind changed while snapshotting '${root}'.`);
+        snapshot.set(relative, { kind: "directory" });
+        visit(absolute, relative);
+      } else if (metadata.isFile()) {
+        if (!entry.isFile() || metadata.size > 8 * 1024 * 1024 - totalBytes) throw new Error(`Snapshot exceeded 8 MiB or encountered a kind change under '${root}'.`);
+        const bytes = readFileSync(absolute);
+        if (bytes.length !== metadata.size) throw new Error(`File size changed while snapshotting '${root}'.`);
+        totalBytes += bytes.length;
+        snapshot.set(relative, { kind: "file", bytes });
+      } else throw new Error(`Unexpected filesystem entry while snapshotting '${root}'.`);
+    }
+  };
+  visit(root, "");
+  return snapshot;
+}
+
+function trackQuery<T>(promise: Promise<T>, queries: Promise<unknown>[], pending: Set<Promise<unknown>>): Promise<T> {
+  let tracked: Promise<T>;
+  tracked = promise.then((value) => {
+    pending.delete(tracked);
+    return value;
+  }, (error: unknown) => {
+    pending.delete(tracked);
+    throw error;
+  });
+  queries.push(tracked);
+  pending.add(tracked);
+  void tracked.catch(() => undefined);
+  return tracked;
+}
+
+async function withRemainingScenario<T>(promise: Promise<T>, startedAt: number, budgetMs: number, label: string): Promise<T> {
+  const remaining = budgetMs - (performance.now() - startedAt);
+  if (remaining <= 0) throw new Error(`Scenario deadline expired before ${label}.`);
+  return awaitWithTimeout(promise, remaining, label);
+}
+
+function nativeObserverSnapshot(observer: ReturnType<typeof observeOwnedNativeProcesses>) {
+  return {
+    observationFailure: observer.observationFailure,
+    diagnostics: observer.diagnostics.map(({ identity, pid, stages, exitCode, signal, errorName }) => ({ identity, pid, stages: [...stages], exitCode, signal, errorName })),
+  };
+}
+
+async function drainQueries(queries: Promise<unknown>[], pending: Set<Promise<unknown>>, deadline: number): Promise<void> {
+  if (pending.size === 0) return;
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new Error("Shared cleanup deadline expired before read-only status queries settled.");
+  await awaitWithTimeout(Promise.allSettled(queries).then(() => undefined), remaining, "read-only status query settlement");
+}
+
+async function awaitWithTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label} after ${timeoutMs} ms.`)), timeoutMs); }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 function delay(milliseconds: number): Promise<void> { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
