@@ -1,0 +1,7 @@
+# PAR044: conservative POSIX group-presence probe
+
+The d43 Mac push job124435364468 failed the existing PAR036 initial-owner crash scenario at process.kill(-pgid,0) with EPERM. Root/Sol inspected the real test and original bounded drain. [Apple's kill(2) manual](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/kill.2.html) distinguishes permission denial from ESRCH absence; signal0 performs checks without delivering a signal. No external actor, PID reuse or runtime defect is established by this failure.
+
+The focused source grant is only tests/scenarios/par-036-runner-crash-recovery.test.ts, isProcessGroupPresent: keep ESRCH returning false, treat EPERM as present/unconfirmed and continue the existing bounded wait, and throw other errors. Never report denied observation as gone. Persistent EPERM still fails within the original count/deadline and retains uncertain cleanup evidence. Do not change actual termination, ownership/nonce proofs, driver, Core, timestamps, fixtures, assertions or timers. The separate manual C3 answer-publication capture is complete and must not be repeated.
+
+Freeze after lint/strict scenario types/diff for Root/Sol actual review. Windows can verify static and its existing native branch; the changed POSIX path requires new hosted Mac/Ubuntu checks. Do not fabricate POSIX evidence or promise success when the group remains unobservable. No workflow rerun, live provider, publication or broader process-management fix is authorized.

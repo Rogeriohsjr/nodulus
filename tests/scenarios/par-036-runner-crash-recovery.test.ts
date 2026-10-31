@@ -910,6 +910,7 @@ function isProcessGroupPresent(processGroupId: number): boolean {
   try { process.kill(-processGroupId, 0); return true; }
   catch (error) {
     if (isErrno(error, "ESRCH")) return false;
+    if (isErrno(error, "EPERM")) return true;
     throw error;
   }
 }
