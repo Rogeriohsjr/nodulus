@@ -97,9 +97,11 @@ const queryTimeoutMs = 2_000;
 const shutdownTimeoutMs = 4_000;
 const terminationConfirmMs = 2_000;
 const helperLifetimeMs = 60_000;
+const warmupProtocol = "p12f-native-readiness-warmup-v1";
 
 async function startForensicHelper(projectRoot: string, reportRoot: string): Promise<ForensicHelper> {
   const stateDirectory = path.join(reportRoot, `.helper-${randomUUID()}`);
+  const startupNonce = randomUUID();
   mkdirSync(stateDirectory, { recursive: true });
   const readyPath = path.join(stateDirectory, "ready.json");
   const shutdownPath = path.join(stateDirectory, "shutdown");
@@ -110,6 +112,7 @@ async function startForensicHelper(projectRoot: string, reportRoot: string): Pro
     "-ReadyPath", readyPath,
     "-ShutdownPath", shutdownPath,
     "-ParentLifetimeMilliseconds", String(helperLifetimeMs),
+    "-StartupNonce", startupNonce,
   ], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
   const pid = child.pid;
 
@@ -121,6 +124,7 @@ async function startForensicHelper(projectRoot: string, reportRoot: string): Pro
   child.stderr?.on("data", (chunk: Buffer) => { stderr = `${stderr}${chunk.toString("utf8")}`.slice(-1200); });
   child.once("error", (error) => { spawnError = error; });
   const exited = new Promise<void>((resolve) => child.once("close", (code, signal) => { exit = { code, signal }; resolve(); }));
+  const getCurrentExit = (): { code: number | null; signal: NodeJS.Signals | null } | undefined => exit;
 
   try {
     if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) throw new Error("Forensic PowerShell process did not expose an owned PID.");
@@ -131,8 +135,11 @@ async function startForensicHelper(projectRoot: string, reportRoot: string): Pro
       if (Date.now() >= startupDeadline) throw new Error(`Forensic PowerShell readiness exceeded ${startupTimeoutMs} ms; stderr=${stderr}`);
       await delay(20);
     }
-    const ready = JSON.parse(readFileSync(readyPath, "utf8")) as { pid?: unknown; ready?: unknown };
-    if (ready.pid !== pid || ready.ready !== true || !isProcessAlive(pid)) throw new Error(`Forensic PowerShell readiness marker did not verify owned PID ${pid}.`);
+    const ready = JSON.parse(readFileSync(readyPath, "utf8")) as { pid?: unknown; ready?: unknown; startupNonce?: unknown; warmupProtocol?: unknown; warmupComplete?: unknown };
+    if (ready.pid !== pid || ready.ready !== true || ready.startupNonce !== startupNonce
+      || ready.warmupProtocol !== warmupProtocol || ready.warmupComplete !== true || !isProcessAlive(pid)) {
+      throw new Error(`Forensic PowerShell readiness marker did not verify owned PID ${pid} and completed native warm-up.`);
+    }
   } catch (startupError) {
     const reason = boundedError(startupError);
     try { await stopOwnedHelper(child, pid, exited, () => exit, shutdownPath, stateDirectory); }
@@ -146,7 +153,7 @@ async function startForensicHelper(projectRoot: string, reportRoot: string): Pro
     pid,
     stateDirectory,
     async query(input) {
-      if (closed || exit !== undefined) throw new Error(`Forensic PowerShell helper PID ${pid} is not running.`);
+      if (closed || getCurrentExit() !== undefined) throw new Error(`Forensic PowerShell helper PID ${pid} is not running.`);
       const id = randomUUID();
       const requestPath = path.join(stateDirectory, `request-${id}.json`);
       const responsePath = path.join(stateDirectory, `response-${id}.json`);
@@ -156,7 +163,8 @@ async function startForensicHelper(projectRoot: string, reportRoot: string): Pro
       renameSync(requestTemporary, requestPath);
       const deadline = Date.now() + queryTimeoutMs;
       while (!existsSync(responsePath)) {
-        if (exit !== undefined) throw new Error(`Forensic PowerShell exited during query (code=${String(exit.code)}, signal=${String(exit.signal)}); stderr=${stderr}`);
+        const currentExit = getCurrentExit();
+        if (currentExit !== undefined) throw new Error(`Forensic PowerShell exited during query (code=${String(currentExit.code)}, signal=${String(currentExit.signal)}); stderr=${stderr}`);
         if (Date.now() >= deadline) throw new Error(`Forensic PowerShell query exceeded ${queryTimeoutMs} ms; stderr=${stderr}`);
         await delay(10);
       }
@@ -230,7 +238,6 @@ async function stopOwnedHelper(
     child.kill();
     if (!await waitForExit(exited, terminationConfirmMs)) throw new Error(`Could not confirm owned helper exit within ${shutdownTimeoutMs}+${terminationConfirmMs} ms.`);
   }
-  if (pid !== undefined && Number.isSafeInteger(pid) && pid > 0 && isProcessAlive(pid)) throw new Error(`Owned helper PID ${pid} may still be alive.`);
   const exit = getExit();
   if (!exit || exit.code !== 0 || exit.signal !== null) throw new Error(`Owned helper ended abnormally (code=${String(exit?.code)}, signal=${String(exit?.signal)}).`);
 }

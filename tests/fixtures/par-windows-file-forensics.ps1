@@ -3,7 +3,8 @@ param(
   [Parameter(Mandatory = $true)][string]$StateDirectory,
   [Parameter(Mandatory = $true)][string]$ReadyPath,
   [Parameter(Mandatory = $true)][string]$ShutdownPath,
-  [Parameter(Mandatory = $true)][int]$ParentLifetimeMilliseconds
+  [Parameter(Mandatory = $true)][int]$ParentLifetimeMilliseconds,
+  [Parameter(Mandatory = $true)][string]$StartupNonce
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,6 +17,8 @@ $projectPrefix = $project.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [Sys
 if (-not $state.StartsWith($projectPrefix, [System.StringComparison]::OrdinalIgnoreCase)) { throw "Helper state escaped the owned project." }
 if (-not $ready.StartsWith($state + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) { throw "Readiness path escaped helper state." }
 if (-not $shutdown.StartsWith($state + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) { throw "Shutdown path escaped helper state." }
+if ($StartupNonce -notmatch '^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$') { throw "Startup nonce was invalid." }
+Import-Module -Name (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
 
 $nativeSource = @'
 using System;
@@ -123,6 +126,7 @@ function Get-FileEvidence([string]$Path) {
   } finally { $stream.Dispose() }
   $owner = $null
   $aclHash = $null
+  $aclDiagnostic = $null
   try {
     $acl = Get-Acl -LiteralPath $full
     $owner = $acl.Owner
@@ -131,8 +135,15 @@ function Get-FileEvidence([string]$Path) {
     $aclDigest = [System.Security.Cryptography.SHA256]::Create()
     try { $aclHash = [System.BitConverter]::ToString($aclDigest.ComputeHash($aclBytes)).Replace("-", "").ToLowerInvariant() }
     finally { $aclDigest.Dispose() }
-  } catch { }
-  return @{
+  } catch {
+    $aclException = $_.Exception
+    $aclExceptionType = if ($aclException) { [string]$aclException.GetType().FullName } else { "unknown" }
+    $aclExceptionMessage = if ($aclException) { [string]$aclException.Message } else { "unknown ACL failure" }
+    if ($aclExceptionType.Length -gt 160) { $aclExceptionType = $aclExceptionType.Substring(0, 160) }
+    if ($aclExceptionMessage.Length -gt 320) { $aclExceptionMessage = $aclExceptionMessage.Substring(0, 320) }
+    $aclDiagnostic = "${aclExceptionType}: ${aclExceptionMessage}"
+  }
+  $evidence = @{
     path = $full
     exists = $true
     type = if ($item.PSIsContainer) { "directory" } else { "file" }
@@ -142,6 +153,8 @@ function Get-FileEvidence([string]$Path) {
     aclSha256 = $aclHash
     sha256 = $digest
   }
+  if ($null -ne $aclDiagnostic) { $evidence.aclDiagnostic = $aclDiagnostic }
+  return $evidence
 }
 
 function Invoke-ForensicQuery($Request) {
@@ -181,7 +194,60 @@ function Invoke-ForensicQuery($Request) {
   }
 }
 
-Write-AtomicUtf8 $ready (@{ pid = $PID; ready = $true } | ConvertTo-Json -Compress)
+$warmupJsonPath = Join-Path $state "warmup-$StartupNonce.json"
+$warmupTemporaryPath = Join-Path $state "warmup-$StartupNonce.tmp.json"
+$warmupComplete = $false
+try {
+  $warmupJson = "{`"protocol`":`"p12f-native-readiness-warmup-v1`",`"nonce`":`"$StartupNonce`"}`n"
+  $warmupBytes = $utf8.GetBytes($warmupJson)
+  $warmupTemporaryBytes = $utf8.GetBytes("{`"protocol`":`"p12f-native-readiness-temp-v1`",`"nonce`":`"$StartupNonce`"}`n")
+  [System.IO.File]::WriteAllBytes($warmupJsonPath, $warmupBytes)
+  [System.IO.File]::WriteAllBytes($warmupTemporaryPath, $warmupTemporaryBytes)
+
+  $warmupSha = [System.Security.Cryptography.SHA256]::Create()
+  try { $expectedWarmupSha = [System.BitConverter]::ToString($warmupSha.ComputeHash($warmupBytes)).Replace("-", "").ToLowerInvariant() }
+  finally { $warmupSha.Dispose() }
+  $warmupEvidence = Get-FileEvidence $warmupJsonPath
+  if (-not $warmupEvidence.exists) { throw "Readiness warm-up JSON file was not present." }
+  if ($warmupEvidence.type -ne "file") { throw "Readiness warm-up JSON path was not a file." }
+  if ($warmupEvidence.sha256 -ne $expectedWarmupSha) { throw "Readiness warm-up JSON hash did not match its known bytes." }
+  $warmupOwnerInvalid = -not ($warmupEvidence.owner -is [string]) -or [string]::IsNullOrWhiteSpace($warmupEvidence.owner)
+  $warmupAclHashInvalid = $warmupEvidence.aclSha256 -notmatch '^[0-9a-f]{64}$'
+  if ($warmupOwnerInvalid -or $warmupAclHashInvalid) {
+    $ownerType = if ($null -eq $warmupEvidence.owner) { "null" } else { [string]$warmupEvidence.owner.GetType().FullName }
+    $aclFailure = if ($null -eq $warmupEvidence.aclDiagnostic) { "none" } else { [string]$warmupEvidence.aclDiagnostic }
+    throw "Readiness warm-up JSON owner/ACL evidence failed (ownerType=$ownerType; aclDiagnostic=$aclFailure)."
+  }
+
+  $warmupTemporarySha = [System.Security.Cryptography.SHA256]::Create()
+  try { $expectedWarmupTemporarySha = [System.BitConverter]::ToString($warmupTemporarySha.ComputeHash($warmupTemporaryBytes)).Replace("-", "").ToLowerInvariant() }
+  finally { $warmupTemporarySha.Dispose() }
+  $warmupTemporaryEvidence = Get-FileEvidence $warmupTemporaryPath
+  if (-not $warmupTemporaryEvidence.exists) { throw "Readiness warm-up temporary file was not present." }
+  if ($warmupTemporaryEvidence.type -ne "file") { throw "Readiness warm-up temporary path was not a file." }
+  if ($warmupTemporaryEvidence.sha256 -ne $expectedWarmupTemporarySha) { throw "Readiness warm-up temporary hash did not match its known bytes." }
+  $warmupTemporaryOwnerInvalid = -not ($warmupTemporaryEvidence.owner -is [string]) -or [string]::IsNullOrWhiteSpace($warmupTemporaryEvidence.owner)
+  $warmupTemporaryAclHashInvalid = $warmupTemporaryEvidence.aclSha256 -notmatch '^[0-9a-f]{64}$'
+  if ($warmupTemporaryOwnerInvalid -or $warmupTemporaryAclHashInvalid) {
+    $ownerType = if ($null -eq $warmupTemporaryEvidence.owner) { "null" } else { [string]$warmupTemporaryEvidence.owner.GetType().FullName }
+    $aclFailure = if ($null -eq $warmupTemporaryEvidence.aclDiagnostic) { "none" } else { [string]$warmupTemporaryEvidence.aclDiagnostic }
+    throw "Readiness warm-up temporary owner/ACL evidence failed (ownerType=$ownerType; aclDiagnostic=$aclFailure)."
+  }
+
+  $warmupDeleteCode = [P12FNativeProbe]::ProbeDeleteAccess($warmupJsonPath)
+  if ($warmupDeleteCode -ne 0) { throw "Readiness warm-up delete-access probe returned $warmupDeleteCode." }
+  $warmupProcesses = @([P12FNativeProbe]::ListProcesses([string[]]@($warmupJsonPath, $warmupTemporaryPath)))
+  if (-not ($warmupProcesses -is [array])) { throw "Readiness warm-up Restart Manager query did not return its process array." }
+  $warmupComplete = $true
+} finally {
+  [System.IO.File]::Delete($warmupJsonPath)
+  [System.IO.File]::Delete($warmupTemporaryPath)
+  if ((Test-Path -LiteralPath $warmupJsonPath) -or (Test-Path -LiteralPath $warmupTemporaryPath)) {
+    throw "Readiness warm-up scratch files could not be removed."
+  }
+}
+if (-not $warmupComplete) { throw "Readiness warm-up did not complete." }
+Write-AtomicUtf8 $ready (@{ pid = $PID; ready = $true; startupNonce = $StartupNonce; warmupProtocol = "p12f-native-readiness-warmup-v1"; warmupComplete = $true } | ConvertTo-Json -Compress)
 $parentLifetimeDeadline = [DateTime]::UtcNow.AddMilliseconds($ParentLifetimeMilliseconds)
 while ($true) {
   if (Test-Path -LiteralPath $shutdown) { exit 0 }
