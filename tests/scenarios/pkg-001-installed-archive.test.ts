@@ -1,7 +1,9 @@
 import { exerciseTaskLoop } from '../support/task-loop-scenario.js';
 import { afterAll, beforeAll, expect, test } from "vitest";
 import crossSpawn from "cross-spawn";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import type { SpawnSyncReturns } from "node:child_process";
+import { createHash } from "node:crypto";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, type Stats } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -16,6 +18,7 @@ let archivePath = "";
 let packageVersion = "";
 let packageName = "";
 let archivedPaths: string[] = [];
+const successfulInstalledJourneyRoots: string[] = [];
 
 type PackageStage = "help" | "version" | "init" | "run" | "status-json" | "status-text" | "inspect-workflow" | "inspect-run" | "inspect-export" | "inspect-replay";
 type PackageStageTiming = { stage: PackageStage; startMs: number; endMs: number; durationMs: number; status: number | null | "threw" };
@@ -38,6 +41,12 @@ beforeAll(() => {
 }, 120_000);
 
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+
+afterAll(() => {
+  for (const root of successfulInstalledJourneyRoots) {
+    if (existsSync(root)) rmSync(root, { recursive: true, force: false });
+  }
+});
 
 test("PKG-008 installed task helper includes executable workflows and preserves existing setup", () => {
   const project = path.join(scratch, "task planning ü");
@@ -491,7 +500,7 @@ test("PKG-003 upgrades from a real older archive and resumes a paused run withou
   expect(readFileSync(fixture.logPath, "utf8").trim().split("\n")).toHaveLength(2);
 }, 120_000);
 
-function runInstalled(prefix: string, args: string[], cwd: string): ReturnType<typeof crossSpawn.sync> {
+function runInstalled(prefix: string, args: string[], cwd: string): SpawnSyncReturns<string> {
   const shim = path.join(prefix, "node_modules", ".bin", process.platform === "win32" ? "nodulus.cmd" : "nodulus");
   return crossSpawn.sync(shim, args, { cwd, encoding: "utf8", timeout: 30_000, windowsHide: true });
 }
@@ -500,8 +509,8 @@ function observePackageStage(
   timings: PackageStageTiming[],
   enabled: boolean,
   stage: PackageStage,
-  run: () => ReturnType<typeof runInstalled>,
-): ReturnType<typeof runInstalled> {
+  run: () => SpawnSyncReturns<string>,
+): SpawnSyncReturns<string> {
   if (!enabled) return run();
   const startMs = performance.now();
   try {
@@ -516,7 +525,7 @@ function observePackageStage(
   }
 }
 
-function runOk(command: string, args: string[], cwd: string): ReturnType<typeof crossSpawn.sync> {
+function runOk(command: string, args: string[], cwd: string): SpawnSyncReturns<string> {
   const result = crossSpawn.sync(command, args, { cwd, encoding: "utf8", timeout: 120_000, windowsHide: true });
   if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed (${result.status}): ${result.stderr}`);
   return result;
@@ -687,3 +696,564 @@ function installedPackageDirectory(prefix: string): string {
 }
 
 test("PKG-009 installed task loop revises and accepts through six real CLI runs", () => exerciseTaskLoop(path.join(installedPackageDirectory(installedPrefix), "scripts/task-workflow/cli.mjs")), 40000);
+
+const parallelReviewArchivePaths = [
+  "examples/parallel-review/README.md",
+  "examples/parallel-review/.nodulus/settings.json",
+  "examples/parallel-review/.nodulus/workflows/parallel-review.json",
+  "examples/parallel-review/.nodulus/contracts/request.v1.schema.json",
+  "examples/parallel-review/.nodulus/contracts/report.v1.schema.json",
+  ...["prepare", "security", "quality", "join", "audit"].flatMap((node) => [
+    `examples/parallel-review/.nodulus/nodes/${node}.json`,
+    `examples/parallel-review/.nodulus/instructions/${node}.md`,
+  ]),
+  "examples/parallel-review/.nodulus/validators/report.mjs",
+];
+
+test("PKG-043 runs the installed parallel-review example with captured graph evidence", () => {
+  const deadline = performance.now() + 15_000;
+  expect(archivedPaths, "the package archive must contain the complete parallel-review example").toEqual(expect.arrayContaining(parallelReviewArchivePaths));
+
+  const installedExample = path.join(installedPackageDirectory(installedPrefix), "examples", "parallel-review");
+  return withOwnedInstalledProject("parallel-review café & %", deadline, (project) => {
+    cpSync(installedExample, project, { recursive: true });
+    const workflowPath = path.join(project, ".nodulus", "workflows", "parallel-review.json");
+    const workflow = readJsonFile(workflowPath);
+    expect(workflow).toMatchObject({
+      schemaVersion: 2,
+      id: "parallel-review",
+      nodes: ["prepare", "security", "quality", "join", "audit"],
+      execution: {
+        kind: "dag",
+        maxConcurrency: 3,
+        dependsOn: { prepare: [], security: ["prepare"], quality: ["prepare"], join: ["security", "quality"], audit: ["prepare"] },
+        resources: { prepare: [], security: [], quality: [], join: [], audit: [] },
+      },
+      outputs: [
+        { name: "review", from: "join.report", contract: "report.v1" },
+        { name: "audit", from: "audit.report", contract: "report.v1" },
+      ],
+    });
+    expect(readJsonFile(path.join(project, ".nodulus", "nodes", "prepare.json")).inputs).toEqual({ brief: { from: "request", contract: "request.v1" } });
+    expect(readJsonFile(path.join(project, ".nodulus", "nodes", "security.json")).inputs).toEqual({ brief: { from: "prepare.report", contract: "report.v1" } });
+    expect(readJsonFile(path.join(project, ".nodulus", "nodes", "quality.json")).inputs).toEqual({ brief: { from: "prepare.report", contract: "report.v1" } });
+    expect(readJsonFile(path.join(project, ".nodulus", "nodes", "join.json")).inputs).toEqual({
+      security: { from: "security.report", contract: "report.v1" },
+      quality: { from: "quality.report", contract: "report.v1" },
+    });
+    expect(readJsonFile(path.join(project, ".nodulus", "nodes", "audit.json")).inputs).toEqual({ brief: { from: "prepare.report", contract: "report.v1" } });
+
+    const control = configureInstalledGraphProvider(project, "parallel-review", "parallel-review", "parallel-review-validator-invocations.jsonl");
+    const cli = runInstalledWithinJourney(["run", "--project", project, "--workflow", "parallel-review", "--request", "Review the release brief", "--json"], project, deadline);
+    expect(cli.status, `${String(cli.stdout)}\n${String(cli.stderr)}`).toBe(0);
+    const envelope = parseCliEnvelope(cli.stdout);
+    expect(envelope).toMatchObject({ schemaVersion: 1, status: "success", runId: expect.any(String) });
+    const runId = requiredString(envelope.runId, "runId");
+    const runResult = record(envelope.result, "run result");
+    expect(runResult.artifacts).toEqual([
+      { name: "review", contract: "report.v1", data: { text: "review=security:prepared:Review the release brief|quality:prepared:Review the release brief" } },
+      { name: "audit", contract: "report.v1", data: { text: "audit=prepared:Review the release brief" } },
+    ]);
+
+    const calls = readJsonLines(control.callsPath);
+    expect(calls.map(({ nodeId, attempt }) => `${String(nodeId)}/${String(attempt)}`).sort(comparePackageStrings)).toEqual([
+      "audit/1", "join/1", "prepare/1", "quality/1", "security/1",
+    ]);
+    expect(calls).toHaveLength(5);
+    expect(readdirSync(control.callsDirectory)).toHaveLength(5);
+    expect(readdirSync(control.attemptsDirectory)).toHaveLength(5);
+    expect(new Set(calls.map(({ callId }) => callId)).size).toBe(5);
+    expect(calls.every((call) => call.runId === runId && call.completed === true)).toBe(true);
+    const fixtureEvents = readJsonLines(control.eventsPath);
+    const startedCallIds = fixtureEvents.filter(({ stage }) => stage === "inference-started").map(({ callId }) => requiredString(callId, "started fixture call id")).sort(comparePackageStrings);
+    const completedCallIds = fixtureEvents.filter(({ stage }) => stage === "inference-completed").map(({ callId }) => requiredString(callId, "completed fixture call id")).sort(comparePackageStrings);
+    expect(startedCallIds).toEqual(calls.map(({ callId }) => requiredString(callId, "captured call id")).sort(comparePackageStrings));
+    expect(completedCallIds).toEqual(startedCallIds);
+    expect(fixtureEvents.filter(({ stage }) => stage === "fixture-error")).toHaveLength(0);
+    for (const call of calls) {
+      const callId = requiredString(call.callId, "captured call id");
+      const transport = readJsonFile(path.join(project, ".nodulus", "runs", runId, "calls", callId, "transport.json"));
+      expect(transport).toMatchObject({ callId, started: true, exitCode: 0, timedOut: false, cancelled: false });
+    }
+    const join = calls.find(({ nodeId }) => nodeId === "join");
+    expect(join).toBeDefined();
+    expect(join?.mappedInputs).toEqual({
+      security: { text: "security:prepared:Review the release brief" },
+      quality: { text: "quality:prepared:Review the release brief" },
+    });
+    const joinCallId = requiredString(join?.callId, "join call id");
+    const joinPrompt = readFileSync(path.join(project, ".nodulus", "runs", runId, "calls", joinCallId, "stdin.txt"), "utf8");
+    expect(joinPrompt).toContain("security:prepared:Review the release brief");
+    expect(joinPrompt).toContain("quality:prepared:Review the release brief");
+    for (const nodeId of ["prepare", "security", "quality", "join", "audit"]) {
+      const attempt = readJsonFile(path.join(project, ".nodulus", "runs", runId, "nodes", nodeId, "attempt-001", "validation.json"));
+      expect(attempt).toEqual({ valid: true, outcome: "success", validators: [{ name: "report", valid: true, errors: [] }], errors: [] });
+    }
+
+    const runRoot = path.join(project, ".nodulus", "runs", runId);
+    const acceptedCheckpoint = readJsonFile(path.join(runRoot, "run.json"));
+    const acceptedGraph = record(acceptedCheckpoint.graph, "accepted graph checkpoint");
+    const acceptedNodes = record(acceptedGraph.nodes, "accepted graph nodes");
+    for (const nodeId of ["prepare", "security", "quality", "join", "audit"]) {
+      const acceptedNode = record(acceptedNodes[nodeId], `${nodeId} checkpoint`);
+      const accepted = record(acceptedNode.accepted, `${nodeId} accepted record`);
+      const attempt = requiredNumber(accepted.attempt, `${nodeId} accepted attempt`);
+      const expectedReferences = {
+        resultRef: `nodes/${nodeId}/attempt-001/result.json`,
+        validationRef: `nodes/${nodeId}/attempt-001/validation.json`,
+        responseRef: `nodes/${nodeId}/attempt-001/response.raw.txt`,
+      };
+      expect(attempt).toBe(1);
+      for (const referenceField of ["resultRef", "validationRef", "responseRef"] as const) {
+        const hashField = referenceField.replace("Ref", "Sha256");
+        const relative = requiredString(accepted[referenceField], `${nodeId} ${referenceField}`);
+        expect(relative).toBe(expectedReferences[referenceField]);
+        const expectedHash = requiredString(accepted[hashField], `${nodeId} ${hashField}`);
+        expect(hashFile(path.join(runRoot, relative))).toBe(expectedHash);
+      }
+      const artifactPath = path.join(runRoot, "nodes", nodeId, "artifacts", "report.json");
+      expect(records(accepted.artifacts, `${nodeId} accepted artifacts`)).toEqual([{
+        name: "report",
+        contract: "report.v1",
+        ref: `nodes/${nodeId}/artifacts/report.json`,
+        sha256: hashFile(artifactPath),
+      }]);
+      expect(acceptedNode).toMatchObject({ phase: "accepted", attempt });
+    }
+    const beforeReadOnlyCommands = snapshotOwnedTrees([project]);
+    const status = runInstalledWithinJourney(["status", runId, "--project", project, "--json"], project, deadline);
+    expect(status.status, String(status.stderr)).toBe(0);
+    const statusEnvelope = parseCliEnvelope(status.stdout);
+    expect(statusEnvelope).toMatchObject({ schemaVersion: 1, status: "success", runId });
+    expect(record(statusEnvelope.result, "status result").status).toBe("success");
+    expect(snapshotOwnedTrees([project])).toEqual(beforeReadOnlyCommands);
+
+    const inspectWorkflow = runInstalledWithinJourney(["inspect", "workflow", "parallel-review", "--project", project, "--json"], project, deadline);
+    expect(inspectWorkflow.status, String(inspectWorkflow.stderr)).toBe(0);
+    expect(record(parseCliEnvelope(inspectWorkflow.stdout).result, "workflow inspection").workflow).toMatchObject({
+      execution: { kind: "dag", maxConcurrency: 3 },
+      outputs: [{ name: "review" }, { name: "audit" }],
+    });
+    expect(snapshotOwnedTrees([project])).toEqual(beforeReadOnlyCommands);
+
+    const inspectRun = runInstalledWithinJourney(["inspect", "run", runId, "--project", project, "--json"], project, deadline);
+    expect(inspectRun.status, String(inspectRun.stderr)).toBe(0);
+    const inspection = record(parseCliEnvelope(inspectRun.stdout).result, "run inspection");
+    expect(inspection.status).toBe("success");
+    expect(inspection.artifacts).toEqual(["prepare", "security", "quality", "join", "audit"].map((nodeId) => ({
+      nodeId,
+      name: "report",
+      reference: `nodes/${nodeId}/artifacts/report.json`,
+      accepted: true,
+    })));
+    expect(snapshotOwnedTrees([project])).toEqual(beforeReadOnlyCommands);
+
+    const exported = runInstalledWithinJourney(["inspect", "export", runId, "--project", project, "--json"], project, deadline);
+    expect(exported.status, String(exported.stderr)).toBe(0);
+    expect(record(parseCliEnvelope(exported.stdout).result, "run export")).toMatchObject({
+      schemaVersion: 1,
+      run: { runId, status: "success" },
+      definitions: {
+        workflow: {
+          id: "parallel-review",
+          nodes: ["prepare", "security", "quality", "join", "audit"],
+          execution: {
+            kind: "dag",
+            maxConcurrency: 3,
+            dependsOn: { prepare: [], security: ["prepare"], quality: ["prepare"], join: ["security", "quality"], audit: ["prepare"] },
+            resources: { prepare: [], security: [], quality: [], join: [], audit: [] },
+          },
+          outputs: [{ name: "review", from: "join.report", contract: "report.v1" }, { name: "audit", from: "audit.report", contract: "report.v1" }],
+        },
+      },
+    });
+    expect(snapshotOwnedTrees([project])).toEqual(beforeReadOnlyCommands);
+
+    const replay = runInstalledWithinJourney(["inspect", "replay", runId, "--project", project, "--json"], project, deadline);
+    expect(replay.status, String(replay.stderr)).toBe(0);
+    const replayResult = record(parseCliEnvelope(replay.stdout).result, "run replay");
+    expect(replayResult).toMatchObject({ schemaVersion: 1, runId, mode: "schema-only", skipped: { providerCalls: true } });
+    const replayCandidates = records(replayResult.candidates, "graph replay candidates");
+    expect(record(replayResult.skipped, "graph replay skipped work")).toMatchObject({
+      providerCalls: true,
+      executableValidators: [".nodulus/validators/report.mjs"],
+    });
+    expect(replayCandidates).toHaveLength(5);
+    expect(replayCandidates.map(({ nodeId, attempt, name, contract, valid, acceptanceStatus }) => ({ nodeId, attempt, name, contract, valid, acceptanceStatus })).sort((left, right) => comparePackageStrings(String(left.nodeId), String(right.nodeId)))).toEqual(
+      ["prepare", "security", "quality", "join", "audit"].map((nodeId) => ({ nodeId, attempt: 1, name: "report", contract: "report.v1", valid: true, acceptanceStatus: "accepted" })).sort((left, right) => comparePackageStrings(left.nodeId, right.nodeId)),
+    );
+    expect(snapshotOwnedTrees([project])).toEqual(beforeReadOnlyCommands);
+    expect(readFileSync(path.join(runRoot, "inputs.json"), "utf8")).toContain("Review the release brief");
+    expect(performance.now()).toBeLessThan(deadline);
+  });
+}, 15_000);
+
+test("PKG-044 installed graph resume preserves two root questions and joins answered roots", () => {
+  const deadline = performance.now() + 15_000;
+  return withOwnedInstalledProject("parallel-questions café & %", deadline, (project) => {
+    mkdirSync(project);
+    const init = runInstalledWithinJourney(["init", "--project", project], project, deadline);
+    expect(init.status, `${String(init.stdout)}\n${String(init.stderr)}`).toBe(0);
+    const control = configureQuestionGraph(project);
+    const firstRun = runInstalledWithinJourney(["run", "--project", project, "--workflow", "parallel-questions", "--request", "Answer both review questions", "--json"], project, deadline);
+    expect(firstRun.status, String(firstRun.stderr)).toBe(2);
+    const paused = parseCliEnvelope(firstRun.stdout);
+    expect(paused).toMatchObject({ schemaVersion: 1, status: "needs_input", runId: expect.any(String) });
+    const runId = requiredString(paused.runId, "runId");
+    const pausedResult = record(paused.result, "paused run result");
+    const initialRequests = records(pausedResult.requests, "initial requests");
+    expect(initialRequests.map(({ nodeId }) => nodeId)).toEqual(["alpha", "beta"]);
+    expect(pausedResult.request).toEqual(initialRequests[0]);
+    const alphaId = requiredString(initialRequests[0]!.id, "alpha request id");
+    const betaId = requiredString(initialRequests[1]!.id, "beta request id");
+
+    const initialCalls = readJsonLines(control.callsPath);
+    const initialCallMarkers = readdirSync(control.callsDirectory).sort(comparePackageStrings);
+    const initialAttemptMarkers = readdirSync(control.attemptsDirectory).sort(comparePackageStrings);
+    expect(initialCalls.map(({ nodeId, attempt }) => `${String(nodeId)}/${String(attempt)}`).sort(comparePackageStrings)).toEqual(["alpha/1", "beta/1"]);
+    expect(initialCallMarkers).toHaveLength(2);
+    expect(initialAttemptMarkers).toHaveLength(2);
+    expect(initialCalls.every((call) => call.runId === runId && call.completed === true)).toBe(true);
+    const initialFixtureEvents = readJsonLines(control.eventsPath);
+    const initialStartedIds = initialFixtureEvents.filter(({ stage }) => stage === "inference-started").map(({ callId }) => requiredString(callId, "initial fixture call id")).sort(comparePackageStrings);
+    expect(initialFixtureEvents.filter(({ stage }) => stage === "fixture-error")).toHaveLength(0);
+    for (const call of initialCalls) {
+      const callId = requiredString(call.callId, "initial call id");
+      expect(readJsonFile(path.join(project, ".nodulus", "runs", runId, "calls", callId, "transport.json"))).toMatchObject({
+        callId, started: true, exitCode: 0, timedOut: false, cancelled: false,
+      });
+    }
+    const runRoot = path.join(project, ".nodulus", "runs", runId);
+    const capturedInputs = readFileSync(path.join(runRoot, "inputs.json"));
+    const beforePartial = snapshotOwnedTrees([project]);
+    const status = runInstalledWithinJourney(["status", runId, "--project", project, "--json"], project, deadline);
+    expect(status.status, String(status.stderr)).toBe(0);
+    const initialStatus = record(parseCliEnvelope(status.stdout).result, "initial graph status");
+    expect(records(initialStatus.pendingRequests, "initial pending requests").map(({ id }) => id)).toEqual([alphaId, betaId]);
+    expect(record(initialStatus.pendingRequest, "first pending request alias")).toMatchObject({ id: alphaId, nodeId: "alpha" });
+    expect(snapshotOwnedTrees([project])).toEqual(beforePartial);
+
+    const alphaAnswersPath = writeAnswersFile(project, "alpha-answers.json", { alphaApproval: true });
+    const partial = runInstalledWithinJourney([
+      "resume", runId, "--request-id", alphaId, "--answers-file", alphaAnswersPath, "--project", project, "--json",
+    ], project, deadline);
+    expect(partial.status, String(partial.stderr)).toBe(2);
+    const partialEnvelope = parseCliEnvelope(partial.stdout);
+    expect(partialEnvelope).toMatchObject({ schemaVersion: 1, status: "needs_input", runId });
+    const partialResult = record(partialEnvelope.result, "partial resume result");
+    expect(records(partialResult.requests, "remaining requests").map(({ id, nodeId }) => [id, nodeId])).toEqual([[betaId, "beta"]]);
+    expect(partialResult.request).toEqual(records(partialResult.requests, "remaining request alias")[0]);
+    expect(readJsonLines(control.callsPath)).toEqual(initialCalls);
+    expect(readdirSync(control.callsDirectory).sort(comparePackageStrings)).toEqual(initialCallMarkers);
+    expect(readdirSync(control.attemptsDirectory).sort(comparePackageStrings)).toEqual(initialAttemptMarkers);
+    expect(readJsonLines(control.eventsPath).filter(({ stage }) => stage === "inference-started").map(({ callId }) => requiredString(callId, "partial fixture call id")).sort(comparePackageStrings)).toEqual(initialStartedIds);
+    expect(readFileSync(control.validatorsPath, "utf8")).toBe("");
+    const answerPath = path.join(project, ".nodulus", "runs", runId, "answers", `${alphaId}.json`);
+    expect(readJsonFile(answerPath)).toEqual({ alphaApproval: true });
+    const runEventsPath = path.join(runRoot, "events.jsonl");
+    expect(readJsonLines(runEventsPath).filter(({ event, requestId }) => event === "request.answered" && requestId === alphaId)).toHaveLength(1);
+    expect(readJsonLines(runEventsPath).filter(({ event }) => event === "run.resumed")).toHaveLength(0);
+    const afterPartial = snapshotOwnedTrees([project]);
+    const partialStatus = runInstalledWithinJourney(["status", runId, "--project", project, "--json"], project, deadline);
+    expect(partialStatus.status, String(partialStatus.stderr)).toBe(0);
+    const partialStatusResult = record(parseCliEnvelope(partialStatus.stdout).result, "partial graph status");
+    expect(records(partialStatusResult.pendingRequests, "partial pending requests").map(({ id }) => id)).toEqual([betaId]);
+    expect(record(partialStatusResult.pendingRequest, "remaining pending request alias")).toMatchObject({ id: betaId, nodeId: "beta" });
+    expect(snapshotOwnedTrees([project])).toEqual(afterPartial);
+
+    const betaAnswersPath = writeAnswersFile(project, "beta-answers.json", { betaApproval: true });
+    const finalResume = runInstalledWithinJourney([
+      "resume", runId, "--request-id", betaId, "--answers-file", betaAnswersPath, "--project", project, "--json",
+    ], project, deadline);
+    expect(finalResume.status, String(finalResume.stderr)).toBe(0);
+    const finalEnvelope = parseCliEnvelope(finalResume.stdout);
+    expect(finalEnvelope).toMatchObject({ schemaVersion: 1, status: "success", runId });
+    expect(record(finalEnvelope.result, "final graph result").artifacts).toEqual([
+      { name: "alphaFinal", contract: "report.v1", data: { text: "alpha:approved" } },
+      { name: "betaFinal", contract: "report.v1", data: { text: "beta:approved" } },
+      { name: "joined", contract: "report.v1", data: { text: "join=alpha:approved|beta:approved" } },
+    ]);
+
+    const finalCalls = readJsonLines(control.callsPath);
+    expect(finalCalls.map(({ nodeId, attempt }) => `${String(nodeId)}/${String(attempt)}`).sort(comparePackageStrings)).toEqual([
+      "alpha/1", "alpha/2", "beta/1", "beta/2", "join/1",
+    ]);
+    expect(finalCalls).toHaveLength(5);
+    expect(readdirSync(control.callsDirectory)).toHaveLength(5);
+    expect(readdirSync(control.attemptsDirectory)).toHaveLength(5);
+    expect(finalCalls.every((call) => call.runId === runId && call.completed === true)).toBe(true);
+    const finalFixtureEvents = readJsonLines(control.eventsPath);
+    const finalStartedIds = finalFixtureEvents.filter(({ stage }) => stage === "inference-started").map(({ callId }) => requiredString(callId, "final fixture call id")).sort(comparePackageStrings);
+    const finalCompletedIds = finalFixtureEvents.filter(({ stage }) => stage === "inference-completed").map(({ callId }) => requiredString(callId, "finished fixture call id")).sort(comparePackageStrings);
+    expect(finalStartedIds).toEqual(finalCalls.map(({ callId }) => requiredString(callId, "completed call id")).sort(comparePackageStrings));
+    expect(finalCompletedIds).toEqual(finalStartedIds);
+    expect(finalFixtureEvents.filter(({ stage }) => stage === "fixture-error")).toHaveLength(0);
+    const alphaFinal = finalCalls.find(({ nodeId, attempt }) => nodeId === "alpha" && attempt === 2);
+    const betaFinal = finalCalls.find(({ nodeId, attempt }) => nodeId === "beta" && attempt === 2);
+    expect(alphaFinal?.promptAnswers).toEqual({ alphaApproval: true });
+    expect(betaFinal?.promptAnswers).toEqual({ betaApproval: true });
+    expect(finalCalls.slice(0, initialCalls.length)).toEqual(initialCalls);
+    const alphaInitial = initialCalls.find(({ nodeId }) => nodeId === "alpha");
+    const betaInitial = initialCalls.find(({ nodeId }) => nodeId === "beta");
+    expect(alphaInitial).toBeDefined();
+    expect(betaInitial).toBeDefined();
+    for (const call of finalCalls) {
+      const callId = requiredString(call.callId, "final call id");
+      const savedRequest = readJsonFile(path.join(project, ".nodulus", "runs", runId, "calls", callId, "request.json"));
+      expect(savedRequest).toMatchObject({ runId, callId, nodeId: call.nodeId, attempt: call.attempt });
+      expect(readJsonFile(path.join(project, ".nodulus", "runs", runId, "calls", callId, "transport.json"))).toMatchObject({
+        callId, started: true, exitCode: 0, timedOut: false, cancelled: false,
+      });
+    }
+    expect(readJsonFile(path.join(project, ".nodulus", "runs", runId, "calls", requiredString(alphaFinal?.callId, "alpha continuation call id"), "request.json")).parentCallId).toBe(alphaInitial?.callId);
+    expect(readJsonFile(path.join(project, ".nodulus", "runs", runId, "calls", requiredString(betaFinal?.callId, "beta continuation call id"), "request.json")).parentCallId).toBe(betaInitial?.callId);
+    expect(readJsonFile(path.join(project, ".nodulus", "runs", runId, "answers", `${alphaId}.json`))).toEqual({ alphaApproval: true });
+    expect(readJsonFile(path.join(project, ".nodulus", "runs", runId, "answers", `${betaId}.json`))).toEqual({ betaApproval: true });
+    const events = readJsonLines(runEventsPath);
+    expect(events.filter(({ event, requestId }) => event === "run.resumed" && requestId === betaId)).toHaveLength(1);
+    expect(events.filter(({ event }) => event === "run.resumed")).toHaveLength(1);
+    expect(events.filter(({ event }) => event === "request.answered").map(({ requestId }) => requestId)).toEqual([alphaId, betaId]);
+    const validatorCalls = readJsonLines(control.validatorsPath);
+    expect(validatorCalls.map(({ nodeId }) => requiredString(nodeId, "validated node id")).sort(comparePackageStrings)).toEqual(["alpha", "beta", "join"]);
+    expect(validatorCalls).toHaveLength(3);
+    expect(validatorCalls.every(({ pid, data, valid }) => typeof pid === "number" && pid > 0 && valid === true && record(data, "validator input").text !== undefined)).toBe(true);
+    expect(validatorCalls.map(({ nodeId, data }) => [nodeId, record(data, "validated data").text]).sort((left, right) => comparePackageStrings(String(left[0]), String(right[0])))).toEqual([
+      ["alpha", "alpha:approved"], ["beta", "beta:approved"], ["join", "join=alpha:approved|beta:approved"],
+    ]);
+    const beforeFinalStatus = snapshotOwnedTrees([project]);
+    const finalStatus = runInstalledWithinJourney(["status", runId, "--project", project, "--json"], project, deadline);
+    expect(finalStatus.status, String(finalStatus.stderr)).toBe(0);
+    const finalStatusResult = record(parseCliEnvelope(finalStatus.stdout).result, "final graph status");
+    expect(finalStatusResult.status).toBe("success");
+    expect(records(finalStatusResult.pendingRequests, "final pending requests")).toEqual([]);
+    expect(snapshotOwnedTrees([project])).toEqual(beforeFinalStatus);
+    const finalCheckpoint = readJsonFile(path.join(runRoot, "run.json"));
+    const graph = record(finalCheckpoint.graph, "final graph checkpoint");
+    const nodes = record(graph.nodes, "final graph nodes");
+    for (const nodeId of ["alpha", "beta", "join"]) expect(nodes[nodeId]).toMatchObject({ phase: "accepted", attempt: nodeId === "join" ? 1 : 2 });
+    expect(finalCheckpoint.status).toBe("success");
+    expect([...(finalCheckpoint.completedNodes as string[])].sort(comparePackageStrings)).toEqual(["alpha", "beta", "join"]);
+    expect(readFileSync(path.join(runRoot, "inputs.json"))).toEqual(capturedInputs);
+    expect(performance.now()).toBeLessThan(deadline);
+  });
+}, 15_000);
+
+type JsonRecord = Record<string, unknown>;
+type InstalledCallRecord = JsonRecord & { nodeId: unknown; attempt: unknown };
+
+function withOwnedInstalledProject<T>(label: string, deadline: number, run: (project: string) => T): T {
+  const temporaryRoot = mkdtempSync(path.join(tmpdir(), `nodulus-${label}-`));
+  const project = path.join(temporaryRoot, "project");
+  try {
+    const result = run(project);
+    if (performance.now() >= deadline) throw new Error("Installed graph journey exceeded its whole-journey budget before cleanup registration.");
+    successfulInstalledJourneyRoots.push(temporaryRoot);
+    return result;
+  } catch (error) {
+    process.stderr.write(`PAR043 retained owned root after failure: ${temporaryRoot}; project: ${project}\n`);
+    throw error;
+  }
+}
+
+type InstalledJourneyResult = { status: number | null; stdout: string; stderr: string };
+
+function runInstalledWithinJourney(args: string[], cwd: string, deadline: number): InstalledJourneyResult {
+  const remainingMs = deadline - performance.now();
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) throw new Error(`Installed graph journey exceeded its aggregate budget before '${args[0]}'.`);
+  const timeout = Math.max(1, Math.min(30_000, Math.floor(remainingMs)));
+  const startedAt = performance.now();
+  const shim = path.join(installedPrefix, "node_modules", ".bin", process.platform === "win32" ? "nodulus.cmd" : "nodulus");
+  const result = crossSpawn.sync(shim, args, { cwd, encoding: "utf8", timeout, windowsHide: true });
+  if (performance.now() - startedAt > remainingMs) throw new Error(`Installed graph journey command '${args[0]}' completed outside its aggregate budget.`);
+  if (result.status === null) throw new Error(`Installed graph journey command '${args[0]}' timed out within its remaining aggregate budget: ${String(result.stderr).slice(0, 500)}`);
+  return {
+    status: result.status,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  };
+}
+
+type InstalledGraphMode = "parallel-review" | "questions";
+type InstalledGraphFixture = { callsPath: string; validatorsPath: string; eventsPath: string; callsDirectory: string; attemptsDirectory: string };
+
+function configureInstalledGraphProvider(project: string, prefix: string, mode: InstalledGraphMode, validatorLogName = `${prefix}-validators.jsonl`): InstalledGraphFixture {
+  const fixtureDirectory = path.join(project, ".nodulus", "fixtures");
+  mkdirSync(fixtureDirectory, { recursive: true });
+  const callsDirectory = path.join(fixtureDirectory, `${prefix}-calls`);
+  const attemptsDirectory = path.join(fixtureDirectory, `${prefix}-attempts`);
+  mkdirSync(callsDirectory);
+  mkdirSync(attemptsDirectory);
+  const callsPath = path.join(fixtureDirectory, `${prefix}-calls.jsonl`);
+  const validatorsPath = path.join(fixtureDirectory, validatorLogName);
+  const eventsPath = path.join(fixtureDirectory, `${prefix}-events.jsonl`);
+  const controlPath = path.join(fixtureDirectory, "par-043-control.json");
+  writeFileSync(callsPath, "", { encoding: "utf8", flag: "wx" });
+  writeFileSync(validatorsPath, "", { encoding: "utf8", flag: "wx" });
+  writeFileSync(eventsPath, "", { encoding: "utf8", flag: "wx" });
+  const fixtureScript = path.join(fixtureDirectory, "par-043-installed-graph-provider.mjs");
+  const fixtureSource = fileURLToPath(new URL("../fixtures/par-043-installed-graph-provider.mjs", import.meta.url));
+  cpSync(fixtureSource, fixtureScript);
+  const executable = path.join(fixtureDirectory, process.platform === "win32" ? "par-043-installed-graph-provider.cmd" : "par-043-installed-graph-provider.sh");
+  if (process.platform === "win32") {
+    writeFileSync(executable, `@echo off\r\n"${process.execPath}" ".nodulus\\fixtures\\par-043-installed-graph-provider.mjs" %*\r\nexit /b %ERRORLEVEL%\r\n`, "utf8");
+  } else {
+    const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+    writeFileSync(executable, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(fixtureScript)} "$@"\n`, "utf8");
+    chmodSync(executable, 0o755);
+  }
+
+  const settingsPath = path.join(project, ".nodulus", "settings.json");
+  const settings = readJsonFile(settingsPath);
+  const profiles = record(settings.providerProfiles, "provider profiles");
+  if (Object.keys(profiles).length === 0) {
+    profiles.fixture = { kind: "codex", enabled: true, model: "installed-graph-fixture", timeoutMs: 5000, capabilities: [] };
+  }
+  for (const [name, profileValue] of Object.entries(profiles)) {
+    const profile = record(profileValue, `provider profile ${name}`);
+    if (profile.kind !== "codex") throw new Error(`Installed graph fixture expected Codex profile '${name}'.`);
+    profile.executable = executable;
+  }
+  writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+  writeFileSync(controlPath, `${JSON.stringify({
+    mode,
+    callsPath: path.relative(project, callsPath),
+    validatorsPath: path.relative(project, validatorsPath),
+    eventsPath: path.relative(project, eventsPath),
+    callsDirectory: path.relative(project, callsDirectory),
+    attemptsDirectory: path.relative(project, attemptsDirectory),
+  })}\n`, "utf8");
+  return { callsPath, validatorsPath, eventsPath, callsDirectory, attemptsDirectory };
+}
+
+function configureQuestionGraph(project: string): InstalledGraphFixture {
+  const fixture = configureInstalledGraphProvider(project, "questions", "questions");
+  const settingsPath = path.join(project, ".nodulus", "settings.json");
+  const settings = readJsonFile(settingsPath);
+  settings.defaultWorkflow = "parallel-questions";
+  writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+  const root = path.join(project, ".nodulus");
+  mkdirSync(path.join(root, "workflows"), { recursive: true });
+  mkdirSync(path.join(root, "contracts"), { recursive: true });
+  mkdirSync(path.join(root, "nodes"), { recursive: true });
+  mkdirSync(path.join(root, "instructions"), { recursive: true });
+  mkdirSync(path.join(root, "validators"), { recursive: true });
+  writeFileSync(path.join(root, "contracts", "report.v1.schema.json"), JSON.stringify({
+    type: "object", required: ["text"], properties: { text: { type: "string", minLength: 1 } }, additionalProperties: false,
+  }), "utf8");
+  writeFileSync(path.join(root, "workflows", "parallel-questions.json"), `${JSON.stringify({
+    schemaVersion: 2,
+    id: "parallel-questions",
+    nodes: ["alpha", "beta", "join"],
+    execution: { kind: "dag", maxConcurrency: 2, dependsOn: { alpha: [], beta: [], join: ["alpha", "beta"] }, resources: { alpha: [], beta: [], join: [] } },
+    outputs: [
+      { name: "alphaFinal", from: "alpha.report", contract: "report.v1" },
+      { name: "betaFinal", from: "beta.report", contract: "report.v1" },
+      { name: "joined", from: "join.report", contract: "report.v1" },
+    ],
+  }, null, 2)}\n`, "utf8");
+  for (const nodeId of ["alpha", "beta", "join"]) {
+    const inputs = nodeId === "join"
+      ? { alpha: { from: "alpha.report", contract: "report.v1" }, beta: { from: "beta.report", contract: "report.v1" } }
+      : { request: { from: "request", contract: "request.v1" } };
+    writeFileSync(path.join(root, "nodes", `${nodeId}.json`), `${JSON.stringify({
+      schemaVersion: 1,
+      id: nodeId,
+      providerProfile: "fixture",
+      instructions: [`.nodulus/instructions/${nodeId}.md`],
+      inputs,
+      expectedOutputs: [{ name: "report", contract: "report.v1", validator: `.nodulus/validators/par-043-${nodeId}-validator.mjs` }],
+    }, null, 2)}\n`, "utf8");
+    writeFileSync(path.join(root, "instructions", `${nodeId}.md`), `Produce the ${nodeId} report for the installed graph scenario.\n`, "utf8");
+    writeFileSync(path.join(root, "validators", `par-043-${nodeId}-validator.mjs`), [
+      "import { appendFileSync } from 'node:fs';",
+      `const nodeId = ${JSON.stringify(nodeId)};`,
+      `const logPath = ${JSON.stringify(fixture.validatorsPath)};`,
+      "let raw = ''; for await (const chunk of process.stdin) raw += chunk;",
+      "const data = JSON.parse(raw);",
+      "const valid = typeof data?.text === 'string' && data.text.length > 0;",
+      "appendFileSync(logPath, JSON.stringify({ nodeId, pid: process.pid, data, valid }) + '\\n', 'utf8');",
+      "process.stdout.write(JSON.stringify({ valid, errors: valid ? [] : ['report data text is missing'] }));",
+    ].join("\n"), "utf8");
+  }
+  return fixture;
+}
+
+function writeAnswersFile(project: string, name: string, answers: Record<string, unknown>): string {
+  const file = path.join(project, name);
+  writeFileSync(file, `${JSON.stringify(answers)}\n`, "utf8");
+  return file;
+}
+
+function parseCliEnvelope(text: string): JsonRecord {
+  const value: unknown = JSON.parse(text);
+  const envelope = record(value, "CLI envelope");
+  expect(envelope.schemaVersion).toBe(1);
+  return envelope;
+}
+
+function record(value: unknown, description: string): JsonRecord {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`${description} is not a JSON object.`);
+  return value as JsonRecord;
+}
+
+function records(value: unknown, description: string): JsonRecord[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "object" || item === null || Array.isArray(item))) {
+    throw new Error(`${description} is not a JSON object array.`);
+  }
+  return value as JsonRecord[];
+}
+
+function requiredString(value: unknown, description: string): string {
+  if (typeof value !== "string" || value.length === 0) throw new Error(`${description} is not a nonempty string.`);
+  return value;
+}
+
+function requiredNumber(value: unknown, description: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) throw new Error(`${description} is not a safe integer.`);
+  return value;
+}
+
+function hashFile(file: string): string {
+  return createHash("sha256").update(readFileSync(file)).digest("hex");
+}
+
+function readJsonFile(file: string): JsonRecord {
+  return record(JSON.parse(readFileSync(file, "utf8")), path.relative(process.cwd(), file));
+}
+
+function readJsonLines(file: string): InstalledCallRecord[] {
+  return readFileSync(file, "utf8").split(/\r?\n/).filter(Boolean).map((line) => record(JSON.parse(line), "fixture event") as InstalledCallRecord);
+}
+
+function snapshotOwnedTrees(roots: string[]): string {
+  const entries: Array<{ path: string; kind: "directory" | "file"; size: number; sha256: string | null }> = [];
+  let totalBytes = 0;
+  const visit = (root: string, current: string, rootIndex: number): void => {
+    if (entries.length >= 2048) throw new Error("Read-only CLI snapshot exceeded its entry bound before inspecting the next entry.");
+    const names = current === root ? ["."] : [path.relative(root, current).replaceAll(path.sep, "/")];
+    const stat = requireLstat(current);
+    if (stat.isSymbolicLink()) throw new Error(`Read-only snapshot refused a symbolic link: ${current}`);
+    const name = names[0]!;
+    if (stat.isDirectory()) {
+      entries.push({ path: `root-${rootIndex}/${name}`, kind: "directory", size: 0, sha256: null });
+      for (const child of readdirSync(current).sort(comparePackageStrings)) visit(root, path.join(current, child), rootIndex);
+      return;
+    }
+    if (!stat.isFile()) throw new Error(`Read-only snapshot found an unsupported entry: ${current}`);
+    if (stat.size > 8 * 1024 * 1024 - totalBytes) throw new Error("Read-only CLI snapshot exceeded its byte bound.");
+    const bytes = readFileSync(current);
+    if (bytes.byteLength !== stat.size) throw new Error(`Read-only snapshot observed a changing file: ${current}`);
+    totalBytes += bytes.byteLength;
+    entries.push({ path: `root-${rootIndex}/${name}`, kind: "file", size: bytes.byteLength, sha256: createHash("sha256").update(bytes).digest("hex") });
+  };
+  for (const [rootIndex, root] of roots.entries()) visit(root, root, rootIndex);
+  return JSON.stringify(entries.sort((left, right) => comparePackageStrings(left.path, right.path)));
+}
+
+function requireLstat(file: string): Stats {
+  return lstatSync(file);
+}
+
+function comparePackageStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
