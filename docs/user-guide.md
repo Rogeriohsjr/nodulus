@@ -1,6 +1,6 @@
 # Nodulus user guide
 
-Nodulus runs ordered workflows whose outputs are checked against JSON Schema contracts. The `nodulus` CLI writes project definitions under `.nodulus/` and keeps run state under `.nodulus/runs/`.
+Nodulus runs ordered workflows and explicit parallel DAGs whose outputs are checked against JSON Schema contracts. The `nodulus` CLI writes project definitions under `.nodulus/` and keeps run state under `.nodulus/runs/`.
 
 ## Install and upgrade
 
@@ -69,11 +69,18 @@ This source change adds a read-only workflow inspection command and API. It read
 nodulus inspect workflow example --project . --json
 ```
 
-The JSON response contains the inspection result or structured diagnostics for invalid and missing references. The public API is `inspectWorkflow(projectRoot, workflowId)`. When a Codex profile omits `sandbox`, inspection reports the effective default as `read-only`. This is configured policy data; inspection does not verify provider enforcement. This command is available from this source change and is not claimed in the published npm package.
+The JSON response contains the inspection result or structured diagnostics for invalid and missing references. The public API is `inspectWorkflow(projectRoot, workflowId)`. When a Codex profile omits `sandbox`, inspection reports the effective default as `read-only`. This is configured policy data; inspection does not verify provider enforcement. Use a source build or package release containing the described features; source/archive validation does not establish registry publication.
 
-### Inspect a schema-version-2 graph (inspection only)
+### Run a schema-version-2 graph
 
-This development stage can inspect a DAG definition with declared dependencies, a positive `maxConcurrency`, and ordered named output aliases. Node declaration order breaks ties between ready nodes; dependencies define topology. After `prepare`, `audit` follows its own path while `security` and `quality` form the two branches feeding `join`. The node files must declare the referenced `report` outputs with contract `report.v1`.
+A DAG definition declares dependencies, a positive safe-integer `maxConcurrency`, and ordered named output aliases. Node declaration order breaks ties between ready nodes; dependencies define topology. After `prepare`, `audit` follows its own path while `security` and `quality` form the two branches feeding `join`. The node files must declare the referenced `report` outputs with contract `report.v1` and map only declared ancestor artifacts into their inputs.
+
+```mermaid
+flowchart LR
+  prepare --> security --> join
+  prepare --> quality --> join
+  prepare --> audit
+```
 
 ```json
 {
@@ -82,7 +89,7 @@ This development stage can inspect a DAG definition with declared dependencies, 
   "nodes": ["prepare", "security", "quality", "join", "audit"],
   "execution": {
     "kind": "dag",
-    "maxConcurrency": 2,
+    "maxConcurrency": 3,
     "dependsOn": {
       "prepare": [],
       "security": ["prepare"],
@@ -105,15 +112,16 @@ This development stage can inspect a DAG definition with declared dependencies, 
 }
 ```
 
-`execution.resources` is optional. A node omitted from that map defaults to the exclusive `workspace` resource; an explicit empty array declares that the author considers it independent of shared resources. This declaration does not sandbox tools or prove they avoid side effects.
+`execution.resources` is optional. A node omitted from that map defaults to `workspace`, which conflicts with every nonempty resource set. An explicit empty array claims no shared resources and can run even alongside a workspace reservation. Use [] here for nodes consuming captured inputs without conflicting access to mutable workspace data. These declarations do not sandbox tools or prove they avoid side effects.
 
 Use the existing workflow inspection CLI with this workflow ID:
 
 ```sh
 nodulus inspect workflow parallel-review --project . --json
+nodulus run --workflow parallel-review --project . --request "Review these captured inputs" --json
 ```
 
-Schema-2 inspection returns `workflow.executionSupported: false`; this stage does not execute graphs, and `nodulus run` still rejects schema-2 definitions before provider or validator actions. Existing schema-version-1 ordered workflow execution is unchanged. These source-branch inspection instructions are not evidence of parallel runtime behavior or a published npm feature.
+Schema-2 inspection reports `workflow.executionSupported: true`. Runtime admits ready nodes up to the concurrency/resource bounds, joins only validated predecessor outputs, and returns aliases in their declared order. Schema-version-1 ordered workflows keep their existing behavior. A node error or failed required validation closes admission of later work. Every required output must be valid; a contract can allow an empty result or a message saying there are no findings.
 
 ## Inspect a saved run
 
@@ -126,6 +134,8 @@ nodulus inspect run <run-id> --project . --json
 The report includes status, attempts, provider-call evidence, accepted artifact references, validation evidence, uncertainty and conservative next actions. For routed runs it also reports the captured route policy, last selected route code and target, region budget counters, event-derived generation status, and whether each generation still matches its live artifact file. Active elapsed usage is marked as checkpoint-reported until completion evidence freezes it. Damaged generation or route evidence is diagnostic and is not listed as current. If the checkpoint is missing or unreadable, the result reports `status: "unavailable"` with diagnostics. An incomplete or possibly launched provider call blocks actions that could replay uncertain work.
 
 The public API is `inspectRun(projectRoot, runId)`. Inspection only reads the run. It does not invoke providers or executable validators.
+
+For graphs, accepted artifacts can be verified while another branch runs and after completion. Saved hashes, schemas and ordered call/validation/acceptance evidence establish acceptance; a raw accepted phase or completed-node list alone does not. Corrupt evidence produces diagnostics while independently verified outputs remain visible. Recovery inspection names unresolved provider operations and unverified cleanup separately and does not recommend replaying uncertain work.
 
 ## Export a diagnostic
 
@@ -143,7 +153,7 @@ nodulus inspect replay <run-id> --project . --json
 
 Replay revalidates saved provider candidates against the JSON Schemas captured with that run. For routed runs, it can label candidate attempts with their saved generation status; schema validity remains separate from route acceptance. It reports candidate results, contract and engine-version drift, and executable validators it skipped. It never starts a provider or project validator script; those external checks are not repeated. A candidate with an unknown or mismatched captured contract is reported as unknown rather than treated as valid or invalid. The public API is `replaySavedRun(projectRoot, runId)`.
 
-These inspection, export and replay commands are included in this source revision and its tested package archive; they are not claimed to be available in the currently published npm package.
+The evidence records distinguish source and locally built archive validation from package publication. Use a release containing the features you need or build the source checkout.
 
 ## Answer and resume
 
@@ -155,6 +165,8 @@ nodulus resume <run-id> --request-id <pending-request-id> --answers-file answers
 ```
 
 The CLI returns immediately on clarification. It persists the pending request and accepted earlier work, and resume does not replay completed nodes. Use the ID returned by Nodulus; model-provided labels are not trusted as runtime IDs.
+
+A graph can return multiple questions in result.requests, with result.request as the first-item compatibility alias. Status uses pendingRequests and pendingRequest instead. Caller-input questions come first, then node questions in declaration order. Resume one exact request ID per invocation. Partial answers are saved without dispatch while other runtime questions remain unanswered; after the final answer, eligible nodes continue and accepted siblings are reused.
 
 ## Errors and saved runs
 
