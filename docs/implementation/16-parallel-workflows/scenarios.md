@@ -53,6 +53,6 @@ P4's checkboxes are backed by [Root's complete620 runtime/17 package gate and al
 
 - [x] PAR-040 — Read-only run inspection reports graph and branch states from persisted events/checkpoints. [Independent local inspection/recovery acceptance](phase5-evidence.md) records Root's32 recovery/compatibility controls and20 graph/inspection controls, with exact hashes and separate hosted limits.
 - [x] PAR-041 — Diagnostic export is deterministic and redacted for graph definitions and branch/call evidence. [Root/Sol source review and independent22-case local acceptance](phase5-evidence.md) preserve separate full/hosted delivery gates.
-- [ ] PAR-042 — Schema-only replay validates saved artifacts without providers, executable validators, or run writes.
+- [x] PAR-042 — Schema-only replay validates saved artifacts without providers, executable validators, or run writes. Graph candidates distinguish verified acceptance, proven absence and unverified evidence; Root/Sol source review and Root27-case compatibility gate are recorded in phase5-evidence.md.
 - [ ] PAR-043 — Exercise actual CLI/API and installed archive with temporary project JSON, Markdown, schemas and child-process scripts.
 - [ ] PAR-044 — Run legacy sequential, feedback-routing and new graph regressions; update docs; run `npm run check`. Hosted platform checks remain separate evidence.

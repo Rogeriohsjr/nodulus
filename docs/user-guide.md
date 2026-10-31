@@ -155,6 +155,16 @@ nodulus inspect replay <run-id> --project . --json
 
 Replay revalidates saved provider candidates against the JSON Schemas captured with that run. For routed runs, it can label candidate attempts with their saved generation status; schema validity remains separate from route acceptance. It reports candidate results, contract and engine-version drift, and executable validators it skipped. It never starts a provider or project validator script; those external checks are not repeated. A candidate with an unknown or mismatched captured contract is reported as unknown rather than treated as valid or invalid. The public API is `replaySavedRun(projectRoot, runId)`.
 
+Graph candidates also include `acceptanceStatus`:
+
+| Value | Meaning |
+| --- | --- |
+| `accepted` | Saved acceptance is verified for this exact node, attempt, output name, contract and data. |
+| `not_accepted` | The verified saved snapshot establishes that this candidate has no committed acceptance. |
+| `unverified` | Missing, corrupt or contradictory evidence prevents an acceptance decision; diagnostics explain the uncertainty. |
+
+`valid: true` means the candidate passes its captured JSON Schema. A real executable validator may have rejected it during execution, leaving it `not_accepted`. Changing the current schema or validator script does not grant acceptance. Replay keeps independently verifiable candidate facts when another node's evidence is damaged; it does not change the run or permit failed nodes to continue.
+
 The evidence records distinguish source and locally built archive validation from package publication. Use a release containing the features you need or build the source checkout.
 
 ## Answer and resume
