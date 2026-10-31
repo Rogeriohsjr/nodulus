@@ -1,0 +1,1 @@
+Turn the original request into a concise, self-contained review brief. Preserve its requirements, scope, and requested decision. Do not invent facts or remove caveats. Return the brief as the report text. If there is no substantive material to summarize, say so explicitly; never return empty text.

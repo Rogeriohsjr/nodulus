@@ -9,6 +9,7 @@ import { NodulusError } from "./shared/nodulus-error.js";
 import { createPricingSnapshot } from "./pricing-snapshot.js";
 import type { PricingSnapshot } from "./cost-estimate.js";
 import { feedbackRoutingSchema, validateFeedbackRouting, validateFeedbackRuntimeInputs, type FeedbackRoutingDefinition } from "./feedback-definition.js";
+import { validateGraphDefinition, validateGraphOutputs } from "./workflow-graph.js";
 
 export type RequestSource =
   | { kind: "inline"; text: string }
@@ -111,7 +112,11 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
   const text = await normalizeRequest(request.sources, cwd, storage);
   const settings = await readSettings(projectRoot, storage);
   const pricingSnapshot = await readPricingSnapshot(projectRoot, settings, storage);
-  const workflow = await readWorkflow(projectRoot, request.workflow, storage);
+  const workflowValue = await readJson(storage, path.join(projectRoot, ".nodulus", "workflows", `${request.workflow}.json`), `Workflow '${request.workflow}'`);
+  if (isRecord(workflowValue) && workflowValue.schemaVersion === 2) {
+    return createGraphIntake(request, projectRoot, text, settings, pricingSnapshot, workflowValue, storage);
+  }
+  const workflow = validateWorkflow(request.workflow, workflowValue);
   const nodes: NodeDefinition[] = [];
   const contracts: Record<string, unknown> = {};
   const providerProfiles: Record<string, ResolvedProviderProfile> = {};
@@ -192,6 +197,133 @@ export async function createIntake(request: IntakeRequest, storage: IntakeStorag
   return { runId, runDirectory };
 }
 
+async function createGraphIntake(
+  request: IntakeRequest,
+  projectRoot: string,
+  requestText: string,
+  settings: ProjectSettings,
+  pricingSnapshot: PricingSnapshot | null,
+  value: Record<string, unknown>,
+  storage: IntakeStorage,
+): Promise<IntakeResult> {
+  const { workflow, ancestors } = validateGraphDefinition(value, request.workflow);
+  const contracts: Record<string, unknown> = { "request.v1": requestContractSchema };
+  const callerInputs: Record<string, { contract: string }> = workflow.inputs ?? {};
+  for (const declaration of Object.values(callerInputs)) {
+    if (declaration.contract !== "request.v1") contracts[declaration.contract] = await readContract(projectRoot, declaration.contract, storage);
+  }
+
+  const nodes: NodeDefinition[] = [];
+  const providerProfiles: Record<string, ResolvedProviderProfile> = {};
+  const instructions: Array<{ path: string; content: string }> = [];
+  const declaredOutputs: Array<{ nodeId: string; outputs: Array<{ name: string; contract: string }> }> = [];
+  const validatorHashes: Record<string, string> = {};
+
+  // Resolve every node and output first so forward-declared ancestors and aliases are valid.
+  for (const nodeId of workflow.nodes) {
+    const node = await readNode(projectRoot, nodeId, storage);
+    if (node.id !== nodeId) configError(`Node file for '${nodeId}' declares a different ID.`);
+    const profile = validateProvider(settings, node.providerProfile, nodeId);
+    providerProfiles[node.providerProfile] = safeProfileSnapshot(profile);
+    const outputNames = new Set<string>();
+    for (const output of node.expectedOutputs) {
+      if (!isSafeId(output.name) || outputNames.has(output.name)) configError(`Node '${nodeId}' has an invalid or duplicate output name '${output.name}'.`);
+      outputNames.add(output.name);
+      contracts[output.contract] = await readContract(projectRoot, output.contract, storage);
+      if (output.validator !== undefined) {
+        const validatorPath = resolveProjectFile(projectRoot, output.validator, `Validator for '${nodeId}.${output.name}'`);
+        const validatorContents = await readUtf8(storage, validatorPath, "CONFIGURATION_INVALID", `Could not read validator '${output.validator}'.`);
+        validatorHashes[output.validator] = createHash("sha256").update(validatorContents, "utf8").digest("hex");
+      }
+    }
+    for (const relativeInstructionPath of node.instructions) {
+      const absolute = resolveProjectFile(projectRoot, relativeInstructionPath, `Instruction for node '${nodeId}'`);
+      const contents = await readUtf8(storage, absolute, "CONFIGURATION_INVALID", `Could not read instruction '${relativeInstructionPath}'.`);
+      instructions.push({ path: absolute, content: contents });
+    }
+    nodes.push(node);
+    declaredOutputs.push({ nodeId, outputs: node.expectedOutputs.map(({ name, contract }) => ({ name, contract })) });
+  }
+  validateGraphOutputs(workflow, declaredOutputs);
+
+  for (const node of nodes) {
+    const ancestorIds = ancestors.get(node.id) ?? new Set<string>();
+    const ancestorOutputs = declaredOutputs.filter(({ nodeId }) => ancestorIds.has(nodeId));
+    for (const [inputName, mapping] of Object.entries(node.inputs)) {
+      if (!isRecord(mapping) || Object.keys(mapping).some((key) => key !== "from" && key !== "contract")) {
+        configError(`Node '${node.id}' input '${inputName}' has an invalid mapping.`);
+      }
+      const diagnostic = inputMappingError(node.id, inputName, mapping, ancestorOutputs, callerInputs);
+      if (diagnostic) configError(diagnostic);
+      if (typeof mapping.contract === "string" && mapping.contract !== "request.v1" && !Object.hasOwn(contracts, mapping.contract)) {
+        contracts[mapping.contract] = await readContract(projectRoot, mapping.contract, storage);
+      }
+    }
+  }
+
+  const references = request.referencesFile
+    ? await readReferences(request.referencesFile, request.cwd, projectRoot, storage)
+    : [];
+  const runId = randomUUID();
+  const definitions = {
+    schemaVersion: 2,
+    engineVersion: "1.0.0",
+    workflow,
+    nodes,
+    contracts,
+    providerProfiles,
+    validatorHashes,
+  };
+  const inputs = { schemaVersion: 2, workflow: workflow.id, request: requestText, callerInputs: request.callerInputs ?? {}, instructions };
+  const definitionsText = json(definitions);
+  const inputsText = json(inputs);
+  const referencesText = json(references);
+  const pricingText = pricingSnapshot === null ? undefined : json(pricingSnapshot);
+  const files: RunFiles = {
+    "request.md": requestText,
+    "inputs.json": inputsText,
+    "references.json": referencesText,
+    "context/definitions.json": definitionsText,
+    "run.json": json({
+      schemaVersion: 2,
+      engineVersion: "1.0.0",
+      runId,
+      workflow: workflow.id,
+      phase: "intake",
+      status: "ready",
+      completedNodes: [],
+      graph: {
+        nodes: Object.fromEntries(workflow.nodes.map((nodeId) => [nodeId, { phase: "not_started", attempt: 0 }])),
+        pendingRequests: {},
+        admissionClosed: false,
+        nextEventSequence: 2,
+        captured: {
+          definitionsSha256: hash(definitionsText),
+          inputsSha256: hash(inputsText),
+          referencesSha256: hash(referencesText),
+          ...(pricingText === undefined ? {} : { pricingSha256: hash(pricingText) }),
+        },
+        callerInputs: request.callerInputs ?? {},
+      },
+    }),
+    "events.jsonl": `${JSON.stringify({ event: "run.intake.completed", runId, workflow: workflow.id, timestamp: new Date().toISOString(), sequence: 1 })}\n`,
+    "metrics.json": "[]\n",
+    ...(pricingText === undefined ? {} : { "pricing.json": pricingText }),
+  };
+
+  let runDirectory: string;
+  try {
+    runDirectory = await storage.createRun(projectRoot, runId, files);
+  } catch (error) {
+    throw new NodulusError("RUN_STORAGE_FAILED", `Could not persist the intake run: ${messageOf(error)}`);
+  }
+  return { runId, runDirectory };
+}
+
+function hash(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
 async function readPricingSnapshot(
   projectRoot: string,
   settings: ProjectSettings,
@@ -245,8 +377,7 @@ async function readSettings(projectRoot: string, storage: IntakeStorage): Promis
   }
 }
 
-async function readWorkflow(projectRoot: string, workflowId: string, storage: IntakeStorage): Promise<WorkflowDefinition> {
-  const value = await readJson(storage, path.join(projectRoot, ".nodulus", "workflows", `${workflowId}.json`), `Workflow '${workflowId}'`);
+function validateWorkflow(workflowId: string, value: unknown): WorkflowDefinition {
   const valid = new Ajv2020({ strict: false }).compile(workflowDefinitionSchema);
   if (!valid(value)) configError(`Invalid workflow '${workflowId}': ${formatAjvErrors(valid.errors)}.`);
   const workflow = value as WorkflowDefinition;

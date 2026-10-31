@@ -1,0 +1,9 @@
+# P03: graph mapping tests
+
+Assign after P02 review. Luna owns only `tests/scenarios/par-003-graph-mappings.test.ts`. Reuse `configureParallelProject(project)` from `tests/support/parallel-project.ts` and existing real JSON read/write helpers; preserve their frozen files and the earlier tests. Read `src/core/inspect-workflow.ts`, `src/core/workflow-mapping.ts` and the working helper.
+
+Use public `inspectWorkflow` with real initialized projects, node JSON, schemas, Markdown and sentinel executables. Required cases: accepted transitive-ancestor mapping; accepted control-only dependency; accepted declared caller input; rejected non-ancestor sibling source; rejected missing output; rejected contract mismatch; rejected ambiguous dotted source matching two declared ancestor node/output pairs; rejected ordinary undeclared caller input; rejected undeclared `caller.constructor` with no contract. The inherited-name case is expected to expose the coordinator-identified gap; do not fix production before its actual failure is recorded.
+
+Keep every fixture valid except its named mutation. For the dotted case, declare both matching nodes as ancestors and adjust outputs/other mappings so only the ambiguity is invalid. Assert relevant `CONFIGURATION_INVALID` diagnostics, no actions and unchanged run records. The positive controls must execute unconditionally; an unrelated setup/read error is never valid rejection evidence.
+
+Run `npm run build`, then `npx --no-install vitest run tests/scenarios/par-003-graph-mappings.test.ts` with the verified permissions for fixture subprocesses. Return exact counts and frozen hash; distinguish already-passing controls from meaningful RED. Stop for Sol and coordinator test review before production edits. A later correction packet may own the precise mapping helper/inspection files after review; it cannot weaken these assertions.

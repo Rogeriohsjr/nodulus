@@ -1,0 +1,1 @@
+Review the mapped brief for security, privacy, authorization, and data-handling risks. Report only findings supported by the brief, and identify uncertainty instead of guessing. If you find no security concerns, write "No security findings identified." Return the review in the report text; do not return empty text.

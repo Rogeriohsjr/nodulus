@@ -1,0 +1,9 @@
+# PAR044: isolate independent feedback-definition rejection cases
+
+Prospective test-only packet after the current export checkpoint; no writer is dispatched here. Exact head1dd3e2b Windows push job124420101656 timed out FB010's malformed-definition matrix at the unchanged implicit5000ms test limit. Its other622 runtime cases passed. No hosted rerun, external actor or production performance cause is inferred.
+
+Root and the same Sol reviewer read fb-010-feedback-definition.test.ts:55-80. Its single test loops17 independent invalid definitions:13 fixed objects and4 numeric limit variants. Every row overwrites the workflow and checks inspectWorkflowDefinition rejection, createIntake rejection and an empty runs directory. No row depends on another. The existing project factory and afterEach already support a fresh project per test.
+
+When separately granted, Luna owns only this scenario file. Convert that one loop into17 labeled test.each rows with a fresh project per row. Preserve every original invalid object/value, both actual entry points, rejection assertions and empty-run check. Keep NaN and Infinity in the input list: JSON.stringify serializes them as null, exactly as before. Preserve the implicit5000ms limit, the other eight cases, project factory, cleanup and production code. No timeout/configuration, provider, runtime or validator edits.
+
+Freeze the actual diff/hash after lint/strict test types/diff check for Root/Sol review before one focused characterization run. The hosted timeout is real harness failure evidence; a passing split is behavior-preserving characterization, not product RED/GREEN or proof of a historical actor. Root independently runs appropriate definition/graph/feedback controls. The final full and exact-head hosted gates remain required. Max two corrections precede focused same-Sol diagnosis.

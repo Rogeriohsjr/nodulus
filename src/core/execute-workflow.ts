@@ -11,27 +11,28 @@ import { resolveOutputReference } from "./workflow-mapping.js";
 import { appendRunEvent, recordValidationEvent, traceProviderCall } from "./execution-events.js";
 import { feedbackArtifactReferences, validateFeedbackArtifactReferences, type FeedbackArtifactReference, type FeedbackRegionState } from "./feedback-routing.js";
 import { createFeedbackDeadline, feedbackDeadlineError } from "./feedback-deadline.js";
+import { callerAnswerContract, missingCallerInputs } from "./caller-inputs.js";
 
-type Node = {
+export type Node = {
   id: string;
   providerProfile: string;
   inputs: Record<string, unknown>;
   instructions: string[];
   expectedOutputs: Array<{ name: string; contract: string; validator?: string; validatorTimeoutMs?: number }>;
 };
-type DefinitionContext = {
+export type DefinitionContext = {
   workflow: { id: string; nodes: string[]; inputs?: Record<string, { contract: string }>; feedbackRouting?: import("./feedback-definition.js").FeedbackRoutingDefinition };
   nodes: Node[];
   contracts: Record<string, unknown>;
   providerProfiles: Record<string, Record<string, unknown>>;
 };
-type CapturedInputs = {
+export type CapturedInputs = {
   request: string;
   callerInputs?: Record<string, unknown>;
   instructions: Array<{ path: string; content: string }>;
 };
-type OutputArtifact = { name: string; contract: string; data: unknown };
-type ProviderOutcome =
+export type OutputArtifact = { name: string; contract: string; data: unknown };
+export type ProviderOutcome =
   | { status: "success"; artifacts: OutputArtifact[] }
   | { status: "needs_input"; request: { id: string; questions: Array<{ id: string; message: string }>; answerContract: unknown } }
   | { status: "error"; error: { code: string; message: string } };
@@ -693,7 +694,7 @@ export async function executeWorkflow(
   return finishError(request.projectRoot, runId, storage, "WORKFLOW_EMPTY", "Workflow has no executable nodes.", undefined, undefined, completedNodes);
 }
 
-function parseProviderOutcome(raw: string):
+export function parseProviderOutcome(raw: string):
   | { valid: true; outcome: { status: "success"; artifacts: OutputArtifact[] } | { status: "needs_input"; request: { id: string; questions: Array<{ id: string; message: string }>; answerContract: unknown } } | { status: "error"; error: { code: string; message: string } } }
   | { valid: false; code: string; errors: string[] } {
   let value: unknown;
@@ -711,7 +712,7 @@ function parseProviderOutcome(raw: string):
   return { valid: true, outcome: value as ProviderOutcome };
 }
 
-function validateOutputSet(
+export function validateOutputSet(
   artifacts: OutputArtifact[],
   expected: Node["expectedOutputs"],
   schemas: Record<string, unknown>,
@@ -744,14 +745,14 @@ function validateOutputSet(
   return errors.length === 0 ? { valid: true } : { valid: false, code: "ARTIFACT_VALIDATION_FAILED", errors };
 }
 
-function validateValidatorVerdict(value: unknown): { valid: boolean; validity?: boolean; errors: string[] } {
+export function validateValidatorVerdict(value: unknown): { valid: boolean; validity?: boolean; errors: string[] } {
   if (!isRecord(value) || typeof value.valid !== "boolean" || !Array.isArray(value.errors) || !value.errors.every((item) => typeof item === "string") || Object.keys(value).some((key) => !["valid", "errors"].includes(key))) {
     return { valid: false, errors: ["Validator verdict must be exactly {valid:boolean,errors:string[]}."] };
   }
   return { valid: true, validity: value.valid, errors: value.errors as string[] };
 }
 
-function resolveMappedInputs(
+export function resolveMappedInputs(
   node: Node,
   requestText: string,
   callerInputs: Record<string, unknown>,
@@ -816,7 +817,7 @@ function resolveMappedInputs(
   return { valid: true, values };
 }
 
-function buildPrompt(
+export function buildPrompt(
   context: DefinitionContext,
   node: Node,
   instructions: Array<{ path: string; content: string }>,
@@ -959,40 +960,6 @@ function messageOf(error: unknown): string {
 
 function json(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
-}
-
-function missingCallerInputs(
-  declared: Record<string, { contract: string }>,
-  values: Record<string, unknown>,
-  contracts: Record<string, unknown>,
-): Array<{ name: string; contract: string }> {
-  const missing: Array<{ name: string; contract: string }> = [];
-  for (const [name, declaration] of Object.entries(declared)) {
-    const schema = contracts[declaration.contract];
-    let valid = Object.hasOwn(values, name) && schema !== undefined;
-    if (valid) {
-      try {
-        valid = Boolean(new Ajv2020({ strict: false }).compile(schema as AnySchema)(values[name]));
-      } catch {
-        valid = false;
-      }
-    }
-    if (!valid) missing.push({ name, contract: declaration.contract });
-  }
-  return missing;
-}
-
-function callerAnswerContract(
-  missing: Array<{ name: string; contract: string }>,
-  contracts: Record<string, unknown>,
-): unknown {
-  return {
-    type: "object",
-    required: missing.map(({ name }) => name),
-    properties: Object.fromEntries(missing.map(({ name, contract }) => [name, { $ref: `#/$defs/${contract}` }])),
-    additionalProperties: false,
-    $defs: contracts,
-  };
 }
 
 async function readAcceptedArtifacts(

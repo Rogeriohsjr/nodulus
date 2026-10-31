@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "defaultWorkflow": "parallel-review",
+  "providerProfiles": {
+    "fixture": {
+      "kind": "codex",
+      "enabled": true,
+      "executable": "codex",
+      "timeoutMs": 5000,
+      "capabilities": [],
+      "sandbox": "read-only"
+    }
+  }
+}

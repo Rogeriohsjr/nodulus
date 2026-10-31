@@ -29,8 +29,10 @@ export function inputMappingError(
   }
   if (candidate.from.startsWith("caller.")) {
     const callerName = candidate.from.slice("caller.".length);
+    if (!Object.hasOwn(callerInputs, callerName)) {
+      return `Node '${nodeId}' input '${inputName}' references undeclared caller input '${callerName}'.`;
+    }
     const declaration = callerInputs[callerName];
-    if (!declaration) return `Node '${nodeId}' input '${inputName}' references undeclared caller input '${callerName}'.`;
     if (candidate.contract !== declaration.contract) {
       return `Node '${nodeId}' input '${inputName}' contract must match caller input '${callerName}' contract '${declaration.contract}'.`;
     }

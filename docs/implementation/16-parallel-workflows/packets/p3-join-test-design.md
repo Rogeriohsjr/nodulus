@@ -1,0 +1,17 @@
+# P3 test design, gated on P2 hosted acceptance
+
+Root and Sol reviewed these three packets while the frozen P2 full gate ran. This file records design only. Do not author P3 tests/source or claim a scenario result until P2's final hosted head passes and Root creates its child phase branch. Each packet still requires stable actual test review, observed relevant behavior and independent Root verification; passing characterization is valid evidence without invented RED.
+
+## P3A: full join behind actual validator acceptance
+
+Use concurrency2 and declaration order slow,fast,join,witness. Slow and fast are roots; join depends on both and appears before an independent witness root. Slow produces its valid artifact but its real executable validator remains held. Release fast. Witness must start in the freed slot with fast accepted, slow active and join not_started in its actual entry checkpoint. This proves both progress and spare capacity while the dependency blocks join. Complete witness, prove no join probe/action, then release slow's valid validator verdict. Join must enter only with both predecessors accepted and exact mapped artifacts. Independently check saved predecessor result/validation/artifact references and hashes. Real child/validator markers and PID exit provide synchronization; do not replace an internal validator or use an elapsed-speed threshold.
+
+## P3B: nested fork, subset join, all-node completion and alias order
+
+A root splits left/right. Left splits into L1/L2 and then a join; the join maps both direct branch artifacts and the transitive root artifact. Hold the unrelated right terminal provider. The join must enter and become durably accepted while that right path remains active. At an explicit event-loop observation after acceptance, the public workflow remains unsettled; release right, then require every declared node accepted. Put named output aliases in an order different from node completion and compare final result plus outputs.json with exact accepted sources and hashes. This covers PAR-021–024; no completion-order-selected result or whole-graph barrier is permitted.
+
+## P3C: present schema-valid empty/unavailable data
+
+Write a real explicit contract permitting present empty and unavailable shapes. Actual provider children must emit the named artifacts containing those values; accepted files and downstream inputs must preserve them exactly. Separate missing-artifact and schema-invalid data cases must leave the producer unaccepted and successor unprobed/uninvoked, with real saved validation diagnostics. Never fabricate a fallback artifact or add continue-on-error. Current no-repair capability can legitimately terminate as RESPONSE_REPAIR_UNAVAILABLE, so distinguish the persisted validation cause from that terminal wrapper. Do not invent a new expected error code.
+
+Reuse real production APIs, actual storage/validators and existing process fixtures where their protocol fits. Freeze explicit file ownership, one scenario deadline and shared cleanup deadline in each concrete packet before dispatch. Distinct profile counters prove no probes, completed-process transports remain truthful, and canonical temporary ownership/PID drain checks precede deletion. Root owns docs and branch/PR coordination; Luna writes, Sol reviews frozen checkpoints, Root personally checks the actual result. Later P4 resume and P5 delivery stay separate.

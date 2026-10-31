@@ -1,0 +1,13 @@
+# P13: response repair and usage isolation design
+
+This is a reviewed source-backed design note for the later PAR-013 packet, not authorization to start before the preceding scheduler/state checkpoints. Test ownership and the concrete fixture shape must be assigned before writing. No runtime acceptance is claimed.
+
+Sol inspected the current default provider implementation. OpenCode repair sessions are keyed by run ID, node ID and the original `ProviderInvocation.attempt`; call telemetry and launch maps are keyed by `callId`. Different graph nodes already have separate session keys. The legacy `lastTelemetry`/`usageForLastCall` value is shared and must not be used for concurrent DAG attribution.
+
+The graph node runner must preserve the original full-invocation `attempt` across response-only repairs, while each new repair has its own increasing `invocation.call.attempt`, unique call ID and parent call ID. The legacy executor already does this by retaining its original invocation and replacing its call context. Reconstructing the full invocation attempt for a repair would lose the stored session and produce `RESPONSE_REPAIR_SESSION_MISSING`.
+
+Current response-only repair is implemented for OpenCode. Codex, Cursor and Claude intentionally return `RESPONSE_REPAIR_UNAVAILABLE`; this feature does not authorize adding unsupported repair modes or replaying actions.
+
+The public isolation scenario should use `runWorkflow` with one actual `createDefaultProviderPort(project)` and a local OpenCode CLI fixture. Reuse protocol and argv patterns in `tests/support/provider-adapter-scenarios.ts` and `tests/scenarios/prov-007-opencode-adapter.test.ts`, extending the fixture to emit different final-message session IDs for two nodes. Barrier both real build children before completion; return malformed Nodulus JSON from each. Each response-only correction must use its own `--session` and `--agent nodulus-response`, return its own corrected artifact, and never launch another build/action phase. Assert isolated attempt/call files, parent identities, transport argv and original full-invocation attempt. Add a held repair to prove it retains the node slot and does not modify an accepted sibling's evidence.
+
+Usage tests must prove that deliberately out-of-order completions retain each call's own measurements. A separate legacy-only custom provider control returns valid artifacts while exposing only `usageForLastCall`; DAG metrics remain unknown/null and do not consult that shared fallback. Optional telemetry getter/persistence failures need their own real-boundary fault case and cannot reject valid required artifacts or trigger another inference. Preserve existing version-1 telemetry fallback tests.

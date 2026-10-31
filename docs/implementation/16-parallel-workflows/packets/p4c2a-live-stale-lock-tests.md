@@ -1,0 +1,24 @@
+# P4C2A real live and stale run-lock ownership
+
+Preparation only. This refines the accepted P4C2 design with the existing native pin primitive; no lock test, process action or runtime proof is claimed here. Dispatch one test writer after the current writer freezes.
+
+Own only `tests/scenarios/par-034-run-lock-ownership.test.ts` and `tests/fixtures/par-034-run-lock-driver.mjs`. Reuse the frozen PAR031 CLI fixture, initialized/parallel project helpers and `tests/fixtures/par-015-process-handle-pin.ps1` unchanged. Preserve PAR033/P4E/E2 files and all production code/support. Use a real paused graph with accepted seed and two actual node questions, real public APIs/default adaptation and local CLI processes.
+
+`new LocalIntakeStorage()` has no constructor arguments. Its real `acquireRunLock(projectRoot, runId)` writes `.resume.lock` with `{pid,token}` through exclusive open and returns an async `release()` handle. Public resume acquires this lock before checkpoint reads. A live/unreadable owner yields `RUN_LOCKED`; a parsed dead owner yields `RUN_RECOVERY_REQUIRED`; stale locks are not automatically deleted.
+
+## Fixture roles and observations
+
+The new driver has an owner role importing the real built storage module at `../../dist/adapters/storage/local-intake-storage.js`. It acquires the actual lock for the paused run, publishes an atomic ready marker with PID/run/nonce, then waits at an owned release gate. It has no provider descendants. A separate resume role imports the built public API and real default provider, transparently forwards every provider hook and reports bounded public/error and settled-operation evidence. Keep the driver at its tracked path so these built imports resolve correctly.
+
+1. Establish and drain the real paused graph. Capture full accepted/pending refs, hashes and files, metrics/events, inputs and fixture activity. Start the actual lock owner and compare its retained ChildProcess PID, ready PID/run/nonce and real lock JSON PID/token. The readiness marker is valid only after successful lock acquisition.
+2. Keep the owner alive. In a fresh resume process submit a valid answer and require `RUN_LOCKED`, zero provider methods/fixture activity, identical lock/run-tree bytes and no answer commit. This is lock behavior, not answer-validation evidence.
+3. On Windows, arm the existing native handle pin while the owner is still live. Follow the accepted `par-015-exited-root-ownership.test.ts` handshake: helper-ready, atomic pin-request `{rootPid,nonce}`, matching pin-ready with helper/root/handle PIDs and STILL_ACTIVE259. Retain the native pin through the stale-lock assertion. On POSIX use the retained owned child lifetime and observe its actual exit; do not target arbitrary numeric PIDs.
+4. Terminate only the tracked lock-owner process, consume its actual close and verify the exact lock bytes remain. On Windows require matching root-exited while helper remains alive and neither release-pin nor helper-closed exists. Do not treat a stale numeric observation as process identity.
+5. In another fresh public-resume process submit the same valid answer. Require `RUN_RECOVERY_REQUIRED`, no provider methods or fixture activity, and unchanged lock/run/accepted/pending evidence. This demonstrates the stale-owner guard before saved-state inspection.
+6. Release the native pin only afterward, using its matching nonce. Await helper close and matching helper-closed evidence with `handleClosed:true`. Normal owner release is for safe owned cleanup; the tested stale lock must remain as observed until that assertion finishes.
+
+The pin fixture uses PowerShell `-NoProfile -NonInteractive -File`, the exact owned control directory, nonce and 60000ms watchdog. Spawn it hidden. Follow its existing stop-helper/release-pin failure protocol and drain its actual process; never kill an arbitrary historical PID. If ownership/exit identity is uncertain or the expected stale state was not established, retain evidence and report setup failure rather than inventing a runtime RED.
+
+Use one absolute 20-second scenario/profile deadline, a shared 10-second cleanup deadline from cleanup entry, 35-second case ceiling and the existing 60-second fixture watchdog. Release gates, drain public operations then all enrolled delegates and actual driver/helper close events; delete only on success with the exact native temp-project guard. Retain original and cleanup failures distinctly. The two lock outcomes may be one paired scenario; do not conflate them with the separate initial-runner crash or answer-before-checkpoint experiment.
+
+Freeze hashes for Root/Sol static review before Root's first run. A first GREEN is characterization, not RED/GREEN. No runtime change, recovery override, automatic stale-lock deletion, live provider, release or P5 work is authorized by this packet.

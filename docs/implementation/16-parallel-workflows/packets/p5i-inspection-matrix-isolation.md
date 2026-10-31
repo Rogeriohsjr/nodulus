@@ -1,0 +1,11 @@
+# PAR044: bounded accepted-evidence matrix isolation
+
+At d43 Windows push124435364480, PAR040's artifact case completed all eight accepted-evidence faults, then failed before the ninth foreign-routing status read because its shared20s scenario deadline expired. The improved error wrapper preserves this exact cause. No production performance defect or external actor is established. No workflow rerun occurred.
+
+After the prior B1 correction allowance and focused split were exhausted, the same Sol reviewer read the actual case and approved the minimum further isolation: two independent artifact-success cases. One runs the first four artifact/result/validation/raw-response faults; the other runs the four invocation/completion/acceptance/ordering faults and foreign-routing control. Keep the existing pending-question case and caller-input case unchanged.
+
+Every artifact case creates its own actual project/run and completes the entire real seed/A/B question, partial-A, final-B success, native/validator/input/accepted-artifact and clean status/inspection proof. Each retains20s scenario/10s cleanup/35s test/60s fixture and original per-read limits. Share only the positive helper implementation, never a copied or beforeAll success fixture. Preserve all existing faults, snapshots, no-write/activity checks, exact restoration, first causes, provider tracing and cleanup. No source/profile/timer/helper/driver changes or dropped controls.
+
+This packet authorizes no writer until the current replay test checkpoint is frozen and Root explicitly switches the sole test owner. Freeze the exact diff/hash after lint/strict types/diff for Root/Sol review before one characterization command. Root independently runs graph/inspection compatibility controls. The focused repair does not create a fresh general correction budget or prove its historical timing actor. New hosted/full gates remain required.
+
+Implementation checkpoint: final98CA28C90609A82BE9B0816D7227990605A8E39B0CD5917104883BBE0230AA91 is Root/Sol accepted after actual diff review and lint/strict types/diff. Root characterization4/4PASS19.41s; independent PAR041/INS002/INS004/INS005/FB050 controls23/23PASS40.35s. All original bounds and assertions remain. See phase5-evidence.md; new exact-head hosted and final full checks remain required.

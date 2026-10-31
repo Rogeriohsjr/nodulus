@@ -1,0 +1,13 @@
+# P3B: nested/subset joins, every-node completion and alias order
+
+Planning only, gated on corrected P2 hosted acceptance and Root's P3 branch dispatch. Separate Luna will own ONLY new tests/scenarios/par-021-nested-outputs.test.ts. Reuse existing real graph provider fixtures read-only; Root owns docs. You are not alone and must preserve other packets. Tests only, no source/helper changes or weakening existing bounds.
+
+One graph starts seed, forks left/right, forks left into leaf1/leaf2, then joins both leaves. Right is an unrelated terminal held in its actual provider child. The join reads direct leaf1/leaf2 artifacts plus the transitive seed artifact. Use non-topological declaration order, explicit independent resources and enough capacity for right plus both leaf calls. Distinct profiles record actual readiness. The graph definitions/mappings remain strict and valid through production inspection/intake.
+
+Release seed, left and the two leaves with real process barriers. Join must enter only with its three mapped sources durably accepted and exact saved data/contract identity, while right remains active. Compare entry checkpoint accepted refs/hashes with actual files; do not substitute provider completion or events as acceptance. Finish join and wait for its authoritative accepted checkpoint while right is still held.
+
+CRITICAL: right is omitted from every workflow output alias. This proves workflow completion waits for all declared nodes, even a terminal node irrelevant to selected outputs. At an explicit event-loop observation after join acceptance, the public run must remain unsettled. Release right, confirm its actual child settles and its required artifact is accepted, then require workflow success and all declared nodes accepted in declaration order.
+
+Declare aliases in an order different from completion, for example joined,leaf2,seed,leaf1. Compare final API result and outputs.json in exactly that order, each matching the accepted source's artifact name/contract/data and saved bytes/hash. Verify exact invocation counts and no accepted node replay. No result may be selected by the last completing branch.
+
+Freeze one scenario deadline, shared cleanup deadline and test ceiling before execution. Release all process gates, abort outstanding marker observers and drain actual provider/workflow promises using remaining time. Native temp ownership and validator/child lifecycle evidence precede deletion; preserve original errors and retain uncertain work. WRITE ONLY after dispatch, freeze hashes and finish for Root/Sol review; at most two corrections before explicit diagnosis. Existing-correct behavior is characterized without invented RED. PAR-025 and P4/P5 remain separate gates.

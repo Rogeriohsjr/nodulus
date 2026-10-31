@@ -1,0 +1,1 @@
+Review the mapped brief for clarity, completeness, consistency, and testability. Report specific gaps without inventing requirements. If you find no quality concerns, write "No quality findings identified." Return the review in the report text; do not return empty text.

@@ -1,0 +1,7 @@
+# P12FA: forensic target identity through a junction
+
+Alias Luna and Root independently observed the new real-junction test fail only at missing report after proving actual EPERM names the physical checkpoint while the lexical alias differs. Original checkpoint, no accepted node/dependent, native same-bytes rename denial and actual workflow assertions all held. Root/Sol reviewed the test and guarded cleanup. Test15A69829EDE8DE6BE171081966273D0FF850A81627C5E6F13E38E4AB2A64EA2B; helper06B5C139B6724C1BEE2967E9BF94E47D80AD697B1C0D3E852E7D0D84D6DD3591. Root log p15a-p12fa-root-red.log. This proves the local alias seam; the earlier hosted failure's actual lexical identity was not logged, so do not claim its cause is proved.
+
+The separate Luna owns only tests/support/windows-rename-forensics.ts for a minimal target comparison fix. Compare the real existing target's physical identity to the real error path while preserving actual delegated arguments, root scope, same-error rethrow, lexical report echo, native evidence, no deletion, bounds and cleanup. Do not change storage/production, test assertions or weaken the report requirement. On failed optional inspection preserve the primary error; do not fabricate native facts. Snapshot p12fa-source-before supports exact differential review.
+
+Write only and freeze for Root/Sol review; no build/test while the runtime Luna writes. After both writers freeze, the alias, original F1 and lock controls must pass in a serialized check. Hosted exact-head proof remains separate.

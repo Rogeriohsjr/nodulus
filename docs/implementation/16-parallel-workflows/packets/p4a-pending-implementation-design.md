@@ -1,0 +1,13 @@
+# P4A pending-publication design
+
+Read-only Sol design after P3 acceptance; implementation is not dispatched before the frozen P4A tests produce relevant Root-observed RED and separate Root/Sol test acceptance. Prospective Luna ownership is only src/core/graph-state.ts and src/core/execute-graph-workflow.ts. The runner, adapters and existing tests stay frozen.
+
+The runner already saves validated attempt result/validation and pending/<uuid>.json before returning needs_input. Current executor adds to its local Map and closes admission, but that writer commit changes only the boolean/event. The writer projects pending metadata only at final pause after peers drain. A sibling error takes precedence and preserves whatever pendingRequests existed, currently none.
+
+Use one queued closeAdmissionWithPending(request) transition to publish graph.admissionClosed, the node's pending phase and exact request UUID/ref/hash/identity in the same checkpoint-last commit. Reuse the existing request JSON/ref/hash projection; no separate filesystem write or early run pause. Add to the executor's local pending Map only after the writer commit succeeds. This avoids exposing admissionClosed before A's pending evidence is projected.
+
+Later draining needs_input results need a queued recordPending(request) transition with the same metadata helper and no status change. Final pause remains responsible for status needs_input and declaration-ordered B/A request aliases; preserve/verify existing projected entries rather than silently overwriting divergent evidence. Existing finishError then retains A's committed pending diagnostics while B's terminal error wins.
+
+Keep the single writer queue, required evidence before events, atomic checkpoint last and poisoned-queue behavior. Required transition failure must follow existing storage-error classification and peer abort/drain rather than adding the local request anyway. Preserve call/metric identity, resource/slot lifetime, accepted seed evidence, existing stop semantics and all bounds. P4B answer continuation and P4C recovery remain separate packets. This design claims no runtime result.
+
+The black-box test captures the first admission-closed checkpoint it observes while B is held. Filesystem polling alone cannot prove it saw the first physical checkpoint promotion if an incorrect implementation writes two transitions back to back. Root/Sol source review must therefore verify that closure and pending projection share the actual single writer commit, in addition to the captured-state assertions. No claim of atomicity follows from polling alone.

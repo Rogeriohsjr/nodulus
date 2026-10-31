@@ -1,14 +1,54 @@
 import type { ProviderTelemetry } from "../../core/ports/provider-telemetry.js";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProviderInvocation, ProviderPort } from "../../core/ports/provider.js";
+import { attachPhysicalFailureEvidence, copyPhysicalFailureEvidence, createPhysicalFailureEvidence, getPhysicalFailureEvidence } from "../../core/ports/physical-process.js";
 import { NodulusError } from "../../core/shared/nodulus-error.js";
+import { graphProfileTimeoutError, graphStopError } from "../../core/ports/graph-stop.js";
 import { runProcess } from "./process-runner.js";
 import { runCapturedProcess } from "./captured-process.js";
+import { randomUUID } from "node:crypto";
 
 type Capture = typeof runCapturedProcess;
 
 type Kind = "codex" | "cursor" | "opencode" | "claude";
+
+async function publish<T>(invocation: ProviderInvocation, write: () => Promise<T>): Promise<T> {
+  const publication = invocation.evidencePublication;
+  if (!publication) return write();
+  try {
+    return await publication.run(write);
+  } catch (error) {
+    if (isRecord(error) && error.code === "RUN_STORAGE_FAILED") throw error;
+    if (isGraphEvidenceSealed(error)) throw error;
+    throw new NodulusError("RUN_STORAGE_FAILED", `Provider evidence could not be persisted: ${messageOf(error)}`);
+  }
+}
+
+function isRunStorageFailure(error: unknown): boolean {
+  return isRecord(error) && error.code === "RUN_STORAGE_FAILED";
+}
+
+function isGraphEvidenceSealed(error: unknown): boolean {
+  return isRecord(error) && error.code === "GRAPH_EVIDENCE_SEALED";
+}
+
+function withPhysicalFailure<T extends Error>(error: T, result: unknown): T {
+  if (!isRecord(result)) return error;
+  const evidence = createPhysicalFailureEvidence(result.terminationCause, result.cleanupUnverified);
+  return evidence ? attachPhysicalFailureEvidence(error, evidence) : error;
+}
+
+function hasEarlierPhysicalFailure(error: unknown): boolean {
+  const evidence = getPhysicalFailureEvidence(error);
+  return evidence !== undefined && evidence.terminationCause !== "cancelled";
+}
+
+function physicalTransportFields(result: unknown): Record<string, unknown> {
+  if (!isRecord(result)) return {};
+  const evidence = createPhysicalFailureEvidence(result.terminationCause, result.cleanupUnverified);
+  return evidence ? { terminationCause: evidence.terminationCause, ...(evidence.cleanupUnverified ? { cleanupUnverified: evidence.cleanupUnverified } : {}) } : {};
+}
 const invocationTimeout = 10 * 60 * 1000;
 const outcomeSchema = {
   type: "object",
@@ -60,9 +100,23 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
         assertInvocationActive(invocation);
         return response;
       } catch (error) {
+        if (isRunStorageFailure(error) || isGraphEvidenceSealed(error)) throw error;
+        const graphStop = graphStopError(invocation.signal);
+        if (graphStop) {
+          if (invocation.executionMode === "graph" && hasEarlierPhysicalFailure(error)) throw error;
+          if (isRecord(error) && error.code === "PROVIDER_TIMEOUT") throw error;
+          throw copyPhysicalFailureEvidence(graphStop, error);
+        }
+        const profileTimeout = graphProfileTimeoutError(invocation.signal);
+        if (profileTimeout) {
+          if (invocation.executionMode === "graph" && hasEarlierPhysicalFailure(error)) throw error;
+          if (isRecord(error) && error.code === "PROVIDER_TIMEOUT") throw error;
+          throw copyPhysicalFailureEvidence(profileTimeout, error);
+        }
+        if (invocation.executionMode === "graph" && hasEarlierPhysicalFailure(error)) throw error;
         if (invocation.signal?.aborted || (invocation.deadlineAtMs !== undefined && Date.now() >= invocation.deadlineAtMs)) {
-          const error = new NodulusError("FEEDBACK_LIMIT_EXCEEDED", "Feedback routing elapsed-time limit was reached.");
-          throw error;
+          const feedbackError = new NodulusError("FEEDBACK_LIMIT_EXCEEDED", "Feedback routing elapsed-time limit was reached.");
+          throw copyPhysicalFailureEvidence(feedbackError, error);
         }
         if ((kind === "opencode" || kind === "claude") && error instanceof NodulusError) return providerError(error);
         throw error;
@@ -83,8 +137,23 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
         assertInvocationActive(invocation);
         return response;
       } catch (error) {
+        if (isRunStorageFailure(error) || isGraphEvidenceSealed(error)) throw error;
+        const graphStop = graphStopError(invocation.signal);
+        if (graphStop) {
+          if (invocation.executionMode === "graph" && hasEarlierPhysicalFailure(error)) throw error;
+          if (isRecord(error) && error.code === "PROVIDER_TIMEOUT") throw error;
+          throw copyPhysicalFailureEvidence(graphStop, error);
+        }
+        const profileTimeout = graphProfileTimeoutError(invocation.signal);
+        if (profileTimeout) {
+          if (invocation.executionMode === "graph" && hasEarlierPhysicalFailure(error)) throw error;
+          if (isRecord(error) && error.code === "PROVIDER_TIMEOUT") throw error;
+          throw copyPhysicalFailureEvidence(profileTimeout, error);
+        }
+        if (invocation.executionMode === "graph" && hasEarlierPhysicalFailure(error)) throw error;
         if (!isProviderActive(invocation.signal, invocation.deadlineAtMs)) {
-          throw new NodulusError("FEEDBACK_LIMIT_EXCEEDED", "Feedback routing elapsed-time limit was reached.");
+          const feedbackError = new NodulusError("FEEDBACK_LIMIT_EXCEEDED", "Feedback routing elapsed-time limit was reached.");
+          throw copyPhysicalFailureEvidence(feedbackError, error);
         }
         throw error;
       }
@@ -93,6 +162,8 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
       if (profile.enabled !== true || typeof profile.executable !== "string" || !profile.executable) return false;
       const kind = requireKind(profile);
       try {
+        const profileTimeout = graphProfileTimeoutError(options?.signal);
+        if (profileTimeout) throw profileTimeout;
         if (!isProviderActive(options?.signal, options?.deadlineAtMs)) return false;
         const timeout = boundedTimeout(profile.timeoutMs);
         const readinessTimeout = kind === "opencode" ? invocationTimeout : timeout;
@@ -100,7 +171,20 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
         if (!isProviderActive(options?.signal, options?.deadlineAtMs)) return false;
         await checkReadiness(kind, profile.executable, profile, projectRoot, readinessTimeout, options?.signal);
         return isProviderActive(options?.signal, options?.deadlineAtMs);
-      } catch { return false; }
+      } catch (error) {
+        if (options?.executionMode === "graph" && hasEarlierPhysicalFailure(error)) throw error;
+        const graphStop = graphStopError(options?.signal);
+        if (graphStop) {
+          if (isRecord(error) && error.code === "PROVIDER_TIMEOUT") throw error;
+          throw copyPhysicalFailureEvidence(graphStop, error);
+        }
+        const profileTimeout = graphProfileTimeoutError(options?.signal);
+        if (profileTimeout) {
+          if (isRecord(error) && error.code === "PROVIDER_TIMEOUT") throw error;
+          throw copyPhysicalFailureEvidence(profileTimeout, error);
+        }
+        return false;
+      }
     },
     telemetryForCall: callId => telemetryByCall.get(callId) ?? null,
     launchForCall: callId => launchByCall.get(callId) ?? null,
@@ -114,6 +198,8 @@ export function createDefaultProviderPort(projectRoot: string): ProviderPort {
 }
 
 function assertInvocationActive(invocation: ProviderInvocation): void {
+  const graphStop = graphStopError(invocation.signal);
+  if (graphStop) throw graphStop;
   if (!isProviderActive(invocation.signal, invocation.deadlineAtMs)) {
     throw new NodulusError("FEEDBACK_LIMIT_EXCEEDED", "Feedback routing elapsed-time limit was reached.");
   }
@@ -132,7 +218,7 @@ async function checkVersion(kind: Kind, executable: string, cwd: string, timeout
   let result;
   try { result = await runProcess(executable, ["--version"], { cwd, timeoutMs, ...(signal ? { signal } : {}) }); }
   catch (error) { throw new NodulusError("PROVIDER_EXECUTABLE_UNAVAILABLE", `${kind} executable could not be started: ${messageOf(error)}`); }
-  if (result.timedOut || result.exitCode !== 0) throw new NodulusError("PROVIDER_VERSION_UNAVAILABLE", `${kind} version probe failed${detail(result.stderr)}.`);
+  if (result.timedOut || result.cancelled || result.outputLimitExceeded || result.exitCode !== 0) throw withPhysicalFailure(new NodulusError("PROVIDER_VERSION_UNAVAILABLE", `${kind} version probe failed${detail(result.stderr)}.`), result);
   const match = `${result.stdout}\n${result.stderr}`.match(/(?:^|\s)(\d+)\.(\d+)\.(\d+)(?:[-+][\w.-]+)?/);
   if (!match) throw new NodulusError("PROVIDER_VERSION_UNRECOGNIZED", `${kind} version is unavailable or unrecognized; install a documented compatible CLI version.`);
   if (kind === "codex" && compareVersion(match.slice(1).map(Number), [0, 144, 4]) < 0) {
@@ -159,8 +245,8 @@ async function checkReadiness(kind: Kind, executable: string, profile: Record<st
   let result;
   try { result = await runProcess(executable, args, { cwd, timeoutMs: Math.min(timeoutMs, 30_000), ...(signal ? { signal } : {}) }); }
   catch (error) { throw new NodulusError("PROVIDER_AUTH_UNAVAILABLE", `${kind} authentication status could not be checked: ${messageOf(error)}`); }
-  if (result.timedOut || result.exitCode !== 0) {
-    throw new NodulusError("PROVIDER_AUTH_REQUIRED", `${kind} authentication check failed${detail(result.stderr)}. Sign in using the provider's documented CLI command.`);
+  if (result.timedOut || result.cancelled || result.outputLimitExceeded || result.exitCode !== 0) {
+    throw withPhysicalFailure(new NodulusError("PROVIDER_AUTH_REQUIRED", `${kind} authentication check failed${detail(result.stderr)}. Sign in using the provider's documented CLI command.`), result);
   }
   if (kind === "cursor") {
     let status: unknown;
@@ -179,8 +265,8 @@ async function checkClaudeReadiness(executable: string, cwd: string, timeoutMs: 
   let result;
   try { result = await runProcess(executable, ["auth", "status"], { cwd, timeoutMs: Math.min(timeoutMs, 30_000), ...(signal ? { signal } : {}) }); }
   catch (error) { throw new NodulusError("PROVIDER_AUTH_UNAVAILABLE", `claude authentication status could not be checked: ${messageOf(error)}`); }
-  if (result.timedOut || result.exitCode !== 0) {
-    throw new NodulusError("PROVIDER_AUTH_REQUIRED", `claude authentication check failed${detail(result.stderr)}. Sign in using the provider's documented CLI command.`);
+  if (result.timedOut || result.cancelled || result.outputLimitExceeded || result.exitCode !== 0) {
+    throw withPhysicalFailure(new NodulusError("PROVIDER_AUTH_REQUIRED", `claude authentication check failed${detail(result.stderr)}. Sign in using the provider's documented CLI command.`), result);
   }
   let status: unknown;
   try { status = JSON.parse(result.stdout) as unknown; }
@@ -198,8 +284,8 @@ async function checkOpenCodeModel(executable: string, profile: Record<string, un
   let result;
   try { result = await runProcess(executable, ["models", "ollama"], { cwd, timeoutMs: Math.min(timeoutMs, 30_000), ...(signal ? { signal } : {}) }); }
   catch (error) { throw new NodulusError("PROVIDER_MODEL_UNAVAILABLE", `OpenCode model discovery could not be started: ${messageOf(error)}`); }
-  if (result.timedOut || result.exitCode !== 0) {
-    throw new NodulusError("PROVIDER_MODEL_UNAVAILABLE", `OpenCode model discovery failed${detail(result.stderr)}.`);
+  if (result.timedOut || result.cancelled || result.outputLimitExceeded || result.exitCode !== 0) {
+    throw withPhysicalFailure(new NodulusError("PROVIDER_MODEL_UNAVAILABLE", `OpenCode model discovery failed${detail(result.stderr)}.`), result);
   }
   if (!result.stdout.split(/\r?\n/).some((model) => model === profile.model)) {
     throw new NodulusError("PROVIDER_MODEL_UNAVAILABLE", `OpenCode model '${profile.model}' is unavailable.`);
@@ -209,13 +295,23 @@ async function checkOpenCodeModel(executable: string, profile: Record<string, un
 async function invokeCodex(executable: string, cwd: string, invocation: ProviderInvocation, timeoutMs: number, capture: Capture): Promise<string> {
   const directory = await attemptDirectory(cwd, invocation);
   const outputPath = path.join(directory, "last-message.txt");
+  const stagingCallId = invocation.call?.callId ?? randomUUID();
+  if (invocation.evidencePublication && !/^[A-Za-z0-9_-]+$/.test(stagingCallId)) {
+    throw new NodulusError("CONFIGURATION_INVALID", "Graph provider call ID is not safe for a temporary output path.");
+  }
+  const stagingPath = invocation.evidencePublication
+    ? path.join(cwd, ".nodulus", "tmp", stagingCallId, "last-message.txt")
+    : outputPath;
   const schemaPath = path.join(directory, "outcome.schema.json");
-  await writeFile(schemaPath, `${JSON.stringify(outcomeSchema, null, 2)}\n`, "utf8");
+  await publish(invocation, () => writeFile(schemaPath, `${JSON.stringify(outcomeSchema, null, 2)}\n`, "utf8"));
+  if (invocation.evidencePublication) {
+    await publish(invocation, () => mkdir(path.dirname(stagingPath), { recursive: true }));
+  }
   const sandbox = invocation.providerProfile.sandbox ?? "read-only";
   if (sandbox !== "read-only" && sandbox !== "workspace-write") {
     throw new NodulusError("CONFIGURATION_INVALID", "Captured Codex sandbox must be 'read-only' or 'workspace-write'.");
   }
-  const args = ["exec", "--json", "--ephemeral", "--cd", cwd, "--sandbox", sandbox, "-c", "approval_policy=never", "--output-last-message", outputPath, "--output-schema", schemaPath];
+  const args = ["exec", "--json", "--ephemeral", "--cd", cwd, "--sandbox", sandbox, "-c", "approval_policy=never", "--output-last-message", stagingPath, "--output-schema", schemaPath];
   if (typeof invocation.providerProfile.model === "string") args.push("--model", invocation.providerProfile.model);
   const reasoningEffort = invocation.providerProfile.reasoningEffort;
   if (reasoningEffort !== undefined) {
@@ -227,25 +323,40 @@ async function invokeCodex(executable: string, cwd: string, invocation: Provider
   args.push("-");
   const transportPrompt = `${invocation.prompt}\n\nCodex transport envelope: return exactly one JSON object with a string property named response. Its string value must be the exact Nodulus outcome JSON text.`;
   const result = await capture(executable, args, { cwd, stdin: transportPrompt, timeoutMs, ...(invocation.signal ? { signal: invocation.signal } : {}) }, invocation);
-  if (result.timedOut) {
-    await saveTransport(directory, "codex", result);
-    throw new NodulusError("PROVIDER_TIMEOUT", "Codex CLI exceeded its configured invocation timeout.");
+  const failedTransport = result.timedOut || result.outputLimitExceeded || (result.cancelled && result.exitCode === 0) || result.exitCode !== 0;
+  let stagedBytes: Buffer | undefined;
+  if (failedTransport) {
+    if (invocation.evidencePublication && result.cleanupUnverified === undefined && isProviderActive(invocation.signal, invocation.deadlineAtMs) && !invocation.evidencePublication.isSealed()) {
+      try { stagedBytes = await readFile(stagingPath); }
+      catch { stagedBytes = undefined; }
+      if (stagedBytes !== undefined) {
+        await publish(invocation, () => writeFile(outputPath, stagedBytes!));
+      }
+    }
+    const stagedMessage = stagedBytes?.toString("utf8");
+    await saveTransport(directory, "codex", result, invocation, stagedMessage);
+    if (result.timedOut) throw withPhysicalFailure(new NodulusError("PROVIDER_TIMEOUT", "Codex CLI exceeded its configured invocation timeout."), result);
+    if (result.outputLimitExceeded) throw withPhysicalFailure(new NodulusError("PROVIDER_OUTPUT_LIMIT", "Codex CLI exceeded the 2 MiB transport output limit."), result);
+    if (result.cancelled && result.exitCode === 0) throw withPhysicalFailure(new NodulusError("PROVIDER_PROCESS_FAILED", "Codex CLI was cancelled before returning a response."), result);
+    throw withPhysicalFailure(new NodulusError("PROVIDER_PROCESS_FAILED", `Codex CLI exited with code ${result.exitCode}${detail(result.stderr)}.`), result);
   }
-  if (result.outputLimitExceeded) {
-    await saveTransport(directory, "codex", result);
-    throw new NodulusError("PROVIDER_OUTPUT_LIMIT", "Codex CLI exceeded the 2 MiB transport output limit.");
+  assertInvocationActive(invocation);
+  let stagedMessage: string;
+  try {
+    stagedBytes = await readFile(stagingPath);
+    stagedMessage = stagedBytes.toString("utf8");
+  } catch (error) {
+    await saveTransport(directory, "codex", result, invocation);
+    if (isMissingFile(error)) throw new NodulusError("PROVIDER_RESPONSE_MISSING", `Codex CLI did not write its final message: ${messageOf(error)}${detail(result.stderr)}.`);
+    throw new NodulusError("RUN_STORAGE_FAILED", `Codex staged output could not be read: ${messageOf(error)}`);
   }
-  if (result.exitCode !== 0) {
-    await saveTransport(directory, "codex", result);
-    throw new NodulusError("PROVIDER_PROCESS_FAILED", `Codex CLI exited with code ${result.exitCode}${detail(result.stderr)}.`);
+  if (invocation.evidencePublication) {
+    await publish(invocation, () => writeFile(outputPath, stagedBytes!));
+    try { await publish(invocation, () => unlink(stagingPath)); }
+    catch (error) { if (isGraphEvidenceSealed(error)) throw error; }
   }
-  let lastMessage: string;
-  try { lastMessage = await readFile(outputPath, "utf8"); }
-  catch (error) {
-    await saveTransport(directory, "codex", result);
-    throw new NodulusError("PROVIDER_RESPONSE_MISSING", `Codex CLI did not write its final message: ${messageOf(error)}${detail(result.stderr)}.`);
-  }
-  await saveTransport(directory, "codex", result, lastMessage);
+  await saveTransport(directory, "codex", result, invocation, stagedMessage);
+  const lastMessage = stagedMessage;
   let envelope: unknown;
   try { envelope = JSON.parse(lastMessage) as unknown; }
   catch (error) { throw new NodulusError("PROVIDER_TRANSPORT_INVALID", `Codex CLI returned malformed response-envelope JSON: ${messageOf(error)}.`); }
@@ -260,10 +371,11 @@ async function invokeCursor(executable: string, cwd: string, invocation: Provide
   const args = ["-p", "--output-format", "stream-json", "--trust", "--workspace", cwd];
   if (typeof invocation.providerProfile.model === "string") args.push("--model", invocation.providerProfile.model);
   const result = await capture(executable, args, { cwd, stdin: invocation.prompt, timeoutMs, ...(invocation.signal ? { signal: invocation.signal } : {}) }, invocation);
-  await saveTransport(directory, "cursor", result);
-  if (result.timedOut) throw new NodulusError("PROVIDER_TIMEOUT", "Cursor CLI exceeded its configured invocation timeout.");
-  if (result.outputLimitExceeded) throw new NodulusError("PROVIDER_OUTPUT_LIMIT", "Cursor CLI exceeded the 2 MiB transport output limit.");
-  if (result.exitCode !== 0) throw new NodulusError("PROVIDER_PROCESS_FAILED", `Cursor CLI exited with code ${result.exitCode}${detail(result.stderr)}.`);
+  await saveTransport(directory, "cursor", result, invocation);
+  if (result.timedOut) throw withPhysicalFailure(new NodulusError("PROVIDER_TIMEOUT", "Cursor CLI exceeded its configured invocation timeout."), result);
+  if (result.outputLimitExceeded) throw withPhysicalFailure(new NodulusError("PROVIDER_OUTPUT_LIMIT", "Cursor CLI exceeded the 2 MiB transport output limit."), result);
+  if (result.cancelled && result.exitCode === 0) throw withPhysicalFailure(new NodulusError("PROVIDER_PROCESS_FAILED", "Cursor CLI was cancelled before returning a response."), result);
+  if (result.exitCode !== 0) throw withPhysicalFailure(new NodulusError("PROVIDER_PROCESS_FAILED", `Cursor CLI exited with code ${result.exitCode}${detail(result.stderr)}.`), result);
   return parseCursorStreamOutcome(result.stdout, result.stderr);
 }
 
@@ -290,10 +402,11 @@ async function invokeClaude(executable: string, cwd: string, invocation: Provide
   if (profile.safeMode === true) args.push("--safe-mode");
   const transportPrompt = `${invocation.prompt}\n\n${claudeTransportSuffix}`;
   const result = await capture(executable, args, { cwd, stdin: transportPrompt, timeoutMs, ...(invocation.signal ? { signal: invocation.signal } : {}) }, invocation);
-  await saveTransport(directory, "claude", result);
-  if (result.timedOut) throw new NodulusError("PROVIDER_TIMEOUT", "Claude Code CLI exceeded its configured invocation timeout.");
-  if (result.outputLimitExceeded) throw new NodulusError("PROVIDER_OUTPUT_LIMIT", "Claude Code CLI exceeded the 2 MiB transport output limit.");
-  if (result.exitCode !== 0) throw new NodulusError("PROVIDER_PROCESS_FAILED", `Claude Code CLI exited with code ${result.exitCode}${detail(result.stderr)}.`);
+  await saveTransport(directory, "claude", result, invocation);
+  if (result.timedOut) throw withPhysicalFailure(new NodulusError("PROVIDER_TIMEOUT", "Claude Code CLI exceeded its configured invocation timeout."), result);
+  if (result.outputLimitExceeded) throw withPhysicalFailure(new NodulusError("PROVIDER_OUTPUT_LIMIT", "Claude Code CLI exceeded the 2 MiB transport output limit."), result);
+  if (result.cancelled && result.exitCode === 0) throw withPhysicalFailure(new NodulusError("PROVIDER_PROCESS_FAILED", "Claude Code CLI was cancelled before returning a response."), result);
+  if (result.exitCode !== 0) throw withPhysicalFailure(new NodulusError("PROVIDER_PROCESS_FAILED", `Claude Code CLI exited with code ${result.exitCode}${detail(result.stderr)}.`), result);
   let envelope: unknown;
   try { envelope = JSON.parse(result.stdout) as unknown; }
   catch (error) { throw new NodulusError("PROVIDER_TRANSPORT_INVALID", `Claude Code CLI returned malformed JSON: ${messageOf(error)}${detail(result.stderr)}.`); }
@@ -354,10 +467,11 @@ async function invokeOpenCode(executable: string, cwd: string, invocation: Provi
   const args = ["run", "--format", "json", "--thinking", "--model", model, "--agent", "build", "--dir", cwd];
   const transportPrompt = `${invocation.prompt}\n\n${openCodeTransportSuffix}`;
   const result = await capture(executable, args, { cwd, stdin: transportPrompt, timeoutMs, ...(invocation.signal ? { signal: invocation.signal } : {}) }, invocation);
-  await saveTransport(directory, "opencode", result);
-  if (result.timedOut) throw new NodulusError("PROVIDER_TIMEOUT", "OpenCode CLI exceeded its configured invocation timeout.");
-  if (result.outputLimitExceeded) throw new NodulusError("PROVIDER_OUTPUT_LIMIT", "OpenCode CLI exceeded the 2 MiB transport output limit.");
-  if (result.exitCode !== 0) throw new NodulusError("PROVIDER_PROCESS_FAILED", `OpenCode CLI exited with code ${result.exitCode}${detail(result.stderr)}.`);
+  await saveTransport(directory, "opencode", result, invocation);
+  if (result.timedOut) throw withPhysicalFailure(new NodulusError("PROVIDER_TIMEOUT", "OpenCode CLI exceeded its configured invocation timeout."), result);
+  if (result.outputLimitExceeded) throw withPhysicalFailure(new NodulusError("PROVIDER_OUTPUT_LIMIT", "OpenCode CLI exceeded the 2 MiB transport output limit."), result);
+  if (result.cancelled && result.exitCode === 0) throw withPhysicalFailure(new NodulusError("PROVIDER_PROCESS_FAILED", "OpenCode CLI was cancelled before returning a response."), result);
+  if (result.exitCode !== 0) throw withPhysicalFailure(new NodulusError("PROVIDER_PROCESS_FAILED", `OpenCode CLI exited with code ${result.exitCode}${detail(result.stderr)}.`), result);
   const parsed = parseOpenCodeResponse(result.stdout);
   if (parsed.sessionID !== undefined) repairSessions.set(repairSessionKey(invocation), { sessionID: parsed.sessionID, count: 0 });
   return parsed.response;
@@ -384,16 +498,22 @@ async function repairOpenCodeResponse(
   session.count += 1;
   const initialDirectory = await attemptDirectory(cwd, invocation);
   const directory = path.join(initialDirectory, `repair-${String(session.count).padStart(3, "0")}`);
-  await mkdir(directory, { recursive: true });
+  await publish(invocation, () => mkdir(directory, { recursive: true }));
   const args = ["run", "--format", "json", "--thinking", "--model", model, "--agent", "nodulus-response", "--session", session.sessionID, "--dir", cwd];
   const prompt = `Your previous final Nodulus response was rejected with INVALID_NODE_RESPONSE. Return only a corrected complete Nodulus system outcome JSON object. Do not run tools or perform actions. Do not write the outcome to a file. Preserve the node-supplied artifact name, contract, and data. A structurally complete success response has this exact shape: {"status":"success","artifacts":[{"name":"node-supplied name","contract":"node-supplied contract","data":{}}]}. Check that both the data object and its containing artifact object close before the artifacts array.\n\nPrevious response:\n${previousRawResponse}\n\nValidation errors:\n${validationErrors.join("\n")}`;
   let result;
   try { result = await capture(executable, args, { cwd, stdin: prompt, timeoutMs, ...(invocation.signal ? { signal: invocation.signal } : {}) }, invocation, "repair_response"); }
-  catch (error) { throw new NodulusError("RESPONSE_REPAIR_FAILED", `OpenCode response-only repair could not be started: ${messageOf(error)}`); }
-  await saveTransport(directory, "opencode", result);
-  if (result.timedOut) throw new NodulusError("RESPONSE_REPAIR_FAILED", "OpenCode response-only repair exceeded its configured invocation timeout.");
-  if (result.outputLimitExceeded) throw new NodulusError("RESPONSE_REPAIR_FAILED", "OpenCode response-only repair exceeded the 2 MiB transport output limit.");
-  if (result.exitCode !== 0) throw new NodulusError("RESPONSE_REPAIR_FAILED", `OpenCode response-only repair failed with code ${result.exitCode}${detail(result.stderr)}.`);
+  catch (error) {
+    if (isRunStorageFailure(error) || isGraphEvidenceSealed(error)) throw error;
+    const wrapped = new NodulusError("RESPONSE_REPAIR_FAILED", `OpenCode response-only repair could not be started: ${messageOf(error)}`);
+    const evidence = getPhysicalFailureEvidence(error);
+    throw evidence ? attachPhysicalFailureEvidence(wrapped, evidence) : wrapped;
+  }
+  await saveTransport(directory, "opencode", result, invocation);
+  if (result.timedOut) throw withPhysicalFailure(new NodulusError("RESPONSE_REPAIR_FAILED", "OpenCode response-only repair exceeded its configured invocation timeout."), result);
+  if (result.outputLimitExceeded) throw withPhysicalFailure(new NodulusError("RESPONSE_REPAIR_FAILED", "OpenCode response-only repair exceeded the 2 MiB transport output limit."), result);
+  if (result.cancelled && result.exitCode === 0) throw withPhysicalFailure(new NodulusError("RESPONSE_REPAIR_FAILED", "OpenCode response-only repair was cancelled."), result);
+  if (result.exitCode !== 0) throw withPhysicalFailure(new NodulusError("RESPONSE_REPAIR_FAILED", `OpenCode response-only repair failed with code ${result.exitCode}${detail(result.stderr)}.`), result);
   try { return parseOpenCodeResponse(result.stdout).response; }
   catch (error) {
     if (error instanceof NodulusError) throw new NodulusError("RESPONSE_REPAIR_FAILED", `OpenCode response-only repair failed: ${error.message}`);
@@ -436,8 +556,8 @@ function providerError(error: NodulusError): string {
   return JSON.stringify({ status: "error", error: { code: error.code, message: error.message } });
 }
 
-async function saveTransport(directory: string, kind: Kind, result: Awaited<ReturnType<typeof runProcess>>, lastMessage?: string): Promise<void> {
-  await writeFile(path.join(directory, "transport.json"), `${JSON.stringify({
+async function saveTransport(directory: string, kind: Kind, result: Awaited<ReturnType<typeof runProcess>>, invocation: ProviderInvocation, lastMessage?: string): Promise<void> {
+  await publish(invocation, () => writeFile(path.join(directory, "transport.json"), `${JSON.stringify({
     provider: kind,
     stdout: result.stdout,
     stderr: result.stderr,
@@ -445,14 +565,15 @@ async function saveTransport(directory: string, kind: Kind, result: Awaited<Retu
     timedOut: result.timedOut,
     cancelled: result.cancelled,
     started: result.started,
+    ...physicalTransportFields(result),
     ...(lastMessage === undefined ? {} : { lastMessage }),
-  }, null, 2)}\n`, "utf8");
+  }, null, 2)}\n`, "utf8"));
 }
 
 async function attemptDirectory(cwd: string, invocation: ProviderInvocation): Promise<string> {
   const runPath = path.join(cwd, ".nodulus", "runs", invocation.runId);
   const directory = path.join(runPath, "provider", invocation.nodeId, `attempt-${String(invocation.attempt).padStart(3, "0")}`);
-  await mkdir(directory, { recursive: true });
+  await publish(invocation, () => mkdir(directory, { recursive: true }));
   return directory;
 }
 
@@ -466,6 +587,7 @@ function boundedTimeout(value: unknown): number {
 function detail(value: string): string { return value.trim() ? `: ${value.trim().slice(0, 4000)}` : ""; }
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
+function isMissingFile(error: unknown): boolean { return isRecord(error) && error.code === "ENOENT"; }
 function isCodexReasoningEffort(value: unknown): value is "minimal" | "low" | "medium" | "high" | "xhigh" {
   return value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh";
 }

@@ -52,28 +52,34 @@ test("FB-010 accepts and returns a strict feedback definition without side effec
   expect(captured.workflow.feedbackRouting).toEqual(definition);
 });
 
-test("FB-010 rejects malformed definitions before creating a run", async () => {
+const malformedFeedbackDefinitions: Array<[string, unknown]> = [
+  ["empty definition", {}],
+  ["unknown field", { ...definition, extra: true }],
+  ["empty region ID", { ...definition, regionId: "" }],
+  ["slash in region ID", { ...definition, regionId: "bad/id" }],
+  ["empty routes", { ...definition, routes: {} }],
+  ["duplicate reentry node", { ...definition, reentrySafeNodes: ["prepare", "prepare", "review"] }],
+  ["unknown reentry node", { ...definition, reentrySafeNodes: ["prepare", "ghost", "review"] }],
+  ["unknown route target", { ...definition, routes: { FIX_DOCS: "ghost", APPROVE: "continue" } }],
+  ["route violates reentry safety", { ...definition, routes: { FIX_DOCS: "build", APPROVE: "continue" }, reentrySafeNodes: ["prepare", "review"] }],
+  ["invalid start node", { ...definition, startNode: "review" }],
+  ["invalid continuation node", { ...definition, continuationNode: "build" }],
+  ["unknown decision output", { ...definition, decisionOutput: { name: "missing", contract: "workflow-decision.v1" } }],
+  ["unknown decision contract", { ...definition, decisionOutput: { name: "decision", contract: "other.v1" } }],
+  ...[0, 1.5, Number.NaN, Number.POSITIVE_INFINITY].map((value) => [
+    `invalid maxIterations ${String(value)}`,
+    { ...definition, limits: { ...definition.limits, maxIterations: value } },
+  ] as [string, unknown]),
+];
+
+test.each(malformedFeedbackDefinitions)("FB-010 rejects %s before creating a run", async (_label, candidate) => {
   const root = project();
   const workflowPath = path.join(root, ".nodulus/workflows/example.json");
   const original = JSON.parse(readFileSync(workflowPath, "utf8")) as Record<string, unknown>;
-  const invalid: unknown[] = [
-    {}, { ...definition, extra: true }, { ...definition, regionId: "" }, { ...definition, regionId: "bad/id" },
-    { ...definition, routes: {} },
-    { ...definition, reentrySafeNodes: ["prepare", "prepare", "review"] },
-    { ...definition, reentrySafeNodes: ["prepare", "ghost", "review"] },
-    { ...definition, routes: { FIX_DOCS: "ghost", APPROVE: "continue" } },
-    { ...definition, routes: { FIX_DOCS: "build", APPROVE: "continue" }, reentrySafeNodes: ["prepare", "review"] },
-    { ...definition, startNode: "review" }, { ...definition, continuationNode: "build" },
-    { ...definition, decisionOutput: { name: "missing", contract: "workflow-decision.v1" } },
-    { ...definition, decisionOutput: { name: "decision", contract: "other.v1" } },
-    ...[0, 1.5, Number.NaN, Number.POSITIVE_INFINITY].map((value) => ({ ...definition, limits: { ...definition.limits, maxIterations: value } })),
-  ];
-  for (const candidate of invalid) {
-    writeJson(root, ".nodulus/workflows/example.json", { ...original, feedbackRouting: candidate });
-    await expect(inspectWorkflowDefinition(root, "example", new LocalIntakeStorage())).rejects.toThrow();
-    await expect(createIntake({ projectRoot: root, cwd: root, workflow: "example", sources: [{ kind: "inline", text: "request" }] }, new LocalIntakeStorage())).rejects.toThrow();
-    expect((await import("node:fs")).readdirSync(path.join(root, ".nodulus/runs"))).toEqual([]);
-  }
+  writeJson(root, ".nodulus/workflows/example.json", { ...original, feedbackRouting: candidate });
+  await expect(inspectWorkflowDefinition(root, "example", new LocalIntakeStorage())).rejects.toThrow();
+  await expect(createIntake({ projectRoot: root, cwd: root, workflow: "example", sources: [{ kind: "inline", text: "request" }] }, new LocalIntakeStorage())).rejects.toThrow();
+  expect((await import("node:fs")).readdirSync(path.join(root, ".nodulus/runs"))).toEqual([]);
 });
 
 const oversizedFeedbackLimits = (["maxIterations", "maxProviderCalls", "maxElapsedMs"] as const)

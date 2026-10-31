@@ -7,9 +7,21 @@ import type { IntakeStorage } from "../core/ports/intake-storage.js";
 import { requestContractSchema } from "../core/intake-request.js";
 import { ENGINE_VERSION } from "./resume-workflow.js";
 import { feedbackGenerationStatusByAttempt, inspectFeedbackEvidence } from "../core/feedback-inspection.js";
+import { readCapturedGraphContext } from "./captured-graph-context.js";
+import { verifyGraphInspectionArtifacts, type VerifiedGraphInspection } from "../core/graph-resume-evidence.js";
+import type { GraphRunCheckpoint } from "../core/graph-state.js";
 
 type RecordValue = Record<string, unknown>;
 type Attempt = { nodeId: string; attempt: number };
+type GraphAcceptanceAuthority =
+  | { verified: false }
+  | {
+      verified: true;
+      checkpoint: GraphRunCheckpoint;
+      inspection: VerifiedGraphInspection;
+      events: RecordValue[];
+    }
+  | undefined;
 
 function isRecord(value: unknown): value is RecordValue {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -101,6 +113,12 @@ export async function replaySavedRun(
     }
   }
 
+  const graphAcceptance = hasGraphReplayHint(run, definitions)
+    ? await readGraphAcceptanceAuthority(projectRoot, runId, run, definitions, eventsText, eventRows, storage, diagnostics)
+    : undefined;
+  let candidateAcceptanceDiagnostics = 0;
+  let omittedCandidateAcceptanceDiagnostics = false;
+
   for (const attempt of attempts) {
     const node = nodes.get(attempt.nodeId);
     if (!node) {
@@ -145,7 +163,28 @@ export async function replaySavedRun(
         }
       }
       const savedGenerationStatus = generationStatus.get(`${attempt.nodeId}\0${attempt.attempt}`);
-      candidates.push({ nodeId: attempt.nodeId, attempt: attempt.attempt, name: artifact.name, contract: artifact.contract, valid, errors, ...(savedGenerationStatus ? { generationStatus: savedGenerationStatus } : {}) });
+      const acceptance = graphAcceptance !== undefined
+        ? graphCandidateAcceptanceStatus(graphAcceptance, attempt, artifact)
+        : undefined;
+      if (acceptance?.diagnostic !== undefined) {
+        if (candidateAcceptanceDiagnostics < 64) {
+          diagnostics.push(acceptance.diagnostic);
+          candidateAcceptanceDiagnostics += 1;
+        } else if (!omittedCandidateAcceptanceDiagnostics) {
+          diagnostics.push("Additional graph candidate acceptance diagnostics were omitted.");
+          omittedCandidateAcceptanceDiagnostics = true;
+        }
+      }
+      candidates.push({
+        nodeId: attempt.nodeId,
+        attempt: attempt.attempt,
+        name: artifact.name,
+        contract: artifact.contract,
+        valid,
+        errors,
+        ...(acceptance !== undefined ? { acceptanceStatus: acceptance.status } : {}),
+        ...(savedGenerationStatus ? { generationStatus: savedGenerationStatus } : {}),
+      });
     }
   }
 
@@ -181,4 +220,105 @@ export async function replaySavedRun(
     skipped: { providerCalls: true, executableValidators: [...skippedValidators].sort() },
     diagnostics,
   };
+}
+
+async function readGraphAcceptanceAuthority(
+  projectRoot: string,
+  runId: string,
+  run: unknown,
+  definitions: unknown,
+  eventsText: string | null,
+  eventRows: RecordValue[],
+  storage: IntakeStorage,
+  diagnostics: string[],
+): Promise<Exclude<GraphAcceptanceAuthority, undefined>> {
+  if (!isRecord(run) || run.schemaVersion !== 2 || typeof eventsText !== "string" ||
+      !isRecord(run.graph) || !isRecord(run.graph.nodes) || !Array.isArray(run.completedNodes)) {
+    diagnostics.push("Saved graph acceptance could not be established from its checkpoint and event history.");
+    return { verified: false };
+  }
+  if (hasRoutedFeedbackEvidence(run, eventRows)) {
+    diagnostics.push("Saved graph acceptance is unavailable because feedback-routing evidence contradicts its captured graph definition.");
+    return { verified: false };
+  }
+  try {
+    const checkpoint = run as unknown as GraphRunCheckpoint;
+    const captured = await readCapturedGraphContext(projectRoot, runId, checkpoint, ENGINE_VERSION, storage);
+    if (!isRecord(definitions) || stableJson(definitions) !== stableJson(captured.context)) {
+      diagnostics.push("Saved graph acceptance is unavailable because replay and verification used different captured definitions.");
+      return { verified: false };
+    }
+    if (captured.context.workflow.feedbackRouting !== undefined) {
+      diagnostics.push("Saved graph acceptance is unavailable because the captured graph contains feedback-routing evidence.");
+      return { verified: false };
+    }
+    const verified = await verifyGraphInspectionArtifacts(storage, projectRoot, captured.context, checkpoint, eventsText);
+    diagnostics.push(...verified.diagnostics);
+    return { verified: true, checkpoint, inspection: verified, events: eventRows };
+  } catch {
+    diagnostics.push("Saved graph acceptance could not be verified from its captured files or event history.");
+    return { verified: false };
+  }
+}
+
+function hasRoutedFeedbackEvidence(checkpoint: unknown, events: RecordValue[]): boolean {
+  const savedRegions = isRecord(checkpoint) && isRecord(checkpoint.feedbackRouting) && isRecord(checkpoint.feedbackRouting.regions)
+    ? Object.keys(checkpoint.feedbackRouting.regions).length > 0
+    : false;
+  return savedRegions || events.some((event) => typeof event.event === "string" && event.event.startsWith("feedback."));
+}
+
+function hasGraphReplayHint(run: unknown, definitions: unknown): boolean {
+  const runGraph = isRecord(run) && isRecord(run.graph) && isRecord(run.graph.nodes);
+  const workflow = isRecord(definitions) && isRecord(definitions.workflow) ? definitions.workflow : undefined;
+  const graphWorkflow = workflow && isRecord(workflow.execution) && workflow.execution.kind === "dag";
+  return runGraph || (isRecord(run) && run.schemaVersion === 2) ||
+    (isRecord(definitions) && definitions.schemaVersion === 2) ||
+    (workflow !== undefined && workflow.schemaVersion === 2) || graphWorkflow === true;
+}
+
+function graphCandidateAcceptanceStatus(
+  authority: NonNullable<GraphAcceptanceAuthority>,
+  attempt: Attempt,
+  artifact: RecordValue,
+): { status: "accepted" | "not_accepted" | "unverified"; diagnostic?: string } {
+  const unverified = (diagnostic: string) => ({ status: "unverified" as const, diagnostic });
+  if (!authority.verified) return unverified("Graph candidate acceptance is unverified because saved graph authority was unavailable.");
+  const { checkpoint, inspection, events } = authority;
+  const state = checkpoint.graph.nodes[attempt.nodeId];
+  if (!isRecord(state) || !Array.isArray(checkpoint.completedNodes)) {
+    return unverified("Graph candidate acceptance is unverified because its node state is missing or malformed.");
+  }
+  const completedCount = checkpoint.completedNodes.filter((nodeId) => nodeId === attempt.nodeId).length;
+  const acceptedEvents = events.filter((event) => event.event === "node.accepted" && event.nodeId === attempt.nodeId);
+  const phase = state.phase;
+  if (phase === "accepted") {
+    const accepted = isRecord(state.accepted) ? state.accepted : undefined;
+    const verifiedOutputs = inspection.acceptedArtifacts.get(attempt.nodeId);
+    if (!accepted || !verifiedOutputs || completedCount !== 1 || acceptedEvents.length !== 1 ||
+        typeof accepted.attempt !== "number" || !Number.isSafeInteger(accepted.attempt) || !isUuid(accepted.callId) ||
+        accepted.callId !== state.callId || accepted.attempt !== state.attempt) {
+      return unverified("Graph candidate acceptance is unverified because accepted-node checkpoint claims are inconsistent.");
+    }
+    if (accepted.attempt !== attempt.attempt) {
+      return accepted.attempt > attempt.attempt
+        ? { status: "not_accepted" }
+        : unverified("Graph candidate acceptance is unverified because the saved accepted attempt is stale.");
+    }
+    const verifiedArtifact = verifiedOutputs.get(typeof artifact.name === "string" ? artifact.name : "");
+    if (!verifiedArtifact || verifiedArtifact.contract !== artifact.contract || stableJson(verifiedArtifact.data) !== stableJson(artifact.data)) {
+      return unverified("Graph candidate acceptance is unverified because candidate data does not match the verified accepted output.");
+    }
+    return { status: "accepted" };
+  }
+  if ((phase !== "not_started" && phase !== "active" && phase !== "pending" && phase !== "failed") ||
+      completedCount !== 0 || acceptedEvents.length !== 0 || state.accepted !== undefined ||
+      !Number.isSafeInteger(state.attempt) || Number(state.attempt) < attempt.attempt) {
+    return unverified("Graph candidate acceptance is unverified because checkpoint and acceptance-event claims conflict.");
+  }
+  return { status: "not_accepted" };
+}
+
+function isUuid(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }

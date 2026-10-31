@@ -1,6 +1,6 @@
 # Architecture and protocol
 
-Status: v1 contract; folders 00 through 08 are implemented and reviewed, with hosted Windows/macOS/Linux validation. Version 1.0.0 is published; the implementation index records remaining automated-release and live-provider proof. Update affected scenarios before changing this contract.
+Status: versioned ordered-workflow and DAG contracts. The implementation index and parallel evidence distinguish focused checks, full local/hosted gates, publication and live-provider proof. Update affected scenarios before changing this contract.
 
 ## Scope and stack
 
@@ -11,16 +11,16 @@ CLI / future UI -> application core -> domain contracts and ports
 composition root -> concrete adapters implementing the ports
 ```
 
-Source layout: `src/cli`, `src/application`, `src/core` (including `ports` and `shared`), `src/adapters/{providers,storage,validation}`, and `src/system-contracts`. The application layer composes the concrete adapters with core operations. Core code never imports adapters, CLI or application composition; lint enforces these import boundaries. Ports include provider execution, project files/settings, intake storage and artifact validation. Add methods only as scenarios need them.
+Source layout: `src/cli.ts`, `src/application`, `src/core` (including `ports` and `shared`), `src/adapters/{providers,storage,validation}`, and `src/system-contracts`. The application layer composes the concrete adapters with core operations. Core code never imports adapters, CLI or application composition; lint enforces these import boundaries. Ports include provider execution, project files/settings, intake storage and artifact validation. Add methods only as scenarios need them.
 
-Sequential execution is ordinary code. Dynamic graphs, LLM supervisors, parallel nodes, remote databases, UI, and MCP servers are outside v1.
+Schema-version-1 workflows retain ordered execution. Schema-version-2 definitions use a separate validated DAG executor with explicit dependencies and bounded concurrency. Dynamic graph rewrites, LLM supervisors, remote databases, UI, and MCP servers remain outside this contract.
 
 ## Domain
 
 - nInstruction: one or more ordered Markdown files per node.
 - nArtifact: named data governed by a versioned JSON Schema, optionally checked by a real validation script.
 - nNode: provider profile reference, instructions, named input mappings, expected outputs.
-- nWorkflow: ordered nodes mapping workflow inputs or earlier accepted artifacts into later inputs.
+- nWorkflow: schema-1 ordered nodes or a schema-2 DAG mapping workflow inputs and eligible accepted artifacts into node inputs.
 - Provider profile: named tool/executable, model, enabled flag, capabilities, and timeout. Changing a profile affects new runs; existing runs retain their resolved configuration.
 - System outcome: exactly `success`, `needs_input`, or `error`; these names replace earlier draft synonyms. Package-owned system contracts cannot be overridden by project contracts.
 
@@ -53,7 +53,7 @@ Exactly one request source. CLI file arguments resolve against caller cwd; manif
 
 `inspect workflow` is read-only. It resolves declared caller-input contracts and node mappings against request contracts and earlier workflow outputs, and returns structured diagnostics for invalid references. For a declared `feedbackRouting` definition it also validates the region and route declarations and the named decision output against the ordered nodes and loaded contracts. It does not invoke providers or validators or touch the run tree. Inspection reports effective configured profile policy, including Codex's `read-only` sandbox default when omitted; it does not establish provider enforcement.
 
-`inspect run` reads saved checkpoints, events, call evidence, artifacts, and validation records. Contradictory or mispointed validation evidence is diagnosed and not treated as accepted. Damaged checkpoints return an unavailable status with diagnostics. `inspect export` emits a deterministic versioned redacted envelope without changing the run; contract schemas and provider-profile metadata are summarized to avoid copying private schema literals or arbitrary profile strings. `inspect replay` revalidates persisted candidates with captured Ajv schemas and reports current-schema/engine drift; it never invokes providers or executable validators.
+`inspect run` reads saved checkpoints, events, call evidence, artifacts, and validation records. Contradictory or mispointed validation evidence is diagnosed and not treated as accepted. Damaged checkpoints return an unavailable status with diagnostics. `inspect export` emits a deterministic versioned redacted envelope without changing the run; contract schemas and provider-profile metadata are summarized to avoid copying private schema literals or arbitrary profile strings. `inspect replay` revalidates persisted candidates with captured Ajv schemas and reports current-schema/engine drift; it never invokes providers or executable validators. Graph replay separately projects verified acceptance, proven non-acceptance or unverified evidence. It binds the captured context and complete event sequence, compares exact accepted candidate data, and keeps node-local evidence failures local; schema validity alone cannot grant acceptance.
 
 Machine mode returns immediately on clarification. One JSON object on stdout; diagnostics on stderr. Exit 0 = success, 2 = needs_input, 1 = error, including usage/configuration failures. Normalize parser errors when `--json` is present.
 
@@ -77,9 +77,19 @@ Run states: running, needs_input, success, error. Track active node, attempts, c
 
 Default budget: one initial execution plus two response-only corrections. Save all raw responses and validation reports. Corrections must not replay tool actions; if the provider cannot support response-only correction, return an actionable error instead of retrying a full agent execution.
 
-Schema validity does not establish semantic correctness. A review artifact with pass=false may be valid; an explicit business check determines whether that prevents progression.
+Schema validity does not establish semantic correctness. Every required output must still be a valid artifact; its contract can represent no findings or an empty result. A node error or failed required validation stops admission of later work.
 
 Missing caller data creates a pending request with an answer contract. Missing predecessor outputs are configuration/execution defects, not user questions. Validate request ID and answers before mutating a paused run. Pending request IDs are runtime-generated; use the returned saved ID rather than a model-provided label. Accepted answers are saved by request ID, with subsequent clarifications receiving fresh IDs. Never replay completed nodes. A crashed attempt with uncertain side effects requires explicit recovery, not automatic re-execution.
+
+### Parallel graph execution
+
+Schema-2 workflows declare a DAG, positive safe-integer maxConcurrency, one dependency entry per node and ordered output aliases. Node declaration order breaks ready-node ties; dependencies define topology. Artifact mappings can reference only transitive ancestors with matching declared output/contract identities. A join waits for all declared predecessors and required accepted inputs. Independent terminal branches remain valid, and final aliases follow their declared order. Graphs cannot be combined with schema-1 feedbackRouting.
+
+The graph executor, node runner and serialized graph-state writer are separate Core operations. A node holds its slot and resource reservations through readiness, invocation, response repair, validation and confirmed cleanup. Omitted resource entries default to workspace. A workspace reservation conflicts with every nonempty resource set; explicit [] claims no shared resources and can run alongside it. These declarations coordinate nodes rather than sandbox tools. Nodes using [] must avoid conflicting access to mutable workspace data; captured immutable inputs are suitable for the review example.
+
+Clarification closes new admission while admitted work settles. Graph run/resume results expose ordered requests and a compatibility request alias. Status exposes pendingRequests and its first-item pendingRequest alias; caller-input questions precede node questions, which follow captured node order. Partial answers persist without dispatch while unanswered runtime requests remain. The final answer permits eligible work to continue without replaying accepted nodes. Errors close admission and drain owned work; uncertain operations or cleanup require recovery rather than automatic re-execution.
+
+Read-only graph inspection distinguishes raw checkpoint phases from verified accepted artifacts, including while other branches remain active. It checks captured hashes and call/validation/acceptance chronology and preserves independently verified outputs when another node is corrupt. Recovery messages distinguish unresolved completion from unverified cleanup. Portable export deeply projects topology, mappings, aliases and call evidence, replacing custom resource labels with deterministic opaque names. Repair parents require matching ordered start/completion records for the same node at consecutive attempts; launch measurement remains separate. Graph replay acceptance and installed-archive delivery are tracked separately until their gates pass.
 
 ## Persistence
 

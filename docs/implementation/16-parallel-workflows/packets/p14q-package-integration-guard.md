@@ -1,0 +1,7 @@
+# P14Q: explicit aggregate archive-journey test guard
+
+Root's full gate and one instrumented package observation both hit the incidental Vitest5000ms guard in PKG-001's first ten-process integration case. Observation A602ADE4CF0399E0D05B21E04E1DBEA350DF7E7B5D44C60FC7E9BFCBBECEB03D showed all ten actual installed CLI commands status0, final replay reached, aggregate5320.825ms; original failures are retained. Sol checked current testing policy/delivery skill and found no five-second package performance requirement. Root/Sol accepted this new narrow harness scope after the observation scope ended.
+
+The separate Luna may change only that first case in tests/scenarios/pkg-001-installed-archive.test.ts to an explicit15000ms aggregate test guard with a brief integration-budget comment. Preserve all functional assertions, command order/arguments, actual archive/install/CLI, optional trace, every30000ms subprocess bound and5000ms provider timeout. No global Vitest config, runtime/cancellation/feedback/watchdog limit or production change. This is a case-specific integration harness correction, not a CLI/product performance fix or a claimed explanation for the sampled slow command. No feature acceptance follows from it.
+
+Write only, freeze and stop before checks. Root/Sol review the exact narrow diff; one package check and the later final full gate follow when the shared source tree is frozen. Original timed-out runs remain evidence. Snapshot p14q-before preserves the observed harness. This permission does not loosen any frozen graph/repair/stop assertions.

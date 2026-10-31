@@ -1,0 +1,21 @@
+# P15C1: settled root with an orphaned descendant
+
+Root and Sol accepted this narrow first C test design against p15b2-c-recovery-state-design.md. C0 preserves physical evidence but does not implement conservative Windows uncertainty or graph recovery summaries. B2's pending promise is a different state. No C implementation is claimed.
+
+Separate Luna owns only new tests/scenarios/par-015-orphaned-descendant.test.ts and tests/fixtures/par-015-orphaned-descendant-cli.mjs. Root owns docs; main Luna owns the disjoint B1b/C0 source correction. You are not alone; preserve all existing files and especially frozen P15A known-descendant assertions. Reuse support modules, never import a scenario test for its helpers.
+
+Use a Windows-only public runWorkflow scenario with the real default Codex provider, actual process runner/capture and real files/storage. Two independent nodes run concurrently, with a third dependent node queued. New test profile20s, fixture lifetime60s, overall scenario20s, shared cleanup10s, test ceiling35s. These are new fixed test bounds, not changes to existing tests or product timeouts.
+
+The held inference root starts an intermediate process. That intermediate starts a detached, stdio-ignored descendant, atomically records its PID, and exits. The descendant publishes its own atomic PID marker and waits on a bounded owned release file. The root remains alive and held. Before releasing the separate real failing branch, prove root alive, intermediate exited, descendant alive, and descendant self-PID agrees with intermediate's child record. Never infer an orphan from a delay or fabricate a process result.
+
+At the first public settlement callback, snapshot root dead and orphan alive before runtime file reads or any cleanup release. If the orphan died, report a control failure rather than a C RED or skip. Assert a settled held node phase failed with actual GRAPH_CANCELLED and separate cleanupUnverified {code:'PROCESS_TREE_UNVERIFIED',operation:'invoke',message}; graph and result.error recoveryRequired with declaration-ordered cleanupUnverifiedNodeIds, and no B2 uncertainNodeIds. Retain the initiating sibling's actual code/node/call/launch. The held logical call actually completed: assert its completed event and real transport started=true,cancelled=true,timedOut=false with no fabricated flags, no accepted output, no queued admission or original-action replay.
+
+Successful Windows taskkill and root close cannot certify an orphan whose intermediate already exited. The expected future implementation must conservatively represent that uncertainty even if C0's taskkill-failure diagnostic is absent. The test must not force a fake taskkill error or weaken the known-descendant cleanup controls.
+
+Finally release only marker-verified owned processes and await actual exit/drain within the one cleanup deadline. Track the root/intermediate/descendant identities on partial startup; use native absolute temporary-project ownership before deletion. If release/drain/identity is uncertain, retain the project with bounded diagnostics. Never kill guessed/reused process identities or delete an unchecked computed path. Preserve primary errors, including falsy values, and aggregate cleanup failures without skipping later cleanup steps.
+
+WRITE ONLY first and finish with hashes for Root/Sol review. No tests/build/lint/type until Root grants a serialized slot. Root may consume frozen source/other explicit test files while these new, unimported files are authored; global lint waits until all tests freeze. At most two bounded test corrections before explicit diagnosis. Only observed behavior after valid controls counts as RED. Readiness, response-repair and validator uncertainty extensions remain required later C packets.
+
+## Concrete C publication choices
+
+Before RED, Root selects one explicit node.cleanup_unverified event as the concrete C contract, rather than the earlier design's allowed equivalent payload. Its failure/cleanup state and recovery summary must publish together through the authoritative writer checkpoint. Empty uncertainty lists are omitted consistently: a pure C result has cleanupUnverifiedNodeIds and no uncertainNodeIds. This freezes the strict test expectation without claiming current implementation.

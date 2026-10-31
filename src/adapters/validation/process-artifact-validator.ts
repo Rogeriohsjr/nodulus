@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import type { ArtifactValidator, ValidatorProcessResult } from "../../core/ports/artifact-validator.js";
 
@@ -21,16 +21,22 @@ export class ProcessArtifactValidator implements ArtifactValidator {
       let timedOut = false;
       let cancelled = false;
       let outputLimitExceeded = false;
+      let terminationCause: ValidatorProcessResult["terminationCause"];
+      let cleanupUnverified: ValidatorProcessResult["cleanupUnverified"];
       let settled = false;
       let terminating = false;
       let termination: Promise<void> = Promise.resolve();
+      let childExitObserved = false;
+      child.once("exit", () => { childExitObserved = true; });
       const terminate = (reason: "timeout" | "output" | "cancel") => {
         if (terminating) return;
         terminating = true;
+        const cause = reason === "timeout" ? "timedOut" : reason === "output" ? "outputLimitExceeded" : "cancelled";
+        terminationCause = cause;
         if (reason === "timeout") timedOut = true;
         else if (reason === "output") outputLimitExceeded = true;
         else cancelled = true;
-        termination = killProcessTree(child.pid);
+        termination = killProcessTree(child, cause, () => childExitObserved).then((cleanup) => { cleanupUnverified = cleanup; });
       };
       const timer = setTimeout(() => terminate("timeout"), Math.max(1, timeoutMs));
       const onAbort = () => terminate("cancel");
@@ -63,7 +69,10 @@ export class ProcessArtifactValidator implements ArtifactValidator {
         settled = true;
         clearTimeout(timer);
         signal?.removeEventListener("abort", onAbort);
-        resolve({ stdout, stderr, exitCode, timedOut, cancelled, outputLimitExceeded });
+        resolve({ stdout, stderr, exitCode, timedOut, cancelled, outputLimitExceeded,
+          ...(terminationCause === undefined ? {} : { terminationCause }),
+          ...(cleanupUnverified === undefined ? {} : { cleanupUnverified }),
+        });
       });
       child.stdin.once("error", () => undefined);
       child.stdin.end(artifactJson);
@@ -71,16 +80,33 @@ export class ProcessArtifactValidator implements ArtifactValidator {
   }
 }
 
-function killProcessTree(pid: number | undefined): Promise<void> {
-  if (!pid) return Promise.resolve();
+function killProcessTree(child: ChildProcess, cause: NonNullable<ValidatorProcessResult["terminationCause"]>, exitObserved: () => boolean): Promise<ValidatorProcessResult["cleanupUnverified"]> {
+  const pid = child.pid;
+  if (!pid) return Promise.resolve(undefined);
   if (process.platform === "win32") {
+    if (exitObserved() || child.exitCode !== null || child.signalCode !== null) {
+      try { child.stdout?.destroy(); } catch { /* The owned validator output stream is already closing. */ }
+      try { child.stderr?.destroy(); } catch { /* The owned validator output stream is already closing. */ }
+      return Promise.resolve({
+        code: "PROCESS_TREE_UNVERIFIED",
+        message: "Windows validator root exit was observed before tree termination; descendant exit could not be verified.",
+        operationCause: cause,
+      });
+    }
     const killer = spawn("taskkill", ["/pid", String(pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
     return new Promise((resolve) => {
-      killer.once("error", () => resolve());
-      killer.once("close", () => resolve());
+      let diagnostic: string | undefined;
+      killer.once("error", (error) => { diagnostic = `Validator taskkill failed: ${error.message}`; });
+      killer.once("close", (code) => resolve({
+        code: "PROCESS_TREE_UNVERIFIED",
+        message: diagnostic ?? (code === 0
+          ? "Validator root closed after taskkill; descendant process-tree termination remains unverified."
+          : `Validator taskkill exited with code ${typeof code === "number" ? code : "unknown"}; descendant process-tree termination remains unverified.`),
+        operationCause: cause,
+      }));
     });
   }
   try { process.kill(-pid, "SIGKILL"); }
   catch { try { process.kill(pid, "SIGKILL"); } catch { /* process already exited */ } }
-  return Promise.resolve();
+  return Promise.resolve(undefined);
 }

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "audit",
+  "providerProfile": "fixture",
+  "instructions": [".nodulus/instructions/audit.md"],
+  "inputs": {
+    "brief": { "from": "prepare.report", "contract": "report.v1" }
+  },
+  "expectedOutputs": [
+    { "name": "report", "contract": "report.v1", "validator": ".nodulus/validators/report.mjs" }
+  ]
+}

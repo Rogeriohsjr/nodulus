@@ -1,3 +1,5 @@
+import type { PhysicalTerminationCause, ProcessCleanupUnverified } from "./physical-process.js";
+
 export type ValidatorProcessResult = {
   stdout: string;
   stderr: string;
@@ -5,6 +7,8 @@ export type ValidatorProcessResult = {
   timedOut: boolean;
   cancelled?: boolean;
   outputLimitExceeded: boolean;
+  terminationCause?: PhysicalTerminationCause;
+  cleanupUnverified?: ProcessCleanupUnverified;
 };
 
 export interface ArtifactValidator {

@@ -1,0 +1,7 @@
+# P02: structural graph validation tests
+
+Assign after P01 GREEN and independent acceptance. This packet covers PAR-002 only; PAR-003 mappings and PAR-004 strict fields/resources are separate assignments. Luna owns `tests/scenarios/par-002-graph-structure.test.ts` and, if needed, a new shared fixture helper `tests/support/parallel-project.ts`. Preserve the frozen P01 test and production files.
+
+Read `src/core/workflow-graph.ts`, `src/core/inspect-workflow.ts` and the P01 fixture. Use real initialized projects, node definitions, schemas and Markdown through public `inspectWorkflow`. The file must include an unconditionally accepted valid graph control, then independently rejected mutations: duplicate node ID, unknown dependency, self edge, duplicate edge, missing/extra dependency-map entries, cycle, duplicate result alias, missing result source and mismatched result contract. Assert structured configuration errors, no run-tree mutation, and no fixture provider/validator actions. Do not equate an unrelated fixture failure with correct rejection.
+
+Run `npm run build`, then `npx --no-install vitest run tests/scenarios/par-002-graph-structure.test.ts`. Record actual counts and specific failures. Already-passing negative cases are characterization evidence, not invented RED. If a behavior is missing, freeze the meaningful failure and test hash for Sol and coordinator review before a separately assigned production correction. No new dependency, execution scheduler, live provider, commit or push.
