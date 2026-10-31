@@ -145,6 +145,8 @@ nodulus inspect export <run-id> --project . --json
 
 Export returns a deterministic, versioned diagnostic envelope. It includes saved workflow metadata, attempts, timeline, artifact references and validation summaries. Routed runs add structural policy, last decision code/target, budget usage/reached flags, and generation metadata without feedback text or artifact contents. It omits request and caller-input text, instructions and prompts, provider responses, credentials, profile names/model identifiers/capabilities, schema literal values and annotations, and absolute machine paths. Captured contract schemas are represented by safe structural summaries. The source run is not changed. The public API is `exportRunDiagnostic(projectRoot, runId)`.
 
+Graph exports retain dependency edges, concurrency bounds, node input mappings and ordered output aliases. Custom resource labels become deterministic opaque names that preserve sharing and distinction; the workspace sentinel, omitted entries and explicit [] remain distinct. The timeline includes acceptance events, nullable launch measurements and repair parents verified against matching ordered call records. Malformed saved fields are omitted individually while useful safe fields remain; acceptance continues to require the inspector's saved evidence. A recorded call relationship does not by itself establish that an external process launched.
+
 ## Replay captured schemas offline
 
 ```sh
