@@ -16,6 +16,8 @@ Status: folders 00 through 08 are implemented and independently reviewed: initia
 
 The current feature branch adds bounded feedback routing and read-only inspection/export/replay. FB-010/030/040/045/060 have independent local review; FB-050 is a green local candidate awaiting review and the final repository check. This branch status does not change the currently published npm package.
 
+On the parallel-workflow feature branch, `getRunStatus` returns schema-2 `pendingRequests` after verifying a stable saved pause. Caller-input questions come first, followed by node questions in workflow declaration order; `pendingRequest` is the first item for compatibility. Answered questions remain in checkpoint history. Other graph states return an empty list. Corrupt pause evidence raises `RUN_STATE_INVALID`, and `inspectRun` reports it as unavailable. Inspection retains uncertainty actions when provider-call evidence is incomplete. These reads use saved evidence without running providers or executable validators.
+
 Start with the [implementation sequence](https://github.com/Rogeriohsjr/nodulus/blob/main/docs/implementation/README.md). Each numbered folder contains scenarios, implementation guidance, checkboxes, and an evidence record.
 
 - [User scenarios](https://github.com/Rogeriohsjr/nodulus/blob/main/docs/user-scenarios.md)

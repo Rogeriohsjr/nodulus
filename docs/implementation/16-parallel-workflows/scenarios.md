@@ -47,7 +47,7 @@ P1 is complete only when PAR-001 through PAR-004 pass their own test, implementa
 - [x] PAR-036 — Exercise cancellation, crash windows and multi-pending answers with controlled fixture synchronization and bounded cleanup.
 - [x] PAR-037 — Missing or invalid declared caller inputs pause the graph before any node/provider launch; invalid answers cause no writes, and a fresh-process valid answer resumes the graph without converting caller inputs into node artifacts. Changed workspace references or incompatible captured definitions are diagnosed before answer mutation or provider probes, while current profile/instruction edits are not silently adopted.
 
-P4's local checkboxes are backed by [Root's complete620 runtime/17 package gate](phase4-exit.md), focused Root/Sol review and the separate first-attempt Windows native answer-window capture. That manual control is not deterministic CI coverage. The new exact hosted P4 head remains required before P5 execution or merge readiness; historical failures remain separate.
+P4's checkboxes are backed by [Root's complete620 runtime/17 package gate and all six exact-head platform checks](phase4-exit.md), focused Root/Sol review and the separate first-attempt Windows native answer-window capture. That manual control is not deterministic CI coverage. Accepted head759a0 permits P5 execution; P5 and final integration still gate merge readiness, and historical failures remain separate.
 
 ## P5 — inspection, delivery and compatibility
 

@@ -68,7 +68,10 @@ export async function inspectRun(
   const externallyUncertain = uncertainCalls.some((call) => call.launchStatus === "launched" || call.launchStatus === "uncertain");
   const uncertainty = deriveUncertainty(status.status, status.checkpoint, status.callEvidence ?? [], diagnostics);
   if (externallyUncertain) uncertainty.push("A provider call may have launched without a confirmed completion; its external effect is uncertain.");
-  const nextActions = deriveNextActions(status.status, status.pendingRequest, status.callEvidence ?? [], externallyUncertain);
+  const hasVerifiedGraphRequests = status.status === "needs_input" && Array.isArray(status.pendingRequests) && status.pendingRequests.length > 0;
+  const nextActions = hasVerifiedGraphRequests && !externallyUncertain && !(status.callEvidence ?? []).some((call) => call.status === "incomplete")
+    ? ["provide_pending_input"]
+    : deriveNextActions(status.status, status.pendingRequest, status.callEvidence ?? [], externallyUncertain);
 
   return {
     ...status,

@@ -33,6 +33,7 @@ export type RunStatusResult = {
   status: string;
   checkpoint: unknown;
   pendingRequest?: unknown;
+  pendingRequests?: unknown[];
   events?: unknown[];
   callEvidence?: CallEvidence[];
   metrics?: RunMetrics;
@@ -101,7 +102,21 @@ export async function getRunStatus(
   if (estimates.estimates !== undefined) metrics.estimates = estimates.estimates;
   if (estimates.coverage !== undefined) metrics.estimateCoverage = estimates.coverage;
   let pendingRequest: unknown;
-  if (checkpoint.status === "needs_input") {
+  let pendingRequests: unknown[] | undefined;
+  let graphMetricDiagnostics: string[] = [];
+  if (checkpoint.schemaVersion === 2) {
+    pendingRequests = [];
+    if (checkpoint.status === "needs_input") {
+      const graphStatus = await readPausedGraphStatus(projectRoot, runId, checkpoint as unknown as GraphRunCheckpoint, eventResult.raw, storage);
+      pendingRequests = [
+        ...graphStatus.ledger.callerRequests.filter((entry) => !entry.answered).map((entry) => entry.request),
+        ...graphStatus.context.workflow.nodes.flatMap((nodeId) =>
+          graphStatus.ledger.requests.filter((entry) => entry.nodeId === nodeId && !entry.answered).map((entry) => entry.request)),
+      ];
+      graphMetricDiagnostics = graphStatus.ledger.metricDiagnostics;
+      pendingRequest = pendingRequests[0];
+    }
+  } else if (checkpoint.status === "needs_input") {
     try {
       pendingRequest = JSON.parse(await storage.readRunFile(projectRoot, runId, "pending/request.json")) as unknown;
     } catch (error) {
@@ -117,9 +132,10 @@ export async function getRunStatus(
     metrics,
     diagnostics: {
       incompleteTrailingEvent: eventResult.incompleteTrailingEvent,
-      messages: [...eventResult.diagnostics, ...metricDiagnostics, ...pricingDiagnostics, ...estimates.diagnostics],
+      messages: [...eventResult.diagnostics, ...metricDiagnostics, ...graphMetricDiagnostics, ...pricingDiagnostics, ...estimates.diagnostics],
     },
     ...(pendingRequest === undefined ? {} : { pendingRequest }),
+    ...(pendingRequests === undefined ? {} : { pendingRequests }),
   };
 }
 
@@ -127,7 +143,7 @@ async function readRunEvents(
   projectRoot: string,
   runId: string,
   storage: IntakeStorage,
-): Promise<{ events: unknown[]; incompleteTrailingEvent: boolean; diagnostics: string[] }> {
+): Promise<{ raw?: string; events: unknown[]; incompleteTrailingEvent: boolean; diagnostics: string[] }> {
   let raw: string;
   try { raw = await storage.readRunFile(projectRoot, runId, "events.jsonl"); }
   catch { return { events: [], incompleteTrailingEvent: false, diagnostics: ["events.jsonl is missing or unreadable"] }; }
@@ -154,7 +170,7 @@ async function readRunEvents(
     catch { diagnostics.push("events.jsonl has an invalid complete event"); }
   }
   if (trailing !== undefined) events.push(trailing);
-  return { events, incompleteTrailingEvent, diagnostics };
+  return { raw, events, incompleteTrailingEvent, diagnostics };
 }
 
 async function readOptionalRunFile(
@@ -165,6 +181,77 @@ async function readOptionalRunFile(
 ): Promise<string | null> {
   try { return await storage.readRunFile(projectRoot, runId, path); }
   catch { return null; }
+}
+
+async function readPausedGraphStatus(
+  projectRoot: string,
+  runId: string,
+  checkpoint: GraphRunCheckpoint,
+  eventsText: string | undefined,
+  storage: IntakeStorage,
+): Promise<{ context: GraphResumeContext; ledger: VerifiedGraphResumeLedger }> {
+  if (eventsText === undefined) throw new NodulusError("RUN_STATE_INVALID", `Paused graph '${runId}' has no readable event history.`);
+  let definitionsText: string;
+  let inputsText: string;
+  let referencesText: string;
+  let context: GraphResumeContext;
+  let inputs: SavedInputs & { schemaVersion?: number; workflow?: string };
+  let references: SavedReference[];
+  try {
+    [definitionsText, inputsText, referencesText] = await Promise.all([
+      storage.readRunFile(projectRoot, runId, "context/definitions.json"),
+      storage.readRunFile(projectRoot, runId, "inputs.json"),
+      storage.readRunFile(projectRoot, runId, "references.json"),
+    ]);
+    context = JSON.parse(definitionsText) as GraphResumeContext;
+    inputs = JSON.parse(inputsText) as SavedInputs & { schemaVersion?: number; workflow?: string };
+    references = JSON.parse(referencesText) as SavedReference[];
+  } catch (error) {
+    if (error instanceof NodulusError) throw error;
+    throw new NodulusError("RUN_STATE_INVALID", `Paused graph '${runId}' has unreadable captured evidence: ${messageOf(error)}`);
+  }
+
+  const graph = checkpoint.graph;
+  const contextRecord: Record<string, unknown> = isRecord(context) ? context : {};
+  const validReferences = Array.isArray(references) && references.every((reference) => isRecord(reference) &&
+    typeof reference.path === "string" && (reference.mode === "workspace" || reference.mode === "snapshot") &&
+    typeof reference.sha256 === "string" && /^[0-9a-f]{64}$/.test(reference.sha256));
+  const validValidatorHashes = isRecord(contextRecord.validatorHashes) && Object.values(contextRecord.validatorHashes).every((value) =>
+    typeof value === "string" && /^[0-9a-f]{64}$/.test(value));
+  if (!isRecord(context) || !isRecord(context.workflow) || !isRecord(graph) || !isRecord(graph.callerInputs) ||
+      !isRecord(inputs) || !isRecord(inputs.callerInputs) ||
+      context.schemaVersion !== 2 || context.engineVersion !== ENGINE_VERSION || context.workflow.schemaVersion !== 2 ||
+      context.workflow.id !== checkpoint.workflow || !Array.isArray(context.nodes) || !Array.isArray(context.workflow.nodes) ||
+      !validValidatorHashes || !isRecord(context.contracts) || !isRecord(context.providerProfiles) ||
+      inputs.schemaVersion !== 2 || inputs.workflow !== context.workflow.id || typeof inputs.request !== "string" ||
+      !Array.isArray(inputs.instructions) || inputs.instructions.some((instruction) => !isRecord(instruction) || typeof instruction.path !== "string" || typeof instruction.content !== "string") ||
+      !validReferences || context.nodes.some((node) => !isRecord(node) || typeof node.id !== "string" || typeof node.providerProfile !== "string" ||
+        !Array.isArray(node.expectedOutputs) || node.expectedOutputs.some((output) => !isRecord(output) || typeof output.name !== "string" || typeof output.contract !== "string"))) {
+    throw new NodulusError("RUN_STATE_INVALID", `Paused graph '${runId}' captured definitions, inputs, or references do not match its checkpoint.`);
+  }
+  const captured = graph.captured;
+  const hash = (value: string): string => createHash("sha256").update(value, "utf8").digest("hex");
+  if (!isRecord(captured) || captured.definitionsSha256 !== hash(definitionsText) || captured.inputsSha256 !== hash(inputsText) ||
+      captured.referencesSha256 !== hash(referencesText)) {
+    throw new NodulusError("RUN_STATE_INVALID", `Paused graph '${runId}' captured files do not match their saved hashes.`);
+  }
+
+  let validatedWorkflow: GraphResumeContext["workflow"];
+  try { validatedWorkflow = validateGraphDefinition(context.workflow as unknown as Record<string, unknown>, context.workflow.id).workflow; }
+  catch (error) { throw new NodulusError("RUN_STATE_INVALID", `Paused graph definition is invalid: ${messageOf(error)}`); }
+  if (!sameJson(validatedWorkflow, context.workflow) || context.nodes.length !== context.workflow.nodes.length ||
+      new Set(context.nodes.map((node) => node.id)).size !== context.nodes.length ||
+      context.workflow.nodes.some((nodeId) => !context.nodes.some((node) => node.id === nodeId))) {
+    throw new NodulusError("RUN_STATE_INVALID", `Paused graph '${runId}' definitions do not match the captured validated workflow.`);
+  }
+
+  try {
+    const ledger = await verifyGraphResumeLedger(projectRoot, storage, context, checkpoint, eventsText, inputs.callerInputs);
+    return { context, ledger };
+  } catch (error) {
+    if (error instanceof NodulusError) throw error;
+    throw new NodulusError("RUN_STATE_INVALID", `Paused graph '${runId}' evidence could not be verified: ${messageOf(error)}`);
+  }
 }
 
 export async function resumeWorkflow(
