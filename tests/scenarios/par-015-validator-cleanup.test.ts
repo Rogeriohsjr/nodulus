@@ -163,46 +163,48 @@ async function runValidatorScenario(mode: Mode): Promise<void> {
     cleanupErrors.push(toError(error));
   }
   if (runSettled && processesExited && processIdentityKnown && cleanupErrors.length === 0) {
-    try {
-      assertOwnedProject(project, projectIdentity);
-    } catch (error) { cleanupErrors.push(toError(error)); }
-    if (cleanupErrors.length === 0) {
-      try { rmSync(project, { recursive: true, force: true }); }
-      catch (syncError) {
-        let failureState = "P15C3 removal failure state could not be captured.";
-        try { failureState = `P15C3 removal failure state: ${describeRemovalFailureState(project, [validatorRootPid, intermediatePid, descendantPid])}`; }
-        catch { /* Keep the first synchronous removal failure if diagnostics are unavailable. */ }
-        const synchronousRemovalError = toError(syncError);
-        if (!isRetryableOwnedRemovalError(syncError)) {
-          cleanupErrors.push(synchronousRemovalError, new Error(failureState));
-        } else {
-          try {
-            assertOwnedProject(project, projectIdentity);
-            const pidsNow = await readOwnedPids(eventsAbsolute, controlAbsolute);
-            const requiredPids = [validatorRootPid, intermediatePid, descendantPid].filter((pid): pid is number => pid !== undefined);
-            const identitiesPresent = requiredPids.every((pid) => pidsNow.includes(pid)) && knownPids.every((pid) => pidsNow.includes(pid));
-            const allKnownProcessesAbsent = identitiesPresent && [...new Set([...knownPids, ...pidsNow, ...requiredPids])].every((pid) => !isProcessAlive(pid));
-            const retryDelayBudgetMs = 250;
-            if (!processIdentityKnown || !runSettled || !allKnownProcessesAbsent || Date.now() + retryDelayBudgetMs > cleanupDeadline) {
-              cleanupErrors.push(synchronousRemovalError, new Error(failureState));
-            } else {
-              let diagnosticWriteError: unknown;
-              let diagnosticWriteFailed = false;
-              try { process.stderr.write(`${synchronousRemovalError.message}; bounded async cleanup fallback is being attempted. ${failureState}\n`); }
-              catch (error) { diagnosticWriteError = error; diagnosticWriteFailed = true; }
-              if (diagnosticWriteFailed) {
-                cleanupErrors.push(synchronousRemovalError, toError(diagnosticWriteError), new Error(failureState));
+    if (!hasPrimaryError) {
+      try {
+        assertOwnedProject(project, projectIdentity);
+      } catch (error) { cleanupErrors.push(toError(error)); }
+      if (cleanupErrors.length === 0) {
+        try { rmSync(project, { recursive: true, force: true }); }
+        catch (syncError) {
+          let failureState = "P15C3 removal failure state could not be captured.";
+          try { failureState = `P15C3 removal failure state: ${describeRemovalFailureState(project, [validatorRootPid, intermediatePid, descendantPid])}`; }
+          catch { /* Keep the first synchronous removal failure if diagnostics are unavailable. */ }
+          const synchronousRemovalError = toError(syncError);
+          if (!isRetryableOwnedRemovalError(syncError)) {
+            cleanupErrors.push(synchronousRemovalError, new Error(failureState));
+          } else {
+            try {
+              assertOwnedProject(project, projectIdentity);
+              const pidsNow = await readOwnedPids(eventsAbsolute, controlAbsolute);
+              const requiredPids = [validatorRootPid, intermediatePid, descendantPid].filter((pid): pid is number => pid !== undefined);
+              const identitiesPresent = requiredPids.every((pid) => pidsNow.includes(pid)) && knownPids.every((pid) => pidsNow.includes(pid));
+              const allKnownProcessesAbsent = identitiesPresent && [...new Set([...knownPids, ...pidsNow, ...requiredPids])].every((pid) => !isProcessAlive(pid));
+              const retryDelayBudgetMs = 250;
+              if (!processIdentityKnown || !runSettled || !allKnownProcessesAbsent || Date.now() + retryDelayBudgetMs > cleanupDeadline) {
+                cleanupErrors.push(synchronousRemovalError, new Error(failureState));
               } else {
-                try {
-                  await rmAsync(project, { recursive: true, force: true, maxRetries: 4, retryDelay: 25 });
-                  if (existsSync(project)) throw new Error("Async cleanup fallback resolved while the owned project path remained present.");
-                } catch (asyncError) {
-                  cleanupErrors.push(synchronousRemovalError, toError(asyncError), new Error(failureState));
+                let diagnosticWriteError: unknown;
+                let diagnosticWriteFailed = false;
+                try { process.stderr.write(`${synchronousRemovalError.message}; bounded async cleanup fallback is being attempted. ${failureState}\n`); }
+                catch (error) { diagnosticWriteError = error; diagnosticWriteFailed = true; }
+                if (diagnosticWriteFailed) {
+                  cleanupErrors.push(synchronousRemovalError, toError(diagnosticWriteError), new Error(failureState));
+                } else {
+                  try {
+                    await rmAsync(project, { recursive: true, force: true, maxRetries: 4, retryDelay: 25 });
+                    if (existsSync(project)) throw new Error("Async cleanup fallback resolved while the owned project path remained present.");
+                  } catch (asyncError) {
+                    cleanupErrors.push(synchronousRemovalError, toError(asyncError), new Error(failureState));
+                  }
                 }
               }
+            } catch (stateError) {
+              cleanupErrors.push(synchronousRemovalError, toError(stateError), new Error(failureState));
             }
-          } catch (stateError) {
-            cleanupErrors.push(synchronousRemovalError, toError(stateError), new Error(failureState));
           }
         }
       }
@@ -598,7 +600,7 @@ function describeRemovalFailureState(project: string, pids: Array<number | undef
   }
 }
 
-function lstatSummary(value: ReturnType<typeof lstatSync>): Record<string, unknown> {
+function lstatSummary(value: NonNullable<ReturnType<typeof lstatSync>>): Record<string, unknown> {
   return {
     mode: value.mode,
     type: value.isSymbolicLink() ? "symlink" : value.isDirectory() ? "directory" : value.isFile() ? "file" : "other",

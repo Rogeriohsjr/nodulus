@@ -302,10 +302,12 @@ async function runScenario({ adapter, cancel }: TestMode): Promise<void> {
     const adapterSettled = adapterPromise === undefined || settlement !== undefined;
     observer.stop();
     if (adapterSettled && helperStopped && rootsStopped && cleanupErrors.length === 0) {
-      try {
-        assertOwnedProject(project, ownedProject);
-        rmSync(project, { recursive: true, force: true });
-      } catch (error) { cleanupErrors.push(asError(error)); }
+      if (!hasPrimaryError) {
+        try {
+          assertOwnedProject(project, ownedProject);
+          rmSync(project, { recursive: true, force: true });
+        } catch (error) { cleanupErrors.push(asError(error)); }
+      }
     } else {
       cleanupErrors.push(new Error(`Retaining owned project because process or handle cleanup is unconfirmed. ${diagnostics()}`));
     }
