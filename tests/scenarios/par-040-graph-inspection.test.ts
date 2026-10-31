@@ -54,15 +54,19 @@ test("PAR-040 isolates declaration-ordered pending graph questions and partial-a
   await exerciseNodeQuestionInspection("pending");
 }, testCeilingMs);
 
-test("PAR-040 validates accepted artifacts after an independent graph completion", async () => {
-  await exerciseNodeQuestionInspection("artifacts");
+test("PAR-040 rejects artifact, result, validation, and raw-response acceptance evidence faults", async () => {
+  await exerciseNodeQuestionInspection("artifacts-evidence");
+}, testCeilingMs);
+
+test("PAR-040 rejects invocation, completion, acceptance, ordering, and foreign-routing evidence faults", async () => {
+  await exerciseNodeQuestionInspection("events-routing");
 }, testCeilingMs);
 
 test("PAR-040 exposes a caller-input pause before graph admission", async () => {
   await exerciseCallerQuestionInspection();
 }, testCeilingMs);
 
-async function exerciseNodeQuestionInspection(mode: "pending" | "artifacts"): Promise<void> {
+async function exerciseNodeQuestionInspection(mode: "pending" | "artifacts-evidence" | "events-routing"): Promise<void> {
   const deadline = Date.now() + scenarioBudgetMs;
   const label = "par-040 graph-pause-café";
   const project = createInitializedProject(label);
@@ -312,7 +316,7 @@ async function exerciseNodeQuestionInspection(mode: "pending" | "artifacts"): Pr
       expect(record(answerMeta).answerRef).toBe(`answers/${aRequest.id}.json`);
     }
 
-    if (mode === "artifacts") {
+    if (mode !== "pending") {
       const bAnswer = { bApproval: "B-approved" };
       const finalResume = capturePublic(resumeWorkflow({ projectRoot: project, runId, requestId: bRequest.id, answers: bAnswer }, observeProvider(project, activity)), publicOperations);
       const finalOutcome = await awaitOutcome(finalResume, deadline, "final B answer and graph completion", () => observedInitial);
@@ -370,141 +374,145 @@ async function exerciseNodeQuestionInspection(mode: "pending" | "artifacts"): Pr
       const aArtifactManifest = Array.isArray(aArtifact.artifacts) ? aArtifact.artifacts.map(record).find((entry) => entry.name === "report") : undefined;
       if (!aArtifactManifest || typeof aArtifactManifest.ref !== "string") throw new Error("PAR-040 final A accepted artifact reference is missing.");
 
-      const artifactRelative = aArtifactManifest.ref;
-      const artifactOriginal = readRunFile(project, runId, artifactRelative);
-      const artifactValue = record(JSON.parse(artifactOriginal.toString("utf8")) as unknown);
-      const artifactData = record(artifactValue.data);
-      if (typeof artifactData.text !== "string") throw new Error("PAR-040 accepted A artifact has no text value to corrupt.");
-      writeRunJson(project, runId, artifactRelative, { ...artifactValue, data: { ...artifactData, text: `${artifactData.text} corrupted` } });
-      await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, [artifactRelative], "A artifact bytes do not match the accepted hash");
-      writeFileSync(runFile(project, runId, artifactRelative), artifactOriginal);
-      expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+      if (mode === "artifacts-evidence") {
+        const artifactRelative = aArtifactManifest.ref;
+        const artifactOriginal = readRunFile(project, runId, artifactRelative);
+        const artifactValue = record(JSON.parse(artifactOriginal.toString("utf8")) as unknown);
+        const artifactData = record(artifactValue.data);
+        if (typeof artifactData.text !== "string") throw new Error("PAR-040 accepted A artifact has no text value to corrupt.");
+        writeRunJson(project, runId, artifactRelative, { ...artifactValue, data: { ...artifactData, text: `${artifactData.text} corrupted` } });
+        await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, [artifactRelative], "A artifact bytes do not match the accepted hash");
+        writeFileSync(runFile(project, runId, artifactRelative), artifactOriginal);
+        expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
 
-      const resultOriginal = readRunFile(project, runId, aAccepted.resultRef as string);
-      const changedResult = { ...readObject(runFile(project, runId, aAccepted.resultRef as string)), status: "needs_input" };
-      const changedResultBytes = writeRunJson(project, runId, aAccepted.resultRef as string, changedResult);
-      const resultHashCheckpoint = readCheckpoint(project, runId);
-      record(record(record(resultHashCheckpoint.graph).nodes).a).accepted = {
-        ...record(record(record(resultHashCheckpoint.graph).nodes).a).accepted as RecordValue,
-        resultSha256: digest(changedResultBytes),
-      };
-      writeRunJson(project, runId, "run.json", resultHashCheckpoint);
-      await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, [aAccepted.resultRef as string, "run.json"], "A result contradicts its accepted response with its hash updated");
-      writeFileSync(runFile(project, runId, aAccepted.resultRef as string), resultOriginal);
-      writeFileSync(runFile(project, runId, "run.json"), successfulCheckpointBytes);
-      expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+        const resultOriginal = readRunFile(project, runId, aAccepted.resultRef as string);
+        const changedResult = { ...readObject(runFile(project, runId, aAccepted.resultRef as string)), status: "needs_input" };
+        const changedResultBytes = writeRunJson(project, runId, aAccepted.resultRef as string, changedResult);
+        const resultHashCheckpoint = readCheckpoint(project, runId);
+        record(record(record(resultHashCheckpoint.graph).nodes).a).accepted = {
+          ...record(record(record(resultHashCheckpoint.graph).nodes).a).accepted as RecordValue,
+          resultSha256: digest(changedResultBytes),
+        };
+        writeRunJson(project, runId, "run.json", resultHashCheckpoint);
+        await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, [aAccepted.resultRef as string, "run.json"], "A result contradicts its accepted response with its hash updated");
+        writeFileSync(runFile(project, runId, aAccepted.resultRef as string), resultOriginal);
+        writeFileSync(runFile(project, runId, "run.json"), successfulCheckpointBytes);
+        expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
 
-      const validationOriginal = readRunFile(project, runId, aAccepted.validationRef as string);
-      const changedValidation = { ...readObject(runFile(project, runId, aAccepted.validationRef as string)), valid: false, outcome: "error", errors: ["controlled validation rejection"] };
-      const changedValidationBytes = writeRunJson(project, runId, aAccepted.validationRef as string, changedValidation);
-      const validationHashCheckpoint = readCheckpoint(project, runId);
-      const validationNode = record(record(record(validationHashCheckpoint.graph).nodes).a);
-      validationNode.accepted = { ...record(validationNode.accepted), validationSha256: digest(changedValidationBytes) };
-      writeRunJson(project, runId, "run.json", validationHashCheckpoint);
-      await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, [aAccepted.validationRef as string, "run.json"], "A validation rejects with its accepted hash updated");
-      writeFileSync(runFile(project, runId, aAccepted.validationRef as string), validationOriginal);
-      writeFileSync(runFile(project, runId, "run.json"), successfulCheckpointBytes);
-      expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+        const validationOriginal = readRunFile(project, runId, aAccepted.validationRef as string);
+        const changedValidation = { ...readObject(runFile(project, runId, aAccepted.validationRef as string)), valid: false, outcome: "error", errors: ["controlled validation rejection"] };
+        const changedValidationBytes = writeRunJson(project, runId, aAccepted.validationRef as string, changedValidation);
+        const validationHashCheckpoint = readCheckpoint(project, runId);
+        const validationNode = record(record(record(validationHashCheckpoint.graph).nodes).a);
+        validationNode.accepted = { ...record(validationNode.accepted), validationSha256: digest(changedValidationBytes) };
+        writeRunJson(project, runId, "run.json", validationHashCheckpoint);
+        await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, [aAccepted.validationRef as string, "run.json"], "A validation rejects with its accepted hash updated");
+        writeFileSync(runFile(project, runId, aAccepted.validationRef as string), validationOriginal);
+        writeFileSync(runFile(project, runId, "run.json"), successfulCheckpointBytes);
+        expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
 
-      const responseOriginal = readRunFile(project, runId, aAccepted.responseRef as string);
-      const changedResponse = record(JSON.parse(responseOriginal.toString("utf8")) as unknown);
-      const responseArtifacts = Array.isArray(changedResponse.artifacts) ? changedResponse.artifacts.map(record) : [];
-      if (responseArtifacts.length === 0) throw new Error("PAR-040 A raw provider response has no artifacts to contradict.");
-      const firstResponseArtifact = record(responseArtifacts[0]);
-      responseArtifacts[0] = { ...firstResponseArtifact, data: { ...record(firstResponseArtifact.data), text: "different raw response" } };
-      const changedResponseBytes = writeRunJson(project, runId, aAccepted.responseRef as string, { ...changedResponse, artifacts: responseArtifacts });
-      const responseHashCheckpoint = readCheckpoint(project, runId);
-      const responseNode = record(record(record(responseHashCheckpoint.graph).nodes).a);
-      responseNode.accepted = { ...record(responseNode.accepted), responseSha256: digest(changedResponseBytes) };
-      writeRunJson(project, runId, "run.json", responseHashCheckpoint);
-      await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, [aAccepted.responseRef as string, "run.json"], "A raw response differs from its result with its hash updated");
-      writeFileSync(runFile(project, runId, aAccepted.responseRef as string), responseOriginal);
-      writeFileSync(runFile(project, runId, "run.json"), successfulCheckpointBytes);
-      expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+        const responseOriginal = readRunFile(project, runId, aAccepted.responseRef as string);
+        const changedResponse = record(JSON.parse(responseOriginal.toString("utf8")) as unknown);
+        const responseArtifacts = Array.isArray(changedResponse.artifacts) ? changedResponse.artifacts.map(record) : [];
+        if (responseArtifacts.length === 0) throw new Error("PAR-040 A raw provider response has no artifacts to contradict.");
+        const firstResponseArtifact = record(responseArtifacts[0]);
+        responseArtifacts[0] = { ...firstResponseArtifact, data: { ...record(firstResponseArtifact.data), text: "different raw response" } };
+        const changedResponseBytes = writeRunJson(project, runId, aAccepted.responseRef as string, { ...changedResponse, artifacts: responseArtifacts });
+        const responseHashCheckpoint = readCheckpoint(project, runId);
+        const responseNode = record(record(record(responseHashCheckpoint.graph).nodes).a);
+        responseNode.accepted = { ...record(responseNode.accepted), responseSha256: digest(changedResponseBytes) };
+        writeRunJson(project, runId, "run.json", responseHashCheckpoint);
+        await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, [aAccepted.responseRef as string, "run.json"], "A raw response differs from its result with its hash updated");
+        writeFileSync(runFile(project, runId, aAccepted.responseRef as string), responseOriginal);
+        writeFileSync(runFile(project, runId, "run.json"), successfulCheckpointBytes);
+        expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+      }
 
-      const invocationRelative = `${aAttemptRoot}/invocation.json`;
-      const invocationOriginal = readRunFile(project, runId, invocationRelative);
-      const changedInvocation = { ...readObject(runFile(project, runId, invocationRelative)), nodeId: "b" };
-      writeRunJson(project, runId, invocationRelative, changedInvocation);
-      await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, [invocationRelative], "A generic invocation identity differs from its accepted call");
-      writeFileSync(runFile(project, runId, invocationRelative), invocationOriginal);
-      expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+      if (mode === "events-routing") {
+        const invocationRelative = `${aAttemptRoot}/invocation.json`;
+        const invocationOriginal = readRunFile(project, runId, invocationRelative);
+        const changedInvocation = { ...readObject(runFile(project, runId, invocationRelative)), nodeId: "b" };
+        writeRunJson(project, runId, invocationRelative, changedInvocation);
+        await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, [invocationRelative], "A generic invocation identity differs from its accepted call");
+        writeFileSync(runFile(project, runId, invocationRelative), invocationOriginal);
+        expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
 
-      const eventBytesBeforeCompletionFault = readRunFile(project, runId, "events.jsonl");
-      const completionFaultEvents = readEvents(project, runId);
-      const completionFaultIndices = completionFaultEvents.flatMap((event, index) => event.event === "provider.call.completed" && event.nodeId === "a" && event.callId === aCallId ? [index] : []);
-      if (completionFaultIndices.length !== 1) throw new Error("PAR-040 A provider completion is missing or duplicated before its isolated fault.");
-      const completionFaultEvent = completionFaultEvents[completionFaultIndices[0]!]!;
-      completionFaultEvents[completionFaultIndices[0]!] = { ...completionFaultEvent, callId: "f0000000-0000-4000-8000-000000000001" };
-      writeRunEvents(project, runId, completionFaultEvents);
-      await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, ["events.jsonl"], "A accepted call has no matching completion event");
-      writeFileSync(runFile(project, runId, "events.jsonl"), eventBytesBeforeCompletionFault);
-      expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+        const eventBytesBeforeCompletionFault = readRunFile(project, runId, "events.jsonl");
+        const completionFaultEvents = readEvents(project, runId);
+        const completionFaultIndices = completionFaultEvents.flatMap((event, index) => event.event === "provider.call.completed" && event.nodeId === "a" && event.callId === aCallId ? [index] : []);
+        if (completionFaultIndices.length !== 1) throw new Error("PAR-040 A provider completion is missing or duplicated before its isolated fault.");
+        const completionFaultEvent = completionFaultEvents[completionFaultIndices[0]!]!;
+        completionFaultEvents[completionFaultIndices[0]!] = { ...completionFaultEvent, callId: "f0000000-0000-4000-8000-000000000001" };
+        writeRunEvents(project, runId, completionFaultEvents);
+        await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, ["events.jsonl"], "A accepted call has no matching completion event");
+        writeFileSync(runFile(project, runId, "events.jsonl"), eventBytesBeforeCompletionFault);
+        expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
 
-      const eventBytesBeforeAcceptanceFault = readRunFile(project, runId, "events.jsonl");
-      const acceptanceFaultEvents = readEvents(project, runId);
-      const acceptanceFaultIndices = acceptanceFaultEvents.flatMap((event, index) => event.event === "node.accepted" && event.nodeId === "a" && event.callId === aCallId ? [index] : []);
-      if (acceptanceFaultIndices.length !== 1) throw new Error("PAR-040 A node acceptance event is missing or duplicated before its isolated fault.");
-      acceptanceFaultEvents[acceptanceFaultIndices[0]!] = { ...acceptanceFaultEvents[acceptanceFaultIndices[0]!]!, event: "node.accepted.unknown" };
-      writeRunEvents(project, runId, acceptanceFaultEvents);
-      await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, ["events.jsonl"], "A accepted manifest has no matching node.accepted event");
-      writeFileSync(runFile(project, runId, "events.jsonl"), eventBytesBeforeAcceptanceFault);
-      expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+        const eventBytesBeforeAcceptanceFault = readRunFile(project, runId, "events.jsonl");
+        const acceptanceFaultEvents = readEvents(project, runId);
+        const acceptanceFaultIndices = acceptanceFaultEvents.flatMap((event, index) => event.event === "node.accepted" && event.nodeId === "a" && event.callId === aCallId ? [index] : []);
+        if (acceptanceFaultIndices.length !== 1) throw new Error("PAR-040 A node acceptance event is missing or duplicated before its isolated fault.");
+        acceptanceFaultEvents[acceptanceFaultIndices[0]!] = { ...acceptanceFaultEvents[acceptanceFaultIndices[0]!]!, event: "node.accepted.unknown" };
+        writeRunEvents(project, runId, acceptanceFaultEvents);
+        await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, ["events.jsonl"], "A accepted manifest has no matching node.accepted event");
+        writeFileSync(runFile(project, runId, "events.jsonl"), eventBytesBeforeAcceptanceFault);
+        expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
 
-      const eventBytesBeforeOrderingFault = readRunFile(project, runId, "events.jsonl");
-      const orderingFaultEvents = readEvents(project, runId);
-      const completionIndex = orderingFaultEvents.findIndex((event) => event.event === "provider.call.completed" && event.nodeId === "a" && event.callId === aCallId);
-      const acceptedIndex = orderingFaultEvents.findIndex((event) => event.event === "node.accepted" && event.nodeId === "a" && event.callId === aCallId);
-      if (completionIndex < 0 || acceptedIndex < 0 || completionIndex >= acceptedIndex) throw new Error("PAR-040 A completion and acceptance chronology is invalid before its isolated fault.");
-      const completionEvent = { ...orderingFaultEvents[completionIndex]! };
-      const acceptedEvent = { ...orderingFaultEvents[acceptedIndex]! };
-      const completionSequence = completionEvent.sequence;
-      const acceptedSequence = acceptedEvent.sequence;
-      orderingFaultEvents[completionIndex] = { ...acceptedEvent, sequence: completionSequence };
-      orderingFaultEvents[acceptedIndex] = { ...completionEvent, sequence: acceptedSequence };
-      assertContiguousSequences(orderingFaultEvents);
-      writeRunEvents(project, runId, orderingFaultEvents);
-      await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, ["events.jsonl"], "A acceptance is ordered before its call completion");
-      writeFileSync(runFile(project, runId, "events.jsonl"), eventBytesBeforeOrderingFault);
-      expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+        const eventBytesBeforeOrderingFault = readRunFile(project, runId, "events.jsonl");
+        const orderingFaultEvents = readEvents(project, runId);
+        const completionIndex = orderingFaultEvents.findIndex((event) => event.event === "provider.call.completed" && event.nodeId === "a" && event.callId === aCallId);
+        const acceptedIndex = orderingFaultEvents.findIndex((event) => event.event === "node.accepted" && event.nodeId === "a" && event.callId === aCallId);
+        if (completionIndex < 0 || acceptedIndex < 0 || completionIndex >= acceptedIndex) throw new Error("PAR-040 A completion and acceptance chronology is invalid before its isolated fault.");
+        const completionEvent = { ...orderingFaultEvents[completionIndex]! };
+        const acceptedEvent = { ...orderingFaultEvents[acceptedIndex]! };
+        const completionSequence = completionEvent.sequence;
+        const acceptedSequence = acceptedEvent.sequence;
+        orderingFaultEvents[completionIndex] = { ...acceptedEvent, sequence: completionSequence };
+        orderingFaultEvents[acceptedIndex] = { ...completionEvent, sequence: acceptedSequence };
+        assertContiguousSequences(orderingFaultEvents);
+        writeRunEvents(project, runId, orderingFaultEvents);
+        await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, ["events.jsonl"], "A acceptance is ordered before its call completion");
+        writeFileSync(runFile(project, runId, "events.jsonl"), eventBytesBeforeOrderingFault);
+        expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
 
-      const routingFaultCheckpointBytes = readRunFile(project, runId, "run.json");
-      const routingFaultEventBytes = readRunFile(project, runId, "events.jsonl");
-      const routingFaultCheckpoint = readCheckpoint(project, runId);
-      const routingFaultGraph = record(routingFaultCheckpoint.graph);
-      const routingFaultSequence = routingFaultGraph.nextEventSequence;
-      if (!Number.isSafeInteger(routingFaultSequence)) throw new Error("PAR-040 successful graph has no valid next event sequence for its isolated routing fault.");
-      const routingFaultEvent = {
-        event: "feedback.generation.created",
-        runId,
-        sequence: routingFaultSequence,
-        timestamp: new Date().toISOString(),
-      };
-      const routingFaultEvents = [...readEvents(project, runId), routingFaultEvent];
-      const changedRoutingCheckpoint = { ...routingFaultCheckpoint, graph: { ...routingFaultGraph, nextEventSequence: Number(routingFaultSequence) + 1 } };
-      writeRunEvents(project, runId, routingFaultEvents);
-      writeRunJson(project, runId, "run.json", changedRoutingCheckpoint);
-      const routingFaultTree = snapshotTree(runDirectory(project, runId));
-      expectOnlyRelativeFilesChanged(successfulRunTree, routingFaultTree, ["run.json", "events.jsonl"]);
-      const routingReadBaseline = observeReadState(project, runId, configured, activity, observer, readStorage);
-      const routingStatus = await attemptStatus(project, runId, readStorage.storage, publicOperations, deadline);
-      if (routingStatus.kind !== "result") throw new Error(`PAR-040 contradictory routing event status read rejected (${errorDescription(routingStatus.error)}).`, { cause: routingStatus.error });
-      expect(routingStatus.value).toMatchObject({ runId, status: "success", pendingRequests: [] });
-      expect(routingStatus.value.checkpoint).toEqual(changedRoutingCheckpoint);
-      expect(routingStatus.value.events).toEqual(routingFaultEvents);
-      const routingInspection = await readInspection(project, runId, readStorage.storage, publicOperations, deadline);
-      expect(routingInspection.status).toBe("success");
-      expect(routingInspection.checkpoint).toEqual(changedRoutingCheckpoint);
-      expect(routingInspection.timeline).toEqual(routingFaultEvents);
-      expect(routingInspection.artifacts).toEqual([]);
-      const routingDiagnostics = record(routingInspection.diagnostics).messages;
-      expect(Array.isArray(routingDiagnostics) && routingDiagnostics.some((message) =>
-        typeof message === "string" && message.includes("Captured feedback-routing definition is missing or invalid"))).toBe(true);
-      assertReadStateUnchanged(project, runId, configured, activity, observer, readStorage, routingReadBaseline);
-      expect(snapshotTree(runDirectory(project, runId))).toEqual(routingFaultTree);
-      writeFileSync(runFile(project, runId, "events.jsonl"), routingFaultEventBytes);
-      writeFileSync(runFile(project, runId, "run.json"), routingFaultCheckpointBytes);
-      expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+        const routingFaultCheckpointBytes = readRunFile(project, runId, "run.json");
+        const routingFaultEventBytes = readRunFile(project, runId, "events.jsonl");
+        const routingFaultCheckpoint = readCheckpoint(project, runId);
+        const routingFaultGraph = record(routingFaultCheckpoint.graph);
+        const routingFaultSequence = routingFaultGraph.nextEventSequence;
+        if (!Number.isSafeInteger(routingFaultSequence)) throw new Error("PAR-040 successful graph has no valid next event sequence for its isolated routing fault.");
+        const routingFaultEvent = {
+          event: "feedback.generation.created",
+          runId,
+          sequence: routingFaultSequence,
+          timestamp: new Date().toISOString(),
+        };
+        const routingFaultEvents = [...readEvents(project, runId), routingFaultEvent];
+        const changedRoutingCheckpoint = { ...routingFaultCheckpoint, graph: { ...routingFaultGraph, nextEventSequence: Number(routingFaultSequence) + 1 } };
+        writeRunEvents(project, runId, routingFaultEvents);
+        writeRunJson(project, runId, "run.json", changedRoutingCheckpoint);
+        const routingFaultTree = snapshotTree(runDirectory(project, runId));
+        expectOnlyRelativeFilesChanged(successfulRunTree, routingFaultTree, ["run.json", "events.jsonl"]);
+        const routingReadBaseline = observeReadState(project, runId, configured, activity, observer, readStorage);
+        const routingStatus = await attemptStatus(project, runId, readStorage.storage, publicOperations, deadline);
+        if (routingStatus.kind !== "result") throw new Error(`PAR-040 contradictory routing event status read rejected (${errorDescription(routingStatus.error)}).`, { cause: routingStatus.error });
+        expect(routingStatus.value).toMatchObject({ runId, status: "success", pendingRequests: [] });
+        expect(routingStatus.value.checkpoint).toEqual(changedRoutingCheckpoint);
+        expect(routingStatus.value.events).toEqual(routingFaultEvents);
+        const routingInspection = await readInspection(project, runId, readStorage.storage, publicOperations, deadline);
+        expect(routingInspection.status).toBe("success");
+        expect(routingInspection.checkpoint).toEqual(changedRoutingCheckpoint);
+        expect(routingInspection.timeline).toEqual(routingFaultEvents);
+        expect(routingInspection.artifacts).toEqual([]);
+        const routingDiagnostics = record(routingInspection.diagnostics).messages;
+        expect(Array.isArray(routingDiagnostics) && routingDiagnostics.some((message) =>
+          typeof message === "string" && message.includes("Captured feedback-routing definition is missing or invalid"))).toBe(true);
+        assertReadStateUnchanged(project, runId, configured, activity, observer, readStorage, routingReadBaseline);
+        expect(snapshotTree(runDirectory(project, runId))).toEqual(routingFaultTree);
+        writeFileSync(runFile(project, runId, "events.jsonl"), routingFaultEventBytes);
+        writeFileSync(runFile(project, runId, "run.json"), routingFaultCheckpointBytes);
+        expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+      }
     }
   } catch (error) {
     hasPrimaryError = true;
@@ -1230,4 +1238,3 @@ function compareText(left: string, right: string): number { return left.localeCo
 function shellQuote(value: string): string { return `'${value.replaceAll("'", "'\\''")}'`; }
 function delay(milliseconds: number): Promise<void> { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
 function asError(value: unknown): Error { return value instanceof Error ? value : new Error(typeof value === "string" ? value : "PAR-040 operation failed with a non-Error value."); }
-
