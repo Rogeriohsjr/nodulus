@@ -7,9 +7,10 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { createDefaultProviderPort } from "../../src/adapters/providers/default-provider-port.js";
 import type { ProviderTelemetry } from "../../src/core/ports/provider-telemetry.js";
-import { resumeWorkflow, runWorkflow, type ApplicationRunResult, type ProviderInvocation, type ProviderPort } from "../../src/index.js";
+import { getRunStatus, inspectRun, resumeWorkflow, runWorkflow, type ApplicationRunResult, type ProviderInvocation, type ProviderPort } from "../../src/index.js";
 import { createInitializedProject } from "../support/intake-project.js";
 import { configureParallelProject, readParallelWorkflow } from "../support/parallel-project.js";
+import { observeReadStorage, type ReadStorageObserver } from "../support/read-only-storage-observer.js";
 import { readProjectJson, writeJson } from "../support/workflow-sequence.js";
 
 type ProviderMode = "codex" | "opaque" | "opaque-measurement" | "opaque-enum";
@@ -98,6 +99,7 @@ async function runCompatibilityScenario(mode: ProviderMode): Promise<void> {
     availability: [], invocations: [], repairs: 0, telemetry: 0, launches: 0, legacyUsage: 0,
     publicSettlements: [], delegatedSettlements: [], childProcesses: [],
   };
+  const readStorage = observeReadStorage();
   let initialRun: Promise<PublicOutcome> | undefined;
   let observedInitial: PublicOutcome | undefined;
   let primaryError: unknown;
@@ -238,6 +240,8 @@ async function runCompatibilityScenario(mode: ProviderMode): Promise<void> {
         expect(snapshotRunTree(project, seedMarker.runId)).toEqual(runTreeBeforeCorruption);
       }
     }
+
+    await assertPausedInspectionCompatibility(project, mode, initialState, observations, readStorage, scenarioDeadline);
 
     const fixtureEventsBeforePartial = readFileSync(eventsPath);
     const activityBeforePartial = snapshotActivity(observations);
@@ -541,6 +545,11 @@ function capturePublic(promise: Promise<ApplicationRunResult>, observations: Obs
   return outcome;
 }
 
+function trackRead<T>(promise: Promise<T>, observations: Observations): Promise<T> {
+  observations.publicSettlements.push(promise.then(() => undefined, () => undefined));
+  return promise;
+}
+
 function trackDelegated<T>(operation: T, observations: Observations): T {
   if (isThenable(operation)) observations.delegatedSettlements.push(Promise.resolve(operation).then(() => undefined, () => undefined));
   return operation;
@@ -635,6 +644,67 @@ function assertOpaqueEvidence(project: string, runId: string, initial: InitialSt
   }
   expect(checkpoint.graph.nodes.a?.phase).toBe("pending");
   expect(checkpoint.graph.nodes.b?.phase).toBe("pending");
+}
+
+async function assertPausedInspectionCompatibility(
+  project: string,
+  mode: ProviderMode,
+  initial: InitialState,
+  observations: Observations,
+  readStorage: ReadStorageObserver,
+  deadline: number,
+): Promise<void> {
+  const runTreeBefore = snapshotRunTree(project, initial.runId);
+  const inputBytesBefore = readFileSync(path.join(runDirectory(project, initial.runId), "inputs.json"));
+  const fixtureEventsPath = path.join(project, ".nodulus", "fixtures", "par-031-compatible-state", "events.jsonl");
+  const fixtureEventsBefore = readFileSync(fixtureEventsPath);
+  const activityBefore = snapshotActivity(observations);
+  const publicCountBefore = observations.publicSettlements.length;
+  const delegatedCountBefore = observations.delegatedSettlements.length;
+  const childCountBefore = observations.childProcesses.length;
+  const storageMutationsBefore = { ...readStorage.mutations };
+  const checkpoint = readCheckpoint(project, initial.runId);
+  const events = readRunEvents(project, initial.runId);
+  const requests = [initial.requests.a, initial.requests.b];
+
+  const statusOperation = trackRead(getRunStatus(project, initial.runId, readStorage.storage), observations);
+  const status = await withDeadline(statusOperation, deadline, "PAR-031 paused getRunStatus inspection");
+  expect(status).toMatchObject({ runId: initial.runId, status: "needs_input", checkpoint, events, pendingRequests: requests });
+  expect(status.pendingRequest).toEqual(initial.requests.a);
+  const expectedCallStatus = mode === "codex" ? "completed" : "unavailable";
+  for (const marker of [initial.seed, initial.a, initial.b]) {
+    expect(status.callEvidence?.find((call) => call.callId === marker.callId && call.nodeId === marker.nodeId)?.status).toBe(expectedCallStatus);
+  }
+
+  const inspectionOperation = trackRead(inspectRun(project, initial.runId, readStorage.storage), observations);
+  const inspection = await withDeadline(inspectionOperation, deadline, "PAR-031 paused inspectRun inspection");
+  expect(inspection).toMatchObject({ runId: initial.runId, status: "needs_input", checkpoint, timeline: events, pendingRequests: requests, pendingRequest: initial.requests.a });
+  expect(inspection.nextActions).toEqual(["provide_pending_input"]);
+  const definitions = readJson(path.join(runDirectory(project, initial.runId), "context", "definitions.json"));
+  if (!isRecord(definitions) || !Array.isArray(definitions.nodes)) throw new Error("PAR-031 inspection fixture has no captured node declarations.");
+  const seedDefinition = definitions.nodes.map((node) => isRecord(node) ? node : {}).find((node) => node.id === "seed");
+  const acceptedSeed = readCheckpoint(project, initial.runId).graph.nodes.seed?.accepted;
+  if (!seedDefinition || !Array.isArray(seedDefinition.expectedOutputs) || !acceptedSeed) throw new Error("PAR-031 inspection fixture has no captured accepted seed outputs.");
+  const expectedArtifacts = seedDefinition.expectedOutputs.map((raw) => {
+    if (!isRecord(raw) || typeof raw.name !== "string" || typeof raw.contract !== "string") throw new Error("PAR-031 captured seed output declaration is malformed.");
+    const manifest = acceptedSeed.artifacts.find((artifact) => artifact.name === raw.name && artifact.contract === raw.contract);
+    if (!manifest) throw new Error(`PAR-031 accepted seed output '${raw.name}' has no manifest entry.`);
+    const bytes = readFileSync(path.join(runDirectory(project, initial.runId), manifest.ref));
+    expect(digest(bytes)).toBe(manifest.sha256);
+    expect(JSON.parse(bytes.toString("utf8"))).toMatchObject({ name: raw.name, contract: raw.contract });
+    return { nodeId: "seed", name: raw.name, reference: manifest.ref, accepted: true };
+  });
+  expect(inspection.artifacts).toEqual(expectedArtifacts);
+
+  expect(snapshotRunTree(project, initial.runId)).toEqual(runTreeBefore);
+  expect(readFileSync(path.join(runDirectory(project, initial.runId), "inputs.json")).equals(inputBytesBefore)).toBe(true);
+  expect(readFileSync(fixtureEventsPath).equals(fixtureEventsBefore)).toBe(true);
+  expect(snapshotActivity(observations)).toEqual(activityBefore);
+  expect(observations.publicSettlements).toHaveLength(publicCountBefore + 2);
+  expect(observations.delegatedSettlements).toHaveLength(delegatedCountBefore);
+  expect(observations.childProcesses).toHaveLength(childCountBefore);
+  expect(readStorage.mutations).toEqual(storageMutationsBefore);
+  expect(readStorage.mutations).toEqual({ createRun: 0, writeRunFiles: 0, acquireRunLock: 0, releaseRunLock: 0 });
 }
 
 function assertOptionalMeasurementCapture(project: string, runId: string, callId: string, initial: InitialState): string {

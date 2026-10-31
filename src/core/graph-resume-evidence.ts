@@ -51,6 +51,70 @@ export type VerifiedGraphResumeLedger = {
   metricDiagnostics: string[];
 };
 
+export type VerifiedGraphInspection = {
+  acceptedArtifacts: Map<string, Map<string, OutputArtifact>>;
+  diagnostics: string[];
+};
+
+/** Verify accepted graph artifacts without requiring unrelated in-flight calls to finish. */
+export async function verifyGraphInspectionArtifacts(
+  storage: IntakeStorage,
+  projectRoot: string,
+  context: GraphResumeContext,
+  checkpoint: GraphRunCheckpoint,
+  eventsText: string,
+): Promise<VerifiedGraphInspection> {
+  if (checkpoint.schemaVersion !== 2 || context.schemaVersion !== 2 || context.workflow.schemaVersion !== 2 ||
+      checkpoint.runId.length === 0 || checkpoint.workflow !== context.workflow.id ||
+      !Number.isSafeInteger(checkpoint.graph.nextEventSequence) || checkpoint.graph.nextEventSequence < 2 ||
+      !Array.isArray(checkpoint.completedNodes) || !isRecord(checkpoint.graph.nodes) ||
+      Object.keys(checkpoint.graph.nodes).length !== context.workflow.nodes.length ||
+      Object.keys(checkpoint.graph.nodes).some((nodeId) => !context.workflow.nodes.includes(nodeId))) {
+    throw invalid("Graph checkpoint or captured definition is incompatible with artifact inspection.");
+  }
+  const events = parseEvents(eventsText, checkpoint.runId, checkpoint.graph.nextEventSequence);
+  const acceptedArtifacts = new Map<string, Map<string, OutputArtifact>>();
+  const diagnostics: string[] = [];
+  for (const nodeId of context.workflow.nodes) {
+    const state = checkpoint.graph.nodes[nodeId];
+    if (!isRecord(state) || state.phase !== "accepted") continue;
+    try {
+      if (checkpoint.completedNodes.filter((completed) => completed === nodeId).length !== 1 || !isRecord(state.accepted)) {
+        throw invalid(`Accepted graph node '${nodeId}' is missing unique completed-node checkpoint evidence.`);
+      }
+      const accepted = state.accepted as unknown as GraphAcceptedRecord;
+      if (!isUuid(accepted.callId)) throw invalid(`Accepted graph node '${nodeId}' has an invalid accepted call identity.`);
+      const starts = events.filter((event) => event.event === "provider.call.started" && event.callId === accepted.callId);
+      const completions = events.filter((event) => event.event === "provider.call.completed" && event.callId === accepted.callId);
+      const acceptances = events.filter((event) => event.event === "node.accepted" && event.nodeId === nodeId);
+      if (starts.length !== 1 || completions.length !== 1 || acceptances.length !== 1 ||
+          acceptances[0]!.callId !== accepted.callId || acceptances[0]!.attempt !== accepted.attempt) {
+        throw invalid(`Accepted graph node '${nodeId}' does not have unique matching call and acceptance events.`);
+      }
+      const started = starts[0]!;
+      const completed = completions[0]!;
+      const acceptedEvent = acceptances[0]!;
+      const operation = started.operation;
+      if ((operation !== "invoke" && operation !== "repair_response") || started.nodeId !== nodeId ||
+          started.attempt !== accepted.attempt || completed.nodeId !== nodeId || completed.attempt !== accepted.attempt ||
+          completed.operation !== operation || (completed.launched !== true && completed.launched !== false && completed.launched !== null) ||
+          state.callId !== accepted.callId || state.attempt !== accepted.attempt || state.launch !== completed.launched ||
+          !Number.isSafeInteger(started.sequence) || !Number.isSafeInteger(completed.sequence) || !Number.isSafeInteger(acceptedEvent.sequence) ||
+          Number(started.sequence) >= Number(completed.sequence) || Number(completed.sequence) >= Number(acceptedEvent.sequence)) {
+        throw invalid(`Accepted graph node '${nodeId}' has inconsistent or unordered accepted-call evidence.`);
+      }
+      const node = context.nodes.find((candidate) => candidate.id === nodeId);
+      if (!node) throw invalid(`Accepted graph node '${nodeId}' is absent from captured definitions.`);
+      await verifyCallEvidence(storage, projectRoot, checkpoint, events, accepted.callId, nodeId, accepted.attempt, operation, node.providerProfile);
+      acceptedArtifacts.set(nodeId, await verifyAcceptedNode(storage, projectRoot, checkpoint, events, nodeId, node, accepted, context.contracts));
+    } catch (error) {
+      const cause = error instanceof Error ? error.message : "saved evidence is invalid.";
+      diagnostics.push(`Accepted graph node '${nodeId}' could not be verified: ${cause}`);
+    }
+  }
+  return { acceptedArtifacts, diagnostics };
+}
+
 /** Verify the exact graph inputs and validator bytes shared by first execution and resume. */
 export async function verifyCapturedGraphFiles(
   projectRoot: string,

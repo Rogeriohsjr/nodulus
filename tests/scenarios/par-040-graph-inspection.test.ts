@@ -6,12 +6,12 @@ import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { createDefaultProviderPort } from "../../src/adapters/providers/default-provider-port.js";
-import { LocalIntakeStorage } from "../../src/adapters/storage/local-intake-storage.js";
 import type { IntakeStorage } from "../../src/core/ports/intake-storage.js";
 import { getRunStatus, inspectRun, resumeWorkflow, runWorkflow, type ApplicationRunResult, type ProviderPort } from "../../src/index.js";
 import { observeOwnedNativeProcesses } from "../support/owned-native-processes.js";
 import { createInitializedProject } from "../support/intake-project.js";
 import { configureParallelProject, readParallelWorkflow } from "../support/parallel-project.js";
+import { observeReadStorage, type ReadStorageObserver, type StorageMutationCounts } from "../support/read-only-storage-observer.js";
 import { readProjectJson, writeJson } from "../support/workflow-sequence.js";
 
 type RecordValue = Record<string, unknown>;
@@ -41,8 +41,6 @@ type Observation = {
   runTree: SnapshotEntry[];
 };
 type SnapshotEntry = { path: string; kind: "directory" } | { path: string; kind: "file"; bytes: Buffer };
-type StorageMutationCounts = { createRun: number; writeRunFiles: number; acquireRunLock: number; releaseRunLock: number };
-type ReadStorageObserver = { storage: IntakeStorage; mutations: StorageMutationCounts };
 
 const fixtureSource = fileURLToPath(new URL("../fixtures/par-031-graph-provider.mjs", import.meta.url));
 const roles: Role[] = ["seed", "b", "a"];
@@ -96,6 +94,57 @@ async function exerciseNodeQuestionInspection(): Promise<void> {
     expect(bMarker.runId).toBe(runId);
     expect(isSafePid(seedMarker.pid) && isSafePid(aMarker.pid) && isSafePid(bMarker.pid)).toBe(true);
     await waitForAcceptedSeed(project, runId, seedMarker, configured.validatorLog, deadline, () => observedInitial);
+
+    expect(observedInitial).toBeUndefined();
+    const activeCheckpointBytes = readRunFile(project, runId, "run.json");
+    const activeEventBytes = readRunFile(project, runId, "events.jsonl");
+    const activeCheckpoint = readCheckpoint(project, runId);
+    const activeEvents = readEvents(project, runId);
+    const activeGraph = record(activeCheckpoint.graph);
+    const activeNodes = record(activeGraph.nodes);
+    expect(activeCheckpoint.status).toBe("running");
+    expect(activeGraph).toMatchObject({ admissionClosed: false });
+    expect(activeCheckpoint.completedNodes).toEqual(["seed"]);
+    expect(activeNodes.seed).toMatchObject({ phase: "accepted", callId: seedMarker.callId, attempt: 1 });
+    expect(activeNodes.b).toMatchObject({ phase: "active", callId: bMarker.callId, attempt: 1 });
+    expect(activeNodes.a).toMatchObject({ phase: "active", callId: aMarker.callId, attempt: 1 });
+    assertCallEvidence(project, runId, seedMarker);
+    assertFixtureCallTrace(configured.eventsPath, seedMarker);
+    const activeValidatorRecords = readValidatorLog(configured.validatorLog);
+    expect(activeValidatorRecords).toHaveLength(1);
+    const activeValidatorPid = activeValidatorRecords[0]?.pid;
+    expect(isSafePid(activeValidatorPid) && isProcessRecord(observer, activeValidatorPid, "spawn") && isProcessRecord(observer, activeValidatorPid, "close")).toBe(true);
+    assertActiveBranchCalls(project, runId, activeEvents, [aMarker, bMarker]);
+    const seedArtifactsWhileBranchesActive = assertAcceptedNodeArtifacts(project, runId, activeCheckpoint, "seed");
+    const activeReadBaseline = observeReadState(project, runId, configured, activity, observer, readStorage);
+    const activeStatusRead = await attemptStatus(project, runId, readStorage.storage, publicOperations, deadline);
+    if (activeStatusRead.kind !== "result") throw new Error(`PAR-040 active graph status read rejected (${errorCode(activeStatusRead.error)}).`);
+    expect(activeStatusRead.value).toMatchObject({ runId, status: "running", pendingRequests: [] });
+    expect(activeStatusRead.value).not.toHaveProperty("pendingRequest");
+    expect(activeStatusRead.value.checkpoint).toEqual(activeCheckpoint);
+    expect(activeStatusRead.value.events).toEqual(activeEvents);
+    const activeCallEvidence = Array.isArray(activeStatusRead.value.callEvidence) ? activeStatusRead.value.callEvidence.map(record) : [];
+    for (const marker of [aMarker, bMarker]) {
+      expect(activeCallEvidence.find((entry) => entry.callId === marker.callId && entry.nodeId === marker.nodeId)).toMatchObject({
+        callId: marker.callId,
+        nodeId: marker.nodeId,
+        status: "incomplete",
+        requestAvailable: true,
+        transportAvailable: false,
+      });
+    }
+    const activeInspection = await readInspection(project, runId, readStorage.storage, publicOperations, deadline);
+    expect(activeInspection.status).toBe("running");
+    expect(activeInspection.checkpoint).toEqual(activeCheckpoint);
+    expect(activeInspection.timeline).toEqual(activeEvents);
+    expect(activeInspection.artifacts).toEqual(seedArtifactsWhileBranchesActive);
+    expect(activeInspection.pendingRequests).toEqual([]);
+    expect(activeInspection).not.toHaveProperty("pendingRequest");
+    expect(Array.isArray(activeInspection.nextActions) ? activeInspection.nextActions : []).not.toContain("provide_pending_input");
+    expect(activeInspection.nextActions).toContain("do_not_replay_uncertain_call");
+    assertReadStateUnchanged(project, runId, configured, activity, observer, readStorage, activeReadBaseline);
+    expect(readRunFile(project, runId, "run.json").equals(activeCheckpointBytes)).toBe(true);
+    expect(readRunFile(project, runId, "events.jsonl").equals(activeEventBytes)).toBe(true);
 
     writeFileSync(configured.releasePaths.a, "release\n", { encoding: "utf8", flag: "wx" });
     const aRequest = await waitForQuestion(project, runId, aMarker, deadline, () => observedInitial);
@@ -256,6 +305,199 @@ async function exerciseNodeQuestionInspection(): Promise<void> {
     expect(refFaultSnapshot).not.toEqual(cleanRunSnapshot);
     expect(readRunFile(project, runId, `pending/${bRequest.id}.json`).equals(cleanBBytes)).toBe(true);
     expect(record(answerMeta).answerRef).toBe(`answers/${aRequest.id}.json`);
+
+    const bAnswer = { bApproval: "B-approved" };
+    const finalResume = capturePublic(resumeWorkflow({ projectRoot: project, runId, requestId: bRequest.id, answers: bAnswer }, observeProvider(project, activity)), publicOperations);
+    const finalOutcome = await awaitOutcome(finalResume, deadline, "final B answer and graph completion", () => observedInitial);
+    const finalResult = requireResult(finalOutcome, "final B answer");
+    expect(finalResult.status).toBe("success");
+    const finalCheckpoint = readCheckpoint(project, runId);
+    expect(finalCheckpoint.status).toBe("success");
+    expect(readRunFile(project, runId, "inputs.json").equals(inputBytes)).toBe(true);
+    expect(finalCheckpoint.completedNodes).toEqual(roles);
+    const finalGraphNodes = record(record(finalCheckpoint.graph).nodes);
+    for (const nodeId of roles) expect(record(finalGraphNodes[nodeId])).toMatchObject({ phase: "accepted" });
+    const capturedWorkflow = readParallelWorkflow(project);
+    expect(capturedWorkflow.nodes).toEqual(roles);
+    expect(capturedWorkflow.outputs.map(({ name, from }) => [name, from])).toEqual([ ["bFinal", "b.report"], ["aFinal", "a.report"] ]);
+    const expectedFinalArtifacts = roles.flatMap((nodeId) => assertAcceptedNodeArtifacts(project, finalResult.runId, finalCheckpoint, nodeId));
+    expect(expectedFinalArtifacts.map((artifact) => artifact.nodeId)).toEqual(["seed", "b", "a"]);
+    const finalEvents = readEvents(project, runId);
+    assertContiguousSequences(finalEvents);
+    expect(activity.invocations.map(({ nodeId, attempt }) => `${nodeId}:${attempt}`).sort(compareText)).toEqual(["a:1", "a:2", "b:1", "b:2", "seed:1"]);
+    expect(activity.invocations.filter(({ nodeId }) => nodeId === "seed")).toHaveLength(1);
+    expect(readFixtureEvents(configured.eventsPath).filter((event) => event.stage === "inference-started")).toHaveLength(5);
+    expect(readFixtureEvents(configured.eventsPath).filter((event) => event.stage === "inference-completed")).toHaveLength(5);
+    expect(readValidatorLog(configured.validatorLog)).toHaveLength(1);
+    expect(observer.observationFailure).toBe(false);
+    expect(observer.diagnostics.length).toBeGreaterThan(0);
+    expect(observer.diagnostics.every((entry) => entry.stages.includes("spawn") && entry.stages.includes("close"))).toBe(true);
+
+    const finalReadBaseline = observeReadState(project, runId, configured, activity, observer, readStorage);
+    const finalStatusRead = await attemptStatus(project, runId, readStorage.storage, publicOperations, deadline);
+    if (finalStatusRead.kind !== "result") throw new Error(`PAR-040 successful graph status read rejected (${errorCode(finalStatusRead.error)}).`);
+    expect(finalStatusRead.value).toMatchObject({ runId, status: "success", pendingRequests: [] });
+    expect(finalStatusRead.value).not.toHaveProperty("pendingRequest");
+    expect(finalStatusRead.value.checkpoint).toEqual(finalCheckpoint);
+    const finalInspection = await readInspection(project, runId, readStorage.storage, publicOperations, deadline);
+    expect(finalInspection.status).toBe("success");
+    expect(finalInspection.checkpoint).toEqual(finalCheckpoint);
+    expect(finalInspection.timeline).toEqual(finalEvents);
+    expect(finalInspection.artifacts).toEqual(expectedFinalArtifacts);
+    expect(finalInspection.pendingRequests).toEqual([]);
+    expect(finalInspection).not.toHaveProperty("pendingRequest");
+    expect(finalInspection.nextActions).toEqual([]);
+    assertReadStateUnchanged(project, runId, configured, activity, observer, readStorage, finalReadBaseline);
+
+    const successfulRunTree = snapshotTree(runDirectory(project, runId));
+    const successfulCheckpointBytes = readRunFile(project, runId, "run.json");
+    const validArtifactsWithoutA = expectedFinalArtifacts.filter((artifact) => artifact.nodeId !== "a");
+    const aNodeState = record(finalGraphNodes.a);
+    const aAccepted = record(aNodeState.accepted);
+    const aAttemptRoot = `nodes/a/attempt-${String(aAccepted.attempt).padStart(3, "0")}`;
+    const aCallId = aAccepted.callId;
+    if (typeof aCallId !== "string" || typeof aAccepted.resultRef !== "string" || typeof aAccepted.validationRef !== "string" || typeof aAccepted.responseRef !== "string") {
+      throw new Error("PAR-040 final A acceptance manifest is missing canonical evidence references.");
+    }
+    const aArtifact = record(record(finalGraphNodes.a).accepted);
+    const aArtifactManifest = Array.isArray(aArtifact.artifacts) ? aArtifact.artifacts.map(record).find((entry) => entry.name === "report") : undefined;
+    if (!aArtifactManifest || typeof aArtifactManifest.ref !== "string") throw new Error("PAR-040 final A accepted artifact reference is missing.");
+
+    const artifactRelative = aArtifactManifest.ref;
+    const artifactOriginal = readRunFile(project, runId, artifactRelative);
+    const artifactValue = record(JSON.parse(artifactOriginal.toString("utf8")) as unknown);
+    const artifactData = record(artifactValue.data);
+    if (typeof artifactData.text !== "string") throw new Error("PAR-040 accepted A artifact has no text value to corrupt.");
+    writeRunJson(project, runId, artifactRelative, { ...artifactValue, data: { ...artifactData, text: `${artifactData.text} corrupted` } });
+    await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, [artifactRelative], "A artifact bytes do not match the accepted hash");
+    writeFileSync(runFile(project, runId, artifactRelative), artifactOriginal);
+    expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+
+    const resultOriginal = readRunFile(project, runId, aAccepted.resultRef as string);
+    const changedResult = { ...readObject(runFile(project, runId, aAccepted.resultRef as string)), status: "needs_input" };
+    const changedResultBytes = writeRunJson(project, runId, aAccepted.resultRef as string, changedResult);
+    const resultHashCheckpoint = readCheckpoint(project, runId);
+    record(record(record(resultHashCheckpoint.graph).nodes).a).accepted = {
+      ...record(record(record(resultHashCheckpoint.graph).nodes).a).accepted as RecordValue,
+      resultSha256: digest(changedResultBytes),
+    };
+    writeRunJson(project, runId, "run.json", resultHashCheckpoint);
+    await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, [aAccepted.resultRef as string, "run.json"], "A result contradicts its accepted response with its hash updated");
+    writeFileSync(runFile(project, runId, aAccepted.resultRef as string), resultOriginal);
+    writeFileSync(runFile(project, runId, "run.json"), successfulCheckpointBytes);
+    expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+
+    const validationOriginal = readRunFile(project, runId, aAccepted.validationRef as string);
+    const changedValidation = { ...readObject(runFile(project, runId, aAccepted.validationRef as string)), valid: false, outcome: "error", errors: ["controlled validation rejection"] };
+    const changedValidationBytes = writeRunJson(project, runId, aAccepted.validationRef as string, changedValidation);
+    const validationHashCheckpoint = readCheckpoint(project, runId);
+    const validationNode = record(record(record(validationHashCheckpoint.graph).nodes).a);
+    validationNode.accepted = { ...record(validationNode.accepted), validationSha256: digest(changedValidationBytes) };
+    writeRunJson(project, runId, "run.json", validationHashCheckpoint);
+    await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, [aAccepted.validationRef as string, "run.json"], "A validation rejects with its accepted hash updated");
+    writeFileSync(runFile(project, runId, aAccepted.validationRef as string), validationOriginal);
+    writeFileSync(runFile(project, runId, "run.json"), successfulCheckpointBytes);
+    expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+
+    const responseOriginal = readRunFile(project, runId, aAccepted.responseRef as string);
+    const changedResponse = record(JSON.parse(responseOriginal.toString("utf8")) as unknown);
+    const responseArtifacts = Array.isArray(changedResponse.artifacts) ? changedResponse.artifacts.map(record) : [];
+    if (responseArtifacts.length === 0) throw new Error("PAR-040 A raw provider response has no artifacts to contradict.");
+    const firstResponseArtifact = record(responseArtifacts[0]);
+    responseArtifacts[0] = { ...firstResponseArtifact, data: { ...record(firstResponseArtifact.data), text: "different raw response" } };
+    const changedResponseBytes = writeRunJson(project, runId, aAccepted.responseRef as string, { ...changedResponse, artifacts: responseArtifacts });
+    const responseHashCheckpoint = readCheckpoint(project, runId);
+    const responseNode = record(record(record(responseHashCheckpoint.graph).nodes).a);
+    responseNode.accepted = { ...record(responseNode.accepted), responseSha256: digest(changedResponseBytes) };
+    writeRunJson(project, runId, "run.json", responseHashCheckpoint);
+    await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, [aAccepted.responseRef as string, "run.json"], "A raw response differs from its result with its hash updated");
+    writeFileSync(runFile(project, runId, aAccepted.responseRef as string), responseOriginal);
+    writeFileSync(runFile(project, runId, "run.json"), successfulCheckpointBytes);
+    expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+
+    const invocationRelative = `${aAttemptRoot}/invocation.json`;
+    const invocationOriginal = readRunFile(project, runId, invocationRelative);
+    const changedInvocation = { ...readObject(runFile(project, runId, invocationRelative)), nodeId: "b" };
+    writeRunJson(project, runId, invocationRelative, changedInvocation);
+    await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, [invocationRelative], "A generic invocation identity differs from its accepted call");
+    writeFileSync(runFile(project, runId, invocationRelative), invocationOriginal);
+    expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+
+    const eventBytesBeforeCompletionFault = readRunFile(project, runId, "events.jsonl");
+    const completionFaultEvents = readEvents(project, runId);
+    const completionFaultIndices = completionFaultEvents.flatMap((event, index) => event.event === "provider.call.completed" && event.nodeId === "a" && event.callId === aCallId ? [index] : []);
+    if (completionFaultIndices.length !== 1) throw new Error("PAR-040 A provider completion is missing or duplicated before its isolated fault.");
+    const completionFaultEvent = completionFaultEvents[completionFaultIndices[0]!]!;
+    completionFaultEvents[completionFaultIndices[0]!] = { ...completionFaultEvent, callId: "f0000000-0000-4000-8000-000000000001" };
+    writeRunEvents(project, runId, completionFaultEvents);
+    await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, ["events.jsonl"], "A accepted call has no matching completion event");
+    writeFileSync(runFile(project, runId, "events.jsonl"), eventBytesBeforeCompletionFault);
+    expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+
+    const eventBytesBeforeAcceptanceFault = readRunFile(project, runId, "events.jsonl");
+    const acceptanceFaultEvents = readEvents(project, runId);
+    const acceptanceFaultIndices = acceptanceFaultEvents.flatMap((event, index) => event.event === "node.accepted" && event.nodeId === "a" && event.callId === aCallId ? [index] : []);
+    if (acceptanceFaultIndices.length !== 1) throw new Error("PAR-040 A node acceptance event is missing or duplicated before its isolated fault.");
+    acceptanceFaultEvents[acceptanceFaultIndices[0]!] = { ...acceptanceFaultEvents[acceptanceFaultIndices[0]!]!, event: "node.accepted.unknown" };
+    writeRunEvents(project, runId, acceptanceFaultEvents);
+    await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, ["events.jsonl"], "A accepted manifest has no matching node.accepted event");
+    writeFileSync(runFile(project, runId, "events.jsonl"), eventBytesBeforeAcceptanceFault);
+    expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+
+    const eventBytesBeforeOrderingFault = readRunFile(project, runId, "events.jsonl");
+    const orderingFaultEvents = readEvents(project, runId);
+    const completionIndex = orderingFaultEvents.findIndex((event) => event.event === "provider.call.completed" && event.nodeId === "a" && event.callId === aCallId);
+    const acceptedIndex = orderingFaultEvents.findIndex((event) => event.event === "node.accepted" && event.nodeId === "a" && event.callId === aCallId);
+    if (completionIndex < 0 || acceptedIndex < 0 || completionIndex >= acceptedIndex) throw new Error("PAR-040 A completion and acceptance chronology is invalid before its isolated fault.");
+    const completionEvent = { ...orderingFaultEvents[completionIndex]! };
+    const acceptedEvent = { ...orderingFaultEvents[acceptedIndex]! };
+    const completionSequence = completionEvent.sequence;
+    const acceptedSequence = acceptedEvent.sequence;
+    orderingFaultEvents[completionIndex] = { ...acceptedEvent, sequence: completionSequence };
+    orderingFaultEvents[acceptedIndex] = { ...completionEvent, sequence: acceptedSequence };
+    assertContiguousSequences(orderingFaultEvents);
+    writeRunEvents(project, runId, orderingFaultEvents);
+    await expectAcceptedArtifactFault(project, runId, configured, activity, observer, readStorage, publicOperations, deadline, successfulRunTree, validArtifactsWithoutA, ["events.jsonl"], "A acceptance is ordered before its call completion");
+    writeFileSync(runFile(project, runId, "events.jsonl"), eventBytesBeforeOrderingFault);
+    expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
+
+    const routingFaultCheckpointBytes = readRunFile(project, runId, "run.json");
+    const routingFaultEventBytes = readRunFile(project, runId, "events.jsonl");
+    const routingFaultCheckpoint = readCheckpoint(project, runId);
+    const routingFaultGraph = record(routingFaultCheckpoint.graph);
+    const routingFaultSequence = routingFaultGraph.nextEventSequence;
+    if (!Number.isSafeInteger(routingFaultSequence)) throw new Error("PAR-040 successful graph has no valid next event sequence for its isolated routing fault.");
+    const routingFaultEvent = {
+      event: "feedback.generation.created",
+      runId,
+      sequence: routingFaultSequence,
+      timestamp: new Date().toISOString(),
+    };
+    const routingFaultEvents = [...readEvents(project, runId), routingFaultEvent];
+    const changedRoutingCheckpoint = { ...routingFaultCheckpoint, graph: { ...routingFaultGraph, nextEventSequence: Number(routingFaultSequence) + 1 } };
+    writeRunEvents(project, runId, routingFaultEvents);
+    writeRunJson(project, runId, "run.json", changedRoutingCheckpoint);
+    const routingFaultTree = snapshotTree(runDirectory(project, runId));
+    expectOnlyRelativeFilesChanged(successfulRunTree, routingFaultTree, ["run.json", "events.jsonl"]);
+    const routingReadBaseline = observeReadState(project, runId, configured, activity, observer, readStorage);
+    const routingStatus = await attemptStatus(project, runId, readStorage.storage, publicOperations, deadline);
+    if (routingStatus.kind !== "result") throw new Error(`PAR-040 contradictory routing event status read rejected (${errorCode(routingStatus.error)}).`);
+    expect(routingStatus.value).toMatchObject({ runId, status: "success", pendingRequests: [] });
+    expect(routingStatus.value.checkpoint).toEqual(changedRoutingCheckpoint);
+    expect(routingStatus.value.events).toEqual(routingFaultEvents);
+    const routingInspection = await readInspection(project, runId, readStorage.storage, publicOperations, deadline);
+    expect(routingInspection.status).toBe("success");
+    expect(routingInspection.checkpoint).toEqual(changedRoutingCheckpoint);
+    expect(routingInspection.timeline).toEqual(routingFaultEvents);
+    expect(routingInspection.artifacts).toEqual([]);
+    const routingDiagnostics = record(routingInspection.diagnostics).messages;
+    expect(Array.isArray(routingDiagnostics) && routingDiagnostics.some((message) =>
+      typeof message === "string" && message.includes("Captured feedback-routing definition is missing or invalid"))).toBe(true);
+    assertReadStateUnchanged(project, runId, configured, activity, observer, readStorage, routingReadBaseline);
+    expect(snapshotTree(runDirectory(project, runId))).toEqual(routingFaultTree);
+    writeFileSync(runFile(project, runId, "events.jsonl"), routingFaultEventBytes);
+    writeFileSync(runFile(project, runId, "run.json"), routingFaultCheckpointBytes);
+    expect(snapshotTree(runDirectory(project, runId))).toEqual(successfulRunTree);
   } catch (error) {
     hasPrimaryError = true;
     primaryError = error;
@@ -352,7 +594,8 @@ function configureNodeQuestionProject(project: string): ConfiguredFixture {
   const fixtureDirectory = path.join(project, ".nodulus", "fixtures");
   const stateDirectory = path.join(fixtureDirectory, "par-040-state");
   const eventsPath = path.join(stateDirectory, "events.jsonl");
-  const startedPaths = Object.fromEntries(roles.map((role) => [`${role}-1`, path.join(stateDirectory, `${role}-1.started.json`)])) as Record<string, string>;
+  const startedPaths = Object.fromEntries(roles.flatMap((role) =>
+    [1, ...(role === "seed" ? [] : [2])].map((attempt) => [`${role}-${attempt}`, path.join(stateDirectory, `${role}-${attempt}.started.json`)]))) as Record<string, string>;
   const releasePaths = { a: path.join(stateDirectory, "release-a"), b: path.join(stateDirectory, "release-b") };
   mkdirSync(stateDirectory, { recursive: true });
   writeFileSync(eventsPath, "", { encoding: "utf8", flag: "wx" });
@@ -453,34 +696,6 @@ type ConfiguredFixture = {
 };
 
 function createActivity(): Activity { return { availability: [], invocations: [], repairs: 0, telemetry: 0, launches: 0, legacyUsage: 0, delegated: [] }; }
-
-function observeReadStorage(): ReadStorageObserver {
-  const delegate = new LocalIntakeStorage();
-  const mutations: StorageMutationCounts = { createRun: 0, writeRunFiles: 0, acquireRunLock: 0, releaseRunLock: 0 };
-  const storage: IntakeStorage = {
-    readUtf8: (absolutePath) => delegate.readUtf8(absolutePath),
-    readRunFile: (projectRoot, runId, relativePath) => delegate.readRunFile(projectRoot, runId, relativePath),
-    createRun: (projectRoot, runId, files) => {
-      mutations.createRun += 1;
-      return delegate.createRun(projectRoot, runId, files);
-    },
-    writeRunFiles: (projectRoot, runId, files) => {
-      mutations.writeRunFiles += 1;
-      return delegate.writeRunFiles(projectRoot, runId, files);
-    },
-    acquireRunLock: async (projectRoot, runId) => {
-      mutations.acquireRunLock += 1;
-      const lock = await delegate.acquireRunLock(projectRoot, runId);
-      return {
-        release: async () => {
-          mutations.releaseRunLock += 1;
-          await lock.release();
-        },
-      };
-    },
-  };
-  return { storage, mutations };
-}
 
 function observeProvider(project: string, activity: Activity): ProviderPort {
   const delegate = createDefaultProviderPort(project);
@@ -591,6 +806,73 @@ function assertCallEvidence(project: string, runId: string, marker: Marker): voi
   expect(invocation).toMatchObject({ runId, nodeId: marker.nodeId, attempt: marker.attempt, callId: marker.callId, operation: "invoke" });
   const transport = readObject(runFile(project, runId, `calls/${marker.callId}/transport.json`));
   expect(transport).toMatchObject({ callId: marker.callId, started: true, exitCode: 0, cancelled: false, timedOut: false, outputLimitExceeded: false });
+}
+
+function assertActiveBranchCalls(project: string, runId: string, events: RecordValue[], markers: Marker[]): void {
+  for (const marker of markers) {
+    const starts = events.filter((event) => event.event === "provider.call.started" && event.nodeId === marker.nodeId && event.callId === marker.callId);
+    const completions = events.filter((event) => event.event === "provider.call.completed" && event.nodeId === marker.nodeId && event.callId === marker.callId);
+    expect(starts).toHaveLength(1);
+    expect(starts[0]).toMatchObject({ runId, nodeId: marker.nodeId, callId: marker.callId, attempt: 1, operation: "invoke" });
+    expect(completions).toHaveLength(0);
+    const invocation = readObject(runFile(project, runId, `nodes/${marker.nodeId}/attempt-001/invocation.json`));
+    expect(invocation).toMatchObject({ runId, nodeId: marker.nodeId, callId: marker.callId, attempt: 1, operation: "invoke" });
+  }
+}
+
+function assertAcceptedNodeArtifacts(project: string, runId: string, checkpoint: RecordValue, nodeId: string): RecordValue[] {
+  const graphNodes = record(record(checkpoint.graph).nodes);
+  const nodeState = record(graphNodes[nodeId]);
+  const accepted = record(nodeState.accepted);
+  const attempt = accepted.attempt;
+  const callId = accepted.callId;
+  if (nodeState.phase !== "accepted" || !Number.isSafeInteger(attempt) || (attempt as number) < 1 || typeof callId !== "string") {
+    throw new Error(`PAR-040 '${nodeId}' has no accepted graph manifest to verify.`);
+  }
+  const attemptRoot = `nodes/${nodeId}/attempt-${String(attempt).padStart(3, "0")}`;
+  const resultRef = `${attemptRoot}/result.json`;
+  const validationRef = `${attemptRoot}/validation.json`;
+  const responseRef = `${attemptRoot}/response.raw.txt`;
+  expect(accepted).toMatchObject({ callId, attempt, resultRef, validationRef, responseRef });
+  const resultBytes = readRunFile(project, runId, resultRef);
+  const validationBytes = readRunFile(project, runId, validationRef);
+  const responseBytes = readRunFile(project, runId, responseRef);
+  expect(digest(resultBytes)).toBe(accepted.resultSha256);
+  expect(digest(validationBytes)).toBe(accepted.validationSha256);
+  expect(digest(responseBytes)).toBe(accepted.responseSha256);
+  const result = record(JSON.parse(resultBytes.toString("utf8")) as unknown);
+  const validation = record(JSON.parse(validationBytes.toString("utf8")) as unknown);
+  const response = record(JSON.parse(responseBytes.toString("utf8")) as unknown);
+  expect(result.status).toBe("success");
+  expect(response.status).toBe("success");
+  expect(result.artifacts).toEqual(response.artifacts);
+  expect(validation).toMatchObject({ valid: true, outcome: "success", errors: [] });
+
+  const definitions = readObject(runFile(project, runId, "context/definitions.json"));
+  const nodeDefinitions = Array.isArray(definitions.nodes) ? definitions.nodes.map(record) : [];
+  const nodeDefinition = nodeDefinitions.find((candidate) => candidate.id === nodeId);
+  if (!nodeDefinition || !Array.isArray(nodeDefinition.expectedOutputs) || !Array.isArray(result.artifacts) || !Array.isArray(accepted.artifacts)) {
+    throw new Error(`PAR-040 '${nodeId}' captured output declaration or accepted artifacts are malformed.`);
+  }
+  const outputs = result.artifacts.map(record);
+  const manifests = accepted.artifacts.map(record);
+  expect(outputs).toHaveLength(nodeDefinition.expectedOutputs.length);
+  expect(manifests).toHaveLength(nodeDefinition.expectedOutputs.length);
+  return nodeDefinition.expectedOutputs.map((rawDeclaration) => {
+    const declaration = record(rawDeclaration);
+    const name = declaration.name;
+    const contract = declaration.contract;
+    if (typeof name !== "string" || typeof contract !== "string") throw new Error(`PAR-040 '${nodeId}' has an invalid captured output declaration.`);
+    const output = outputs.find((candidate) => candidate.name === name && candidate.contract === contract);
+    const manifest = manifests.find((candidate) => candidate.name === name && candidate.contract === contract);
+    if (!output || !manifest) throw new Error(`PAR-040 '${nodeId}' accepted output '${name}' is absent from its result or manifest.`);
+    const reference = `nodes/${nodeId}/artifacts/${name}.json`;
+    expect(manifest).toMatchObject({ name, contract, ref: reference });
+    const artifactBytes = readRunFile(project, runId, reference);
+    expect(digest(artifactBytes)).toBe(manifest.sha256);
+    expect(JSON.parse(artifactBytes.toString("utf8"))).toEqual(output);
+    return { nodeId, name, reference, accepted: true };
+  });
 }
 
 function assertFixtureCallTrace(eventsPath: string, marker: Marker): void {
@@ -711,6 +993,41 @@ async function expectCorruptRead(
   assertReadStateUnchanged(project, runId, configured, activity, observer, readStorage, before);
 }
 
+async function expectAcceptedArtifactFault(
+  project: string,
+  runId: string,
+  configured: ConfiguredFixture,
+  activity: Activity,
+  observer: ReturnType<typeof observeOwnedNativeProcesses>,
+  readStorage: ReadStorageObserver,
+  publicOperations: Promise<void>[],
+  deadline: number,
+  cleanRunTree: SnapshotEntry[],
+  verifiedOtherArtifacts: RecordValue[],
+  changedPaths: string[],
+  description: string,
+): Promise<void> {
+  const faultRunTree = snapshotTree(runDirectory(project, runId));
+  expectOnlyRelativeFilesChanged(cleanRunTree, faultRunTree, changedPaths);
+  const beforeRead = observeReadState(project, runId, configured, activity, observer, readStorage);
+  const status = await attemptStatus(project, runId, readStorage.storage, publicOperations, deadline);
+  if (status.kind !== "result") throw new Error(`PAR-040 ${description}: getRunStatus rejected (${errorCode(status.error)}).`);
+  const checkpoint = readCheckpoint(project, runId);
+  const events = readEvents(project, runId);
+  expect(status.value).toMatchObject({ runId, status: "success" });
+  expect(status.value.checkpoint).toEqual(checkpoint);
+  expect(status.value.events).toEqual(events);
+  const inspection = await readInspection(project, runId, readStorage.storage, publicOperations, deadline);
+  expect(inspection.status, description).toBe("success");
+  expect(inspection.checkpoint).toEqual(checkpoint);
+  expect(inspection.timeline).toEqual(events);
+  expect(inspection.artifacts).toEqual(verifiedOtherArtifacts);
+  const messages = record(inspection.diagnostics).messages;
+  expect(Array.isArray(messages) && messages.some((message) => typeof message === "string" && /node 'a'/i.test(message)), description).toBe(true);
+  assertReadStateUnchanged(project, runId, configured, activity, observer, readStorage, beforeRead);
+  expect(snapshotTree(runDirectory(project, runId))).toEqual(faultRunTree);
+}
+
 async function cleanup(
   project: string,
   identity: string,
@@ -827,6 +1144,15 @@ function expectOnlyRelativeFileChanged(before: SnapshotEntry[], after: SnapshotE
   expect(after.find((entry) => entry.path === changedPath)).not.toEqual(before.find((entry) => entry.path === changedPath));
 }
 
+function expectOnlyRelativeFilesChanged(before: SnapshotEntry[], after: SnapshotEntry[], changedPaths: string[]): void {
+  const changed = new Set(changedPaths);
+  const omitChanged = (entries: SnapshotEntry[]): SnapshotEntry[] => entries.filter((entry) => !changed.has(entry.path));
+  expect(omitChanged(after)).toEqual(omitChanged(before));
+  for (const changedPath of changed) {
+    expect(after.find((entry) => entry.path === changedPath)).not.toEqual(before.find((entry) => entry.path === changedPath));
+  }
+}
+
 async function waitForCondition(predicate: () => boolean, deadline: number, description: string, getOutcome: () => Outcome | undefined): Promise<void> {
   while (!predicate()) {
     const outcome = getOutcome();
@@ -862,6 +1188,8 @@ function requireResult(outcome: Outcome, description: string): ApplicationRunRes
 
 function readCheckpoint(project: string, runId: string): RecordValue { return readObject(runFile(project, runId, "run.json")); }
 function readEvents(project: string, runId: string): RecordValue[] { return readFileSync(runFile(project, runId, "events.jsonl"), "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as RecordValue); }
+function writeRunEvents(project: string, runId: string, events: RecordValue[]): void { writeFileSync(runFile(project, runId, "events.jsonl"), `${events.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8"); }
+function writeRunJson(project: string, runId: string, relative: string, value: unknown): Buffer { const bytes = Buffer.from(`${JSON.stringify(value)}\n`); writeFileSync(runFile(project, runId, relative), bytes); return bytes; }
 function readFixtureEvents(file: string): Array<RecordValue & { role: string; stage: string }> { return readFileSync(file, "utf8").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as RecordValue & { role: string; stage: string }); }
 function readObject(file: string): RecordValue { return JSON.parse(readFileSync(file, "utf8")) as RecordValue; }
 function readRunFile(project: string, runId: string, relative: string): Buffer { return readFileSync(runFile(project, runId, relative)); }

@@ -2,7 +2,10 @@ import { LocalIntakeStorage } from "../adapters/storage/local-intake-storage.js"
 import type { IntakeStorage } from "../core/ports/intake-storage.js";
 import { NodulusError } from "../core/shared/nodulus-error.js";
 import { inspectFeedbackEvidence } from "../core/feedback-inspection.js";
-import { getRunStatus } from "./resume-workflow.js";
+import { readRunStatusEvidence, ENGINE_VERSION, type RunStatusResult } from "./resume-workflow.js";
+import { readCapturedGraphContext } from "./captured-graph-context.js";
+import { verifyGraphInspectionArtifacts } from "../core/graph-resume-evidence.js";
+import type { GraphRunCheckpoint } from "../core/graph-state.js";
 
 type RecordValue = Record<string, unknown>;
 type AttemptSummary = { nodeId: string; attempt: number; events: number; callIds: string[] };
@@ -23,9 +26,12 @@ export async function inspectRun(
   runId: string,
   storage: IntakeStorage = new LocalIntakeStorage(),
 ): Promise<RecordValue> {
-  let status: Awaited<ReturnType<typeof getRunStatus>>;
+  let status: RunStatusResult;
+  let eventsText: string | undefined;
   try {
-    status = await getRunStatus(projectRoot, runId, storage);
+    const evidence = await readRunStatusEvidence(projectRoot, runId, storage);
+    status = evidence.status;
+    eventsText = evidence.eventsText;
   } catch (error) {
     const diagnostic = error instanceof Error ? error.message : String(error);
     return {
@@ -53,15 +59,18 @@ export async function inspectRun(
   const definitions = await readCapturedDefinitions(projectRoot, runId, storage);
   const feedback = await inspectFeedbackEvidence(storage, projectRoot, runId, status.checkpoint, definitions, events);
   diagnostics.push(...feedback.diagnostics);
+  const checkpoint = isRecord(status.checkpoint) ? status.checkpoint : {};
   const routedEvidenceExists = hasRoutedEvidence(status.checkpoint, events);
   if (routedEvidenceExists && (!isRecord(definitions) || !isRecord(definitions.workflow) || !isRecord(definitions.workflow.feedbackRouting))) {
     diagnostics.push("Captured feedback-routing definition is missing or invalid; routed artifact acceptance cannot be established.");
   }
+  const graphArtifacts = checkpoint.schemaVersion === 2
+    ? await readVerifiedGraphArtifacts(projectRoot, runId, status.checkpoint, eventsText, storage, diagnostics)
+    : undefined;
   const artifacts = feedback.feedbackRouting
     ? feedback.currentArtifacts
-    : routedEvidenceExists ? [] : await readArtifacts(projectRoot, runId, storage, events, diagnostics);
+    : routedEvidenceExists ? [] : (graphArtifacts ?? await readArtifacts(projectRoot, runId, storage, events, diagnostics));
   const validation = await readValidation(projectRoot, runId, storage, events, diagnostics);
-  const checkpoint = isRecord(status.checkpoint) ? status.checkpoint : {};
   const routing = isRecord(checkpoint.feedbackRouting) ? checkpoint.feedbackRouting : {};
   const regions = isRecord(routing.regions) ? routing.regions : {};
   const uncertainCalls = Object.values(regions).filter(isRecord).flatMap((region) => Array.isArray(region.uncertainCalls) ? region.uncertainCalls.filter(isRecord) : []);
@@ -98,6 +107,43 @@ function hasRoutedEvidence(checkpoint: unknown, events: unknown[]): boolean {
 async function readCapturedDefinitions(projectRoot: string, runId: string, storage: IntakeStorage): Promise<unknown> {
   try { return JSON.parse(await storage.readRunFile(projectRoot, runId, "context/definitions.json")) as unknown; }
   catch { return undefined; }
+}
+
+async function readVerifiedGraphArtifacts(
+  projectRoot: string,
+  runId: string,
+  checkpointValue: unknown,
+  eventsText: string | undefined,
+  storage: IntakeStorage,
+  diagnostics: string[],
+): Promise<ArtifactReference[]> {
+  try {
+    if (!eventsText || !isRecord(checkpointValue)) throw new NodulusError("RUN_STATE_INVALID", "Graph event history or checkpoint is unavailable.");
+    const checkpoint = checkpointValue as unknown as GraphRunCheckpoint;
+    const captured = await readCapturedGraphContext(projectRoot, runId, checkpoint, ENGINE_VERSION, storage);
+    const verified = await verifyGraphInspectionArtifacts(storage, projectRoot, captured.context, checkpoint, eventsText);
+    diagnostics.push(...verified.diagnostics);
+    const artifacts: ArtifactReference[] = [];
+    for (const nodeId of captured.context.workflow.nodes) {
+      const byName = verified.acceptedArtifacts.get(nodeId);
+      if (!byName) continue;
+      const node = captured.context.nodes.find((candidate) => candidate.id === nodeId);
+      if (!node) continue;
+      for (const output of node.expectedOutputs) {
+        if (!byName.has(output.name)) continue;
+        artifacts.push({
+          nodeId,
+          name: output.name,
+          reference: `nodes/${nodeId}/artifacts/${output.name}.json`,
+          accepted: true,
+        });
+      }
+    }
+    return artifacts;
+  } catch (error) {
+    diagnostics.push(error instanceof Error ? error.message : "Captured graph artifact evidence is unavailable.");
+    return [];
+  }
 }
 
 function summarizeAttempts(events: unknown[]): AttemptSummary[] {

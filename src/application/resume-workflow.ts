@@ -20,6 +20,7 @@ import { validateFeedbackResumeEvidence } from "../core/feedback-evidence.js";
 import { GraphStateWriter, type GraphRunCheckpoint } from "../core/graph-state.js";
 import { verifyCapturedGraphFiles, verifyGraphResumeLedger, type GraphResumeContext, type VerifiedGraphResumeLedger } from "../core/graph-resume-evidence.js";
 import { validateGraphDefinition } from "../core/workflow-graph.js";
+import { readCapturedGraphContext } from "./captured-graph-context.js";
 
 export type ResumeWorkflowRequest = {
   projectRoot: string;
@@ -74,6 +75,14 @@ export async function getRunStatus(
   runId: string,
   storage: IntakeStorage = new LocalIntakeStorage(),
 ): Promise<RunStatusResult> {
+  return (await readRunStatusEvidence(projectRoot, runId, storage)).status;
+}
+
+export async function readRunStatusEvidence(
+  projectRoot: string,
+  runId: string,
+  storage: IntakeStorage = new LocalIntakeStorage(),
+): Promise<{ status: RunStatusResult; eventsText?: string }> {
   const checkpoint = await readCheckpoint(projectRoot, runId, storage);
   const [eventResult, rawMetrics, rawPricing] = await Promise.all([
     readRunEvents(projectRoot, runId, storage),
@@ -124,18 +133,21 @@ export async function getRunStatus(
     }
   }
   return {
-    runId,
-    status: checkpoint.status,
-    checkpoint,
-    events: eventResult.events,
-    callEvidence: await readCallEvidence(projectRoot, runId, storage, eventResult.events, metrics.calls),
-    metrics,
-    diagnostics: {
-      incompleteTrailingEvent: eventResult.incompleteTrailingEvent,
-      messages: [...eventResult.diagnostics, ...metricDiagnostics, ...graphMetricDiagnostics, ...pricingDiagnostics, ...estimates.diagnostics],
+    status: {
+      runId,
+      status: checkpoint.status,
+      checkpoint,
+      events: eventResult.events,
+      callEvidence: await readCallEvidence(projectRoot, runId, storage, eventResult.events, metrics.calls),
+      metrics,
+      diagnostics: {
+        incompleteTrailingEvent: eventResult.incompleteTrailingEvent,
+        messages: [...eventResult.diagnostics, ...metricDiagnostics, ...graphMetricDiagnostics, ...pricingDiagnostics, ...estimates.diagnostics],
+      },
+      ...(pendingRequest === undefined ? {} : { pendingRequest }),
+      ...(pendingRequests === undefined ? {} : { pendingRequests }),
     },
-    ...(pendingRequest === undefined ? {} : { pendingRequest }),
-    ...(pendingRequests === undefined ? {} : { pendingRequests }),
+    ...(eventResult.raw === undefined ? {} : { eventsText: eventResult.raw }),
   };
 }
 
@@ -191,63 +203,10 @@ async function readPausedGraphStatus(
   storage: IntakeStorage,
 ): Promise<{ context: GraphResumeContext; ledger: VerifiedGraphResumeLedger }> {
   if (eventsText === undefined) throw new NodulusError("RUN_STATE_INVALID", `Paused graph '${runId}' has no readable event history.`);
-  let definitionsText: string;
-  let inputsText: string;
-  let referencesText: string;
-  let context: GraphResumeContext;
-  let inputs: SavedInputs & { schemaVersion?: number; workflow?: string };
-  let references: SavedReference[];
+  const captured = await readCapturedGraphContext(projectRoot, runId, checkpoint, ENGINE_VERSION, storage);
   try {
-    [definitionsText, inputsText, referencesText] = await Promise.all([
-      storage.readRunFile(projectRoot, runId, "context/definitions.json"),
-      storage.readRunFile(projectRoot, runId, "inputs.json"),
-      storage.readRunFile(projectRoot, runId, "references.json"),
-    ]);
-    context = JSON.parse(definitionsText) as GraphResumeContext;
-    inputs = JSON.parse(inputsText) as SavedInputs & { schemaVersion?: number; workflow?: string };
-    references = JSON.parse(referencesText) as SavedReference[];
-  } catch (error) {
-    if (error instanceof NodulusError) throw error;
-    throw new NodulusError("RUN_STATE_INVALID", `Paused graph '${runId}' has unreadable captured evidence: ${messageOf(error)}`);
-  }
-
-  const graph = checkpoint.graph;
-  const contextRecord: Record<string, unknown> = isRecord(context) ? context : {};
-  const validReferences = Array.isArray(references) && references.every((reference) => isRecord(reference) &&
-    typeof reference.path === "string" && (reference.mode === "workspace" || reference.mode === "snapshot") &&
-    typeof reference.sha256 === "string" && /^[0-9a-f]{64}$/.test(reference.sha256));
-  const validValidatorHashes = isRecord(contextRecord.validatorHashes) && Object.values(contextRecord.validatorHashes).every((value) =>
-    typeof value === "string" && /^[0-9a-f]{64}$/.test(value));
-  if (!isRecord(context) || !isRecord(context.workflow) || !isRecord(graph) || !isRecord(graph.callerInputs) ||
-      !isRecord(inputs) || !isRecord(inputs.callerInputs) ||
-      context.schemaVersion !== 2 || context.engineVersion !== ENGINE_VERSION || context.workflow.schemaVersion !== 2 ||
-      context.workflow.id !== checkpoint.workflow || !Array.isArray(context.nodes) || !Array.isArray(context.workflow.nodes) ||
-      !validValidatorHashes || !isRecord(context.contracts) || !isRecord(context.providerProfiles) ||
-      inputs.schemaVersion !== 2 || inputs.workflow !== context.workflow.id || typeof inputs.request !== "string" ||
-      !Array.isArray(inputs.instructions) || inputs.instructions.some((instruction) => !isRecord(instruction) || typeof instruction.path !== "string" || typeof instruction.content !== "string") ||
-      !validReferences || context.nodes.some((node) => !isRecord(node) || typeof node.id !== "string" || typeof node.providerProfile !== "string" ||
-        !Array.isArray(node.expectedOutputs) || node.expectedOutputs.some((output) => !isRecord(output) || typeof output.name !== "string" || typeof output.contract !== "string"))) {
-    throw new NodulusError("RUN_STATE_INVALID", `Paused graph '${runId}' captured definitions, inputs, or references do not match its checkpoint.`);
-  }
-  const captured = graph.captured;
-  const hash = (value: string): string => createHash("sha256").update(value, "utf8").digest("hex");
-  if (!isRecord(captured) || captured.definitionsSha256 !== hash(definitionsText) || captured.inputsSha256 !== hash(inputsText) ||
-      captured.referencesSha256 !== hash(referencesText)) {
-    throw new NodulusError("RUN_STATE_INVALID", `Paused graph '${runId}' captured files do not match their saved hashes.`);
-  }
-
-  let validatedWorkflow: GraphResumeContext["workflow"];
-  try { validatedWorkflow = validateGraphDefinition(context.workflow as unknown as Record<string, unknown>, context.workflow.id).workflow; }
-  catch (error) { throw new NodulusError("RUN_STATE_INVALID", `Paused graph definition is invalid: ${messageOf(error)}`); }
-  if (!sameJson(validatedWorkflow, context.workflow) || context.nodes.length !== context.workflow.nodes.length ||
-      new Set(context.nodes.map((node) => node.id)).size !== context.nodes.length ||
-      context.workflow.nodes.some((nodeId) => !context.nodes.some((node) => node.id === nodeId))) {
-    throw new NodulusError("RUN_STATE_INVALID", `Paused graph '${runId}' definitions do not match the captured validated workflow.`);
-  }
-
-  try {
-    const ledger = await verifyGraphResumeLedger(projectRoot, storage, context, checkpoint, eventsText, inputs.callerInputs);
-    return { context, ledger };
+    const ledger = await verifyGraphResumeLedger(projectRoot, storage, captured.context, checkpoint, eventsText, captured.inputs.callerInputs);
+    return { context: captured.context, ledger };
   } catch (error) {
     if (error instanceof NodulusError) throw error;
     throw new NodulusError("RUN_STATE_INVALID", `Paused graph '${runId}' evidence could not be verified: ${messageOf(error)}`);

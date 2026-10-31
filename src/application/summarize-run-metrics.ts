@@ -189,7 +189,8 @@ function parseTelemetry(value: unknown): ProviderCallMetric["telemetry"] | undef
     || !(value.reportedModel === null || (typeof value.reportedModel === "string" && value.reportedModel.length > 0))
     || !isRecord(value.reported)
     || !isRecord(value.normalized)
-    || !["complete", "partial", "unavailable"].includes(String(value.coverage))
+    || typeof value.coverage !== "string"
+    || !["complete", "partial", "unavailable"].includes(value.coverage)
     || !Number.isSafeInteger(value.stepCount) || (value.stepCount as number) < 0
     || !isRecord(value.source)
     || !isRecord(value.semantics)
@@ -207,8 +208,10 @@ function parseTelemetry(value: unknown): ProviderCallMetric["telemetry"] | undef
     || !Array.isArray(source.recordIds) || !source.recordIds.every((item) => typeof item === "string" && item.length > 0)
     || typeof source.transportRef !== "string" || source.transportRef.length === 0
     || source.parserVersion !== 1
-    || !["included", "excluded", "unknown"].includes(String(semantics.inputCache))
-    || !["included", "excluded", "unknown"].includes(String(semantics.outputReasoning))
+    || typeof semantics.inputCache !== "string"
+    || !["included", "excluded", "unknown"].includes(semantics.inputCache)
+    || typeof semantics.outputReasoning !== "string"
+    || !["included", "excluded", "unknown"].includes(semantics.outputReasoning)
     || !(semantics.evidence === null || (typeof semantics.evidence === "string" && semantics.evidence.length > 0))) return undefined;
   return value as ProviderCallMetric["telemetry"];
 }

@@ -18,6 +18,8 @@ The current feature branch adds bounded feedback routing and read-only inspectio
 
 On the parallel-workflow feature branch, `getRunStatus` returns schema-2 `pendingRequests` after verifying a stable saved pause. Caller-input questions come first, followed by node questions in workflow declaration order; `pendingRequest` is the first item for compatibility. Answered questions remain in checkpoint history. Other graph states return an empty list. Corrupt pause evidence raises `RUN_STATE_INVALID`, and `inspectRun` reports it as unavailable. Inspection retains uncertainty actions when provider-call evidence is incomplete. These reads use saved evidence without running providers or executable validators.
 
+`inspectRun` also verifies accepted graph artifact references while other branches are running and after completion. Its artifact list follows captured node/output declaration order and checks saved hashes, schemas, validation, invocation and ordered call/acceptance events. For nonpaused graph snapshots, a corrupted accepted node receives a diagnostic while independently verified nodes remain visible. Raw checkpoint phases stay separate from verified artifact acceptance. Contradictory saved routing evidence retains the existing conservative artifact suppression.
+
 Start with the [implementation sequence](https://github.com/Rogeriohsjr/nodulus/blob/main/docs/implementation/README.md). Each numbered folder contains scenarios, implementation guidance, checkboxes, and an evidence record.
 
 - [User scenarios](https://github.com/Rogeriohsjr/nodulus/blob/main/docs/user-scenarios.md)
