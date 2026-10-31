@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "id": "parallel-review",
+  "nodes": ["prepare", "security", "quality", "join", "audit"],
+  "execution": {
+    "kind": "dag",
+    "maxConcurrency": 3,
+    "dependsOn": {
+      "prepare": [],
+      "security": ["prepare"],
+      "quality": ["prepare"],
+      "join": ["security", "quality"],
+      "audit": ["prepare"]
+    },
+    "resources": {
+      "prepare": [],
+      "security": [],
+      "quality": [],
+      "join": [],
+      "audit": []
+    }
+  },
+  "outputs": [
+    { "name": "review", "from": "join.report", "contract": "report.v1" },
+    { "name": "audit", "from": "audit.report", "contract": "report.v1" }
+  ]
+}

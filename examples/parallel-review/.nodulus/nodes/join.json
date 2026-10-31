@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "join",
+  "providerProfile": "fixture",
+  "instructions": [".nodulus/instructions/join.md"],
+  "inputs": {
+    "security": { "from": "security.report", "contract": "report.v1" },
+    "quality": { "from": "quality.report", "contract": "report.v1" }
+  },
+  "expectedOutputs": [
+    { "name": "report", "contract": "report.v1", "validator": ".nodulus/validators/report.mjs" }
+  ]
+}

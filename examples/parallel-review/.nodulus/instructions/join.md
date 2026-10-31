@@ -1,0 +1,1 @@
+Combine the mapped security and quality reports into one concise review. Preserve the source of each finding, remove duplicates, and state clearly when both reviews found no issues. Do not add findings unsupported by the two reports. Return the combined review in the report text; do not return empty text.

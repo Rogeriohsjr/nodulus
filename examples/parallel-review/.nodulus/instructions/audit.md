@@ -1,0 +1,1 @@
+Independently audit the mapped brief for unsupported claims, missing evidence, and unclear acceptance criteria. Do not assume or reuse findings from the security or quality review. If no audit concerns are present, write "No audit findings identified." Return the audit in the report text; do not return empty text.

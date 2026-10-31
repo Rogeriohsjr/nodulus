@@ -123,6 +123,8 @@ nodulus run --workflow parallel-review --project . --request "Review these captu
 
 Schema-2 inspection reports `workflow.executionSupported: true`. Runtime admits ready nodes up to the concurrency/resource bounds, joins only validated predecessor outputs, and returns aliases in their declared order. Schema-version-1 ordered workflows keep their existing behavior. A node error or failed required validation closes admission of later work. Every required output must be valid; a contract can allow an empty result or a message saying there are no findings.
 
+The built archive includes a complete [parallel review example](../examples/parallel-review/README.md). It prepares a brief, runs security and quality reviews before a join, and produces a separate audit output. Its README explains local archive installation, provider configuration and the installed CLI commands. The example's validator is pure; resource-free nodes consume captured inputs without writing shared workspace data. A local archive test does not establish registry publication or live-provider compatibility.
+
 ## Inspect a saved run
 
 Use the saved checkpoint and event evidence to explain a run without resuming it:
